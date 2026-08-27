@@ -165,7 +165,7 @@ class MainWindow(QMainWindow):
         composer_layout = QVBoxLayout(composer_frame)
         composer_layout.setContentsMargins(10, 9, 10, 9)
         self.composer = MessageComposer()
-        self.composer.setPlaceholderText("Message your local model…  Ctrl+Enter to send. Drop text/code files here.")
+        self.composer.setPlaceholderText("Message your local model…  Enter to send · Shift+Enter for a new line. Drop text/code files here.")
         self.composer.setMinimumHeight(76)
         self.composer.setMaximumHeight(160)
         self.composer.textChanged.connect(self._refresh_context_meter)

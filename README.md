@@ -16,6 +16,7 @@ The app talks only to Ollama on `http://127.0.0.1:11434`. Conversations are stor
 - Live NVIDIA VRAM/utilization, Ollama residency, token, and speed metrics
 - Safe text/code attachments (UTF-8 allowlist, 1 MB each, 4 MB per message)
 - Per-model generation controls and automatic model switching via a new chat
+- Keyboard-first composing: Enter sends; Shift+Enter inserts a new line
 
 ## Run from source
 

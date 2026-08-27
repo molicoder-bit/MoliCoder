@@ -158,7 +158,9 @@ class MessageComposer(QTextEdit):
             super().dropEvent(event)
 
     def keyPressEvent(self, event) -> None:
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+        is_enter = event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+        is_line_break = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        if is_enter and not is_line_break:
             self.send_requested.emit()
             event.accept()
             return
