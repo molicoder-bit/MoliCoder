@@ -1,5 +1,6 @@
 from local_model_chat.storage import ChatStore
 from local_model_chat.ui.main_window import MainWindow
+from local_model_chat.ui.widgets import ChatBubble
 
 
 class FakeClient:
@@ -31,3 +32,24 @@ def test_main_window_starts_and_creates_initial_chat(qtbot, tmp_path) -> None:
     assert window.preset.name == "local-coding:latest"
     assert "8,192" in window.model_badge.text()
     assert "reserved output" in window.context_label.text()
+
+
+def test_streaming_response_scrolls_to_updated_bottom(qtbot, tmp_path) -> None:
+    window = MainWindow(ChatStore(tmp_path / "scroll.sqlite3"), FakeClient())
+    qtbot.addWidget(window)
+    window.resize(1020, 680)
+    window.show()
+    qtbot.waitUntil(lambda: "connected" in window.connection_label.text().lower())
+
+    window.active_bubble = ChatBubble("assistant")
+    window.transcript_layout.insertWidget(
+        window.transcript_layout.count() - 1, window.active_bubble
+    )
+    bar = window.scroll.verticalScrollBar()
+    bar.setValue(0)
+
+    window._append_content("\n".join(f"Streaming response line {line}" for line in range(150)))
+
+    qtbot.waitUntil(lambda: bar.maximum() > 0)
+    qtbot.wait(50)
+    assert bar.value() == bar.maximum()

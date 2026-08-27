@@ -35,6 +35,9 @@ class MainWindow(QMainWindow):
         self.active_bubble: ChatBubble | None = None
         self.last_metrics = GenerationMetrics()
         self._installed_model_names: set[str] = set()
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.setSingleShot(True)
+        self._scroll_timer.timeout.connect(self._perform_scroll_to_bottom)
 
         self.setWindowTitle(APP_NAME)
         self.resize(1420, 880)
@@ -144,6 +147,7 @@ class MainWindow(QMainWindow):
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
+        self.scroll.verticalScrollBar().rangeChanged.connect(self._scroll_range_changed)
         self.transcript = QWidget()
         self.transcript_layout = QVBoxLayout(self.transcript)
         self.transcript_layout.setContentsMargins(6, 8, 6, 8)
@@ -556,8 +560,16 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(2500, lambda: (self.stop_button.setEnabled(True), self.stop_button.setText("Stop")))
 
     def _scroll_to_bottom(self) -> None:
+        self.transcript_layout.activate()
+        self._scroll_timer.start(0)
+
+    def _perform_scroll_to_bottom(self) -> None:
+        self.transcript_layout.activate()
         bar = self.scroll.verticalScrollBar()
         bar.setValue(bar.maximum())
+
+    def _scroll_range_changed(self, _minimum: int, maximum: int) -> None:
+        self.scroll.verticalScrollBar().setValue(maximum)
 
     def _choose_attachments(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(self, "Attach text or code files")
