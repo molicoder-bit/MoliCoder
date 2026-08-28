@@ -465,14 +465,17 @@ class MainWindow(QMainWindow):
         user_message = Message(None, self.current_conversation_id, "user", content)
         self.store.add_message(user_message)
         conversation = self.store.get_conversation(self.current_conversation_id)
+        message_rendered_by_refresh = False
         if conversation and conversation.title == "New chat":
             title = " ".join(self.composer.toPlainText().strip().split())[:56] or "Attached files"
             self.store.rename_conversation(conversation.id, title)
             self._load_conversation_list(select_id=conversation.id)
+            message_rendered_by_refresh = True
 
-        self.transcript_layout.insertWidget(
-            self.transcript_layout.count() - 1, ChatBubble("user", content)
-        )
+        if not message_rendered_by_refresh:
+            self.transcript_layout.insertWidget(
+                self.transcript_layout.count() - 1, ChatBubble("user", content)
+            )
         self.active_bubble = ChatBubble("assistant")
         self.active_bubble.reasoning_frame.setVisible(self.preset.show_thinking)
         self.transcript_layout.insertWidget(self.transcript_layout.count() - 1, self.active_bubble)

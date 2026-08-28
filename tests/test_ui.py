@@ -53,3 +53,29 @@ def test_streaming_response_scrolls_to_updated_bottom(qtbot, tmp_path) -> None:
     qtbot.waitUntil(lambda: bar.maximum() > 0)
     qtbot.wait(50)
     assert bar.value() == bar.maximum()
+
+
+def test_first_message_in_new_chat_renders_once(qtbot, tmp_path, monkeypatch) -> None:
+    store = ChatStore(tmp_path / "first-message.sqlite3")
+    window = MainWindow(store, FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: "connected" in window.connection_label.text().lower())
+    monkeypatch.setattr("local_model_chat.ui.main_window.ChatWorker.start", lambda _worker: None)
+
+    window.composer.setPlainText("hi")
+    window._send_message()
+
+    user_bubbles = [
+        item.widget()
+        for index in range(window.transcript_layout.count())
+        if (item := window.transcript_layout.itemAt(index))
+        and isinstance(item.widget(), ChatBubble)
+        and item.widget().role == "user"
+    ]
+    saved_user_messages = [
+        message
+        for message in store.list_messages(window.current_conversation_id)
+        if message.role == "user"
+    ]
+    assert len(user_bubbles) == 1
+    assert len(saved_user_messages) == 1
