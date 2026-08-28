@@ -10,6 +10,7 @@ The app talks only to Ollama on `http://127.0.0.1:11434`. Conversations are stor
 ## Features
 
 - Streaming chat with separate, collapsed reasoning output
+- Clean final-answer callouts for DeepSeek's boxed LaTeX prose
 - Persistent conversations, rename/delete, Markdown and JSON export
 - Conservative context estimate, 80% warning, and 95% hard safety limit
 - No silent history trimming

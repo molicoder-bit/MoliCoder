@@ -7,6 +7,8 @@ from PySide6.QtWidgets import (
     QToolButton, QVBoxLayout, QWidget, QTextEdit,
 )
 
+from ..formatting import normalize_model_markdown
+
 
 class ChatBubble(QFrame):
     def __init__(self, role: str, content: str = "", thinking: str = "", parent: QWidget | None = None) -> None:
@@ -58,6 +60,10 @@ class ChatBubble(QFrame):
         self.body.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.body.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.body.setStyleSheet("background: transparent; border: none; padding: 0;")
+        self.body.document().setDefaultStyleSheet(
+            "blockquote { background-color: #0E2A36; border-left: 4px solid #22D3EE; "
+            "margin: 8px 0; padding: 10px 12px; color: #F8FAFC; }"
+        )
         self.body.document().documentLayout().documentSizeChanged.connect(self._resize_body)
         outer.addWidget(self.body)
         self.set_content(content)
@@ -72,7 +78,7 @@ class ChatBubble(QFrame):
 
     def set_content(self, content: str) -> None:
         self.content = content
-        self.body.setMarkdown(content or "_Generating…_")
+        self.body.setMarkdown(normalize_model_markdown(content) if content else "_Generating…_")
 
     def append_content(self, delta: str) -> None:
         self.set_content(self.content + delta)
