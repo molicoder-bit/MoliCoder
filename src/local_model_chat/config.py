@@ -30,7 +30,7 @@ MODEL_PRESETS: dict[str, ModelPreset] = {
     "local-reasoning:latest": ModelPreset(
         name="local-reasoning:latest",
         label="Reasoning",
-        role="DeepSeek R1 · Q6_K",
+        role="DeepSeek R1 · Q4_K_M",
         context_window=8192,
         max_output_tokens=4096,
         temperature=0.6,
@@ -74,4 +74,3 @@ def export_dir() -> Path:
     path = data_dir() / "exports"
     path.mkdir(parents=True, exist_ok=True)
     return path
-

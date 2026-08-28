@@ -3,7 +3,7 @@
 A private-first Windows desktop chat UI for two Ollama models:
 
 - **Coding** — `local-coding:latest` (Qwen 2.5 Coder 7B, Q4_K_M)
-- **Reasoning** — `local-reasoning:latest` (DeepSeek R1 0528 Qwen3 8B, Q6_K)
+- **Reasoning** — `local-reasoning:latest` (DeepSeek R1 0528 Qwen3 8B, Q4_K_M)
 
 The app talks only to Ollama on `http://127.0.0.1:11434`. Conversations are stored locally in SQLite under `%LOCALAPPDATA%\LocalModelChat`; no cloud model or Codex involvement is required.
 
