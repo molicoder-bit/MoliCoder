@@ -27,6 +27,7 @@ def test_main_window_starts_and_creates_initial_chat(qtbot, tmp_path) -> None:
     window = MainWindow(ChatStore(tmp_path / "ui.sqlite3"), FakeClient())
     qtbot.addWidget(window)
     qtbot.waitUntil(lambda: "connected" in window.connection_label.text().lower())
+    qtbot.waitUntil(lambda: window.startup_worker is None)
     assert window.current_conversation_id is not None
     assert window.model_combo.count() == 2
     assert window.preset.name == "local-coding:latest"

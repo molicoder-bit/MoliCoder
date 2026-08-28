@@ -284,6 +284,9 @@ class MainWindow(QMainWindow):
     def _start_ollama_check(self) -> None:
         self.startup_worker = StartupWorker(self.client)
         self.startup_worker.ready.connect(self._ollama_ready)
+        self.startup_worker.finished.connect(
+            lambda: self._startup_worker_finished(self.startup_worker)
+        )
         self.startup_worker.start()
 
     def _ollama_ready(self, available: bool, models: list[dict]) -> None:
@@ -299,8 +302,12 @@ class MainWindow(QMainWindow):
                 "Local Model Chat could not reach Ollama at 127.0.0.1:11434. Start Ollama, then restart this app.",
             )
         self._update_model_availability()
-        if self.startup_worker:
-            self.startup_worker.deleteLater()
+
+    def _startup_worker_finished(self, worker: StartupWorker | None) -> None:
+        if worker is None:
+            return
+        worker.deleteLater()
+        if self.startup_worker is worker:
             self.startup_worker = None
 
     def _update_model_availability(self) -> None:
