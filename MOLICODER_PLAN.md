@@ -3,9 +3,9 @@
 Converting the existing `LocalModelChat` PySide6 application into a local-first
 software-development orchestration system.
 
-**Status:** implementation in progress. The Phase 1 executor proof was completed and
-verified against the real local model on 2026-08-31. Phase 0 naming is complete; its
-project registry, orchestration storage, and UI shell remain pending.
+**Status:** implementation in progress. Phase 0 and the Phase 1 executor proof are
+complete as of 2026-08-31. The next implementation milestone is Phase 2 planning and
+repair.
 Originally written against commit `c2957e5`, verified against the live Ollama install and GPU on this machine.
 
 ### Implemented milestone — Phase 1 executor proof
@@ -25,6 +25,19 @@ Originally written against commit `c2957e5`, verified against the live Ollama in
   integration test that operates only in a temporary project.
 - The real `molicoder:latest` model completed the isolated edit-and-pytest proof; the
   packaged Windows application also passed startup smoke testing.
+
+### Implemented milestone — Phase 0 foundation
+
+- Renamed the private GitHub repository, packaged application, installer, shortcut, and
+  local executor alias to MoliCoder while preserving the existing chat database location.
+- Added a persistent project registry with add, select, restart recovery, and remove-only-
+  from-registry semantics.
+- Added deterministic Python, Node, Flutter, and unknown project detection.
+- Added `.molicoder/` project metadata, instructions, plans, tasks, runs, logs, and failure
+  directories without overwriting user-authored instructions.
+- Added the complete orchestration SQLite schema and supporting indexes.
+- Added the Projects sidebar and Chat/Build view shell; the original chat experience and
+  conversation persistence remain functional.
 
 ---
 

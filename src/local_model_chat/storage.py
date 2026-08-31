@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import database_path
-from .domain import Conversation, GenerationMetrics, Message
+from .domain import Conversation, GenerationMetrics, Message, Project
 
 
 class ChatStore:
@@ -54,6 +54,109 @@ class ChatStore:
                     ON messages(conversation_id, id);
                 CREATE INDEX IF NOT EXISTS idx_conversations_updated
                     ON conversations(updated_at DESC);
+                CREATE TABLE IF NOT EXISTS projects (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    path TEXT NOT NULL UNIQUE,
+                    kind TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    last_opened_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    request TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    ended_at TEXT
+                );
+                CREATE TABLE IF NOT EXISTS plans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                    source TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                    key TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    objective TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    risk TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    worktree TEXT,
+                    branch TEXT,
+                    base_commit TEXT,
+                    changed_paths TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(run_id, key)
+                );
+                CREATE TABLE IF NOT EXISTS task_deps (
+                    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    depends_on INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    PRIMARY KEY(task_id, depends_on)
+                );
+                CREATE TABLE IF NOT EXISTS worker_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    role TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    seconds REAL NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS validations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    command TEXT NOT NULL,
+                    exit_code INTEGER NOT NULL,
+                    log_path TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS failures (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    fingerprint TEXT NOT NULL,
+                    cluster_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS external_calls (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                    task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+                    provider TEXT NOT NULL,
+                    purpose TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    est_cost REAL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                    task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+                    kind TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_projects_last_opened
+                    ON projects(last_opened_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_runs_project
+                    ON runs(project_id, started_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_tasks_run
+                    ON tasks(run_id, id);
+                CREATE INDEX IF NOT EXISTS idx_events_run
+                    ON events(run_id, id);
                 """
             )
             connection.commit()
@@ -158,6 +261,56 @@ class ChatStore:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
+            connection.commit()
+
+    def upsert_project(self, name: str, path: str, kind: str) -> Project:
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """INSERT INTO projects(name, path, kind, created_at, last_opened_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(path) DO UPDATE SET
+                       name = excluded.name,
+                       kind = excluded.kind,
+                       last_opened_at = excluded.last_opened_at""",
+                (name, path, kind, now, now),
+            )
+            row = connection.execute(
+                "SELECT id, name, path, kind, created_at, last_opened_at FROM projects WHERE path = ?",
+                (path,),
+            ).fetchone()
+            connection.commit()
+        return Project(**dict(row))
+
+    def list_projects(self) -> list[Project]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT id, name, path, kind, created_at, last_opened_at
+                   FROM projects ORDER BY id"""
+            ).fetchall()
+        return [Project(**dict(row)) for row in rows]
+
+    def get_project(self, project_id: int) -> Project | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT id, name, path, kind, created_at, last_opened_at
+                   FROM projects WHERE id = ?""",
+                (project_id,),
+            ).fetchone()
+        return Project(**dict(row)) if row else None
+
+    def touch_project(self, project_id: int) -> Project | None:
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE projects SET last_opened_at = ? WHERE id = ?", (now, project_id)
+            )
+            connection.commit()
+        return self.get_project(project_id)
+
+    def delete_project(self, project_id: int) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute("DELETE FROM projects WHERE id = ?", (project_id,))
             connection.commit()
 
     def export_markdown(self, conversation_id: int, destination: Path) -> None:

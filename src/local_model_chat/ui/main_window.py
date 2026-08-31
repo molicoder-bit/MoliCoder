@@ -9,13 +9,15 @@ from PySide6.QtWidgets import (
     QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
     QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSpinBox,
-    QSplitter, QVBoxLayout, QWidget,
+    QSplitter, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from ..attachments import MAX_MESSAGE_BYTES, AttachmentError, load_attachment, render_attachments
 from ..config import APP_NAME, MODEL_PRESETS, ModelPreset, export_dir
 from ..context import calculate_budget, estimate_tokens
-from ..domain import Attachment, GenerationMetrics, Message
+from ..domain import Attachment, GenerationMetrics, Message, Project
+from ..molicoder.projectstate import read_git_state
+from ..molicoder.registry import ProjectRegistry
 from ..ollama import OllamaClient
 from ..storage import ChatStore
 from ..telemetry import format_bytes, read_nvidia_telemetry
@@ -27,7 +29,9 @@ class MainWindow(QMainWindow):
     def __init__(self, store: ChatStore | None = None, client: OllamaClient | None = None) -> None:
         super().__init__()
         self.store = store or ChatStore()
+        self.registry = ProjectRegistry(self.store)
         self.client = client or OllamaClient()
+        self.current_project_id: int | None = None
         self.current_conversation_id: int | None = None
         self.current_attachments: list[Attachment] = []
         self.chat_worker: ChatWorker | None = None
@@ -44,6 +48,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1020, 680)
         self._build_ui()
         self._build_menu()
+        self._load_project_list(select_saved=True)
         self._load_conversation_list(select_first=True)
         self._start_ollama_check()
 
@@ -97,6 +102,39 @@ class MainWindow(QMainWindow):
         sidebar.setMaximumWidth(340)
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(12, 14, 12, 12)
+
+        view_row = QHBoxLayout()
+        self.chat_nav_button = QPushButton("Chat")
+        self.chat_nav_button.setObjectName("primary")
+        self.chat_nav_button.setCheckable(True)
+        self.chat_nav_button.setChecked(True)
+        self.chat_nav_button.clicked.connect(lambda: self._set_view("chat"))
+        self.build_nav_button = QPushButton("Build")
+        self.build_nav_button.setCheckable(True)
+        self.build_nav_button.clicked.connect(lambda: self._set_view("build"))
+        view_row.addWidget(self.chat_nav_button)
+        view_row.addWidget(self.build_nav_button)
+        layout.addLayout(view_row)
+
+        projects_row = QHBoxLayout()
+        projects_label = QLabel("PROJECTS")
+        projects_label.setObjectName("sectionTitle")
+        projects_row.addWidget(projects_label)
+        projects_row.addStretch()
+        add_project = QPushButton("＋ Add")
+        add_project.setObjectName("ghost")
+        add_project.clicked.connect(self._add_project)
+        projects_row.addWidget(add_project)
+        layout.addLayout(projects_row)
+        self.project_list = QListWidget()
+        self.project_list.setMaximumHeight(180)
+        self.project_list.currentItemChanged.connect(self._project_selected)
+        layout.addWidget(self.project_list)
+        remove_project = QPushButton("Remove project")
+        remove_project.setObjectName("ghost")
+        remove_project.clicked.connect(self._remove_project)
+        layout.addWidget(remove_project)
+
         new_button = QPushButton("＋  New chat")
         new_button.setObjectName("primary")
         new_button.clicked.connect(self._new_chat)
@@ -121,6 +159,14 @@ class MainWindow(QMainWindow):
         return sidebar
 
     def _build_center(self) -> QWidget:
+        self.view_stack = QStackedWidget()
+        self.chat_view = self._build_chat_center()
+        self.build_view = self._build_build_center()
+        self.view_stack.addWidget(self.chat_view)
+        self.view_stack.addWidget(self.build_view)
+        return self.view_stack
+
+    def _build_chat_center(self) -> QWidget:
         center = QWidget()
         layout = QVBoxLayout(center)
         layout.setContentsMargins(18, 12, 18, 14)
@@ -195,6 +241,65 @@ class MainWindow(QMainWindow):
         actions.addWidget(self.send_button)
         composer_layout.addLayout(actions)
         layout.addWidget(composer_frame)
+        return center
+
+    def _build_build_center(self) -> QWidget:
+        center = QWidget()
+        layout = QVBoxLayout(center)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(14)
+
+        heading = QLabel("BUILD / ORCHESTRATE")
+        heading.setObjectName("sectionTitle")
+        layout.addWidget(heading)
+        self.build_project_title = QLabel("No project selected")
+        self.build_project_title.setStyleSheet("font-size: 24px; font-weight: 750; color: #F8FAFC;")
+        layout.addWidget(self.build_project_title)
+        self.build_project_meta = QLabel("Add a local project from the sidebar to begin.")
+        self.build_project_meta.setObjectName("muted")
+        self.build_project_meta.setWordWrap(True)
+        layout.addWidget(self.build_project_meta)
+
+        request_card = QFrame()
+        request_card.setObjectName("metricCard")
+        request_layout = QVBoxLayout(request_card)
+        request_layout.addWidget(QLabel("Development request"))
+        self.build_request = MessageComposer()
+        self.build_request.setPlaceholderText(
+            "Describe a small, explicit, mechanically verifiable task for this project…"
+        )
+        self.build_request.setMinimumHeight(120)
+        request_layout.addWidget(self.build_request)
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel("Mode"))
+        self.build_mode = QComboBox()
+        self.build_mode.addItems(["LOCAL_ONLY", "AUTO", "FRONTIER_PLAN", "MANUAL_PLAN"])
+        controls.addWidget(self.build_mode)
+        controls.addStretch()
+        self.build_run_button = QPushButton("Run build")
+        self.build_run_button.setObjectName("primary")
+        self.build_run_button.setEnabled(False)
+        self.build_run_button.setToolTip("Planning and run orchestration are introduced in Phase 2.")
+        controls.addWidget(self.build_run_button)
+        request_layout.addLayout(controls)
+        layout.addWidget(request_card)
+
+        foundation = QFrame()
+        foundation.setObjectName("metricCard")
+        foundation_layout = QVBoxLayout(foundation)
+        foundation_title = QLabel("LOCAL EXECUTOR FOUNDATION READY")
+        foundation_title.setObjectName("sectionTitle")
+        foundation_layout.addWidget(foundation_title)
+        foundation_text = QLabel(
+            "The serialized Ollama lane, confined file tools, validation gate, and real-model "
+            "executor proof are installed. Phase 2 connects reconnaissance, planning, and repair "
+            "to this view."
+        )
+        foundation_text.setObjectName("muted")
+        foundation_text.setWordWrap(True)
+        foundation_layout.addWidget(foundation_text)
+        layout.addWidget(foundation)
+        layout.addStretch()
         return center
 
     def _build_inspector(self) -> QWidget:
@@ -328,6 +433,111 @@ class MainWindow(QMainWindow):
             self.model_card.set_value(f"{self.preset.label} · {parameters}\n{quant} · 8,192 tokens")
         except Exception:
             self.model_card.set_value(f"{self.preset.label}\n8,192 tokens")
+
+    def _set_view(self, view: str) -> None:
+        is_build = view == "build"
+        self.view_stack.setCurrentWidget(self.build_view if is_build else self.chat_view)
+        self.chat_nav_button.setChecked(not is_build)
+        self.build_nav_button.setChecked(is_build)
+        if is_build:
+            self._update_build_project(self.registry.selected())
+
+    def _load_project_list(self, *, select_saved: bool = False, select_id: int | None = None) -> None:
+        projects = self.registry.list()
+        selected = self.registry.selected() if select_saved else None
+        target_id = select_id or (selected.id if selected else None)
+        if target_id is None and projects:
+            target_id = projects[0].id
+        self.project_list.blockSignals(True)
+        self.project_list.clear()
+        selected_item = None
+        for project in projects:
+            item = QListWidgetItem(project.name)
+            item.setData(Qt.ItemDataRole.UserRole, project.id)
+            path = Path(project.path)
+            state = read_git_state(path) if path.is_dir() else None
+            state_text = (
+                f"{state.branch} · {'dirty' if state.dirty else 'clean'}"
+                if state and state.available
+                else "Not a Git repository" if state else "Folder missing"
+            )
+            item.setToolTip(f"{project.path}\n{project.kind} · {state_text}")
+            self.project_list.addItem(item)
+            if project.id == target_id:
+                selected_item = item
+        self.project_list.blockSignals(False)
+        if selected_item:
+            self.project_list.setCurrentItem(selected_item)
+            self._project_selected(selected_item, None)
+        else:
+            self.current_project_id = None
+            self._update_build_project(None)
+
+    def _project_selected(self, current: QListWidgetItem | None, _previous) -> None:
+        if current is None:
+            return
+        project_id = int(current.data(Qt.ItemDataRole.UserRole))
+        try:
+            project = self.registry.select(project_id)
+        except ValueError:
+            self._load_project_list(select_saved=True)
+            return
+        self.current_project_id = project.id
+        self._update_build_project(project)
+
+    def _update_build_project(self, project: Project | None) -> None:
+        if project is None:
+            self.build_project_title.setText("No project selected")
+            self.build_project_meta.setText("Add a local project from the sidebar to begin.")
+            self.build_request.setEnabled(False)
+            return
+        path = Path(project.path)
+        self.build_project_title.setText(project.name)
+        if not path.is_dir():
+            self.build_project_meta.setText(f"{project.kind.title()} · Folder missing\n{project.path}")
+            self.build_request.setEnabled(False)
+            return
+        git_state = read_git_state(path)
+        repository = (
+            f"{git_state.branch} · {'dirty working tree' if git_state.dirty else 'clean working tree'}"
+            if git_state.available
+            else "Not a Git repository"
+        )
+        self.build_project_meta.setText(
+            f"{project.kind.title()} · {repository}\n{project.path}"
+        )
+        self.build_request.setEnabled(True)
+
+    def _add_project(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Add local project")
+        if not path:
+            return
+        try:
+            self._add_project_path(path)
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Could not add project", str(exc))
+
+    def _add_project_path(self, path: str | Path) -> Project:
+        project = self.registry.add(path)
+        self._load_project_list(select_id=project.id)
+        return project
+
+    def _remove_project(self) -> None:
+        item = self.project_list.currentItem()
+        if item is None:
+            return
+        project = self.registry.get(int(item.data(Qt.ItemDataRole.UserRole)))
+        if project is None:
+            return
+        if QMessageBox.question(
+            self,
+            "Remove project",
+            f"Remove {project.name} from MoliCoder? The project folder and .molicoder data stay on disk.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self.registry.remove(project.id)
+        self.current_project_id = None
+        self._load_project_list(select_saved=True)
 
     def _load_conversation_list(self, select_first: bool = False, select_id: int | None = None) -> None:
         self.chat_list.blockSignals(True)

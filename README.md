@@ -21,11 +21,13 @@ The app talks only to Ollama on `http://127.0.0.1:11434`. Conversations are stor
 - Bounded local executor with a serialized inference lane and mandatory validation gate
 - Tolerant Ollama tool parsing, including Qwen's bare and fenced JSON variants
 - Worktree-confined file tools, sensitive-path denial, and fixed validation commands
+- Persistent local-project registry with Python, Node, and Flutter detection
+- Per-project `.molicoder` metadata plus a dedicated Build workspace shell
 
 ## Phase 1 executor proof
 
-The orchestration foundation is intentionally available as a guarded command before it is
-connected to the desktop Build view. It currently supports Python/pytest projects. Run it
+The executor foundation is intentionally available as a guarded command while planning and
+repair are connected to the desktop Build view. It currently supports Python/pytest projects. Run it
 only from a clean, dedicated `molicoder/<task>` branch:
 
 ```powershell

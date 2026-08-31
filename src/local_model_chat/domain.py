@@ -45,3 +45,12 @@ class GenerationMetrics:
     total_seconds: float = 0.0
     done_reason: str = ""
 
+
+@dataclass(frozen=True, slots=True)
+class Project:
+    id: int
+    name: str
+    path: str
+    kind: str
+    created_at: str
+    last_opened_at: str

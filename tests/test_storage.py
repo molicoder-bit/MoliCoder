@@ -1,4 +1,5 @@
 import json
+import sqlite3
 
 from local_model_chat.domain import GenerationMetrics, Message
 from local_model_chat.storage import ChatStore
@@ -38,3 +39,17 @@ def test_delete_last_exchange_and_cascade(tmp_path) -> None:
     assert len(store.list_messages(conversation.id)) == 2
     store.delete_conversation(conversation.id)
     assert store.list_messages(conversation.id) == []
+
+
+def test_orchestration_schema_is_initialized(tmp_path) -> None:
+    database = tmp_path / "orchestration.sqlite3"
+    ChatStore(database)
+    with sqlite3.connect(database) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+    assert {
+        "projects", "runs", "plans", "tasks", "task_deps", "worker_runs",
+        "validations", "failures", "external_calls", "events",
+    } <= tables

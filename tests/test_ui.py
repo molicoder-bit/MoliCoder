@@ -80,3 +80,25 @@ def test_first_message_in_new_chat_renders_once(qtbot, tmp_path, monkeypatch) ->
     ]
     assert len(user_bubbles) == 1
     assert len(saved_user_messages) == 1
+
+
+def test_project_shell_adds_project_and_switches_views(qtbot, tmp_path) -> None:
+    project = tmp_path / "sample-project"
+    project.mkdir()
+    (project / "pyproject.toml").write_text("[project]\nname='sample'\n", encoding="utf-8")
+    window = MainWindow(ChatStore(tmp_path / "projects.sqlite3"), FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: "connected" in window.connection_label.text().lower())
+
+    added = window._add_project_path(project)
+    window._set_view("build")
+
+    assert added.kind == "python"
+    assert window.project_list.count() == 1
+    assert window.view_stack.currentWidget() is window.build_view
+    assert "sample-project" in window.build_project_title.text()
+    assert window.current_conversation_id is not None
+    assert (project / ".molicoder" / "project.json").is_file()
+
+    window._set_view("chat")
+    assert window.view_stack.currentWidget() is window.chat_view
