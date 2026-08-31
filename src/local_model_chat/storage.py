@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import database_path
-from .domain import Conversation, GenerationMetrics, Message, Project
+from .domain import Conversation, EventRecord, GenerationMetrics, Message, Project, TaskRecord
 
 
 class ChatStore:
@@ -312,6 +312,97 @@ class ChatStore:
         with closing(self._connect()) as connection:
             connection.execute("DELETE FROM projects WHERE id = ?", (project_id,))
             connection.commit()
+
+    def create_run(self, project_id: int, request: str, mode: str) -> int:
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """INSERT INTO runs(project_id, request, mode, status, started_at)
+                   VALUES (?, ?, ?, 'running', ?)""",
+                (project_id, request, mode, now),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def finish_run(self, run_id: int, status: str) -> None:
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE runs SET status = ?, ended_at = ? WHERE id = ?", (status, now, run_id)
+            )
+            connection.commit()
+
+    def save_plan(self, run_id: int, source: str, provider: str, payload: dict) -> int:
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                "INSERT INTO plans(run_id, source, provider, json, created_at) VALUES (?, ?, ?, ?, ?)",
+                (run_id, source, provider, json.dumps(payload, ensure_ascii=False), now),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def create_run_task(
+        self, run_id: int, key: str, title: str, objective: str, risk: str
+    ) -> int:
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """INSERT INTO tasks(
+                       run_id, key, title, objective, status, risk, attempts, created_at, updated_at
+                   ) VALUES (?, ?, ?, ?, 'pending', ?, 0, ?, ?)""",
+                (run_id, key, title, objective, risk, now, now),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def add_task_dependency(self, task_id: int, depends_on: int) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO task_deps(task_id, depends_on) VALUES (?, ?)",
+                (task_id, depends_on),
+            )
+            connection.commit()
+
+    def update_run_task(self, task_id: int, status: str, attempts: int) -> None:
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE tasks SET status = ?, attempts = ?, updated_at = ? WHERE id = ?",
+                (status, attempts, now, task_id),
+            )
+            connection.commit()
+
+    def list_run_tasks(self, run_id: int) -> list[TaskRecord]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT id, run_id, key, title, objective, status, risk, attempts
+                   FROM tasks WHERE run_id = ? ORDER BY id""",
+                (run_id,),
+            ).fetchall()
+        return [TaskRecord(**dict(row)) for row in rows]
+
+    def add_event(
+        self, run_id: int, kind: str, payload: dict, task_id: int | None = None
+    ) -> int:
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """INSERT INTO events(run_id, task_id, kind, payload_json, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (run_id, task_id, kind, json.dumps(payload, ensure_ascii=False), now),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def list_events(self, run_id: int) -> list[EventRecord]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT id, run_id, task_id, kind, payload_json, created_at
+                   FROM events WHERE run_id = ? ORDER BY id""",
+                (run_id,),
+            ).fetchall()
+        return [EventRecord(**dict(row)) for row in rows]
 
     def export_markdown(self, conversation_id: int, destination: Path) -> None:
         conversation = self.get_conversation(conversation_id)

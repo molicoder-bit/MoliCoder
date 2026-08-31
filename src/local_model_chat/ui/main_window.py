@@ -18,10 +18,11 @@ from ..context import calculate_budget, estimate_tokens
 from ..domain import Attachment, GenerationMetrics, Message, Project
 from ..molicoder.projectstate import read_git_state
 from ..molicoder.registry import ProjectRegistry
+from ..molicoder.runtime import build_orchestrator
 from ..ollama import OllamaClient
 from ..storage import ChatStore
 from ..telemetry import format_bytes, read_nvidia_telemetry
-from ..workers import ChatWorker, StartupWorker
+from ..workers import ChatWorker, OrchestrationWorker, StartupWorker
 from .widgets import AttachmentChip, ChatBubble, MessageComposer, MetricCard
 
 
@@ -36,6 +37,7 @@ class MainWindow(QMainWindow):
         self.current_attachments: list[Attachment] = []
         self.chat_worker: ChatWorker | None = None
         self.startup_worker: StartupWorker | None = None
+        self.orchestration_worker: OrchestrationWorker | None = None
         self.active_bubble: ChatBubble | None = None
         self.last_metrics = GenerationMetrics()
         self._installed_model_names: set[str] = set()
@@ -269,6 +271,8 @@ class MainWindow(QMainWindow):
             "Describe a small, explicit, mechanically verifiable task for this project…"
         )
         self.build_request.setMinimumHeight(120)
+        self.build_request.textChanged.connect(self._refresh_build_readiness)
+        self.build_request.send_requested.connect(self._run_build)
         request_layout.addWidget(self.build_request)
         controls = QHBoxLayout()
         controls.addWidget(QLabel("Mode"))
@@ -279,27 +283,23 @@ class MainWindow(QMainWindow):
         self.build_run_button = QPushButton("Run build")
         self.build_run_button.setObjectName("primary")
         self.build_run_button.setEnabled(False)
-        self.build_run_button.setToolTip("Planning and run orchestration are introduced in Phase 2.")
+        self.build_run_button.clicked.connect(self._run_build)
         controls.addWidget(self.build_run_button)
         request_layout.addLayout(controls)
         layout.addWidget(request_card)
 
-        foundation = QFrame()
-        foundation.setObjectName("metricCard")
-        foundation_layout = QVBoxLayout(foundation)
-        foundation_title = QLabel("LOCAL EXECUTOR FOUNDATION READY")
-        foundation_title.setObjectName("sectionTitle")
-        foundation_layout.addWidget(foundation_title)
-        foundation_text = QLabel(
-            "The serialized Ollama lane, confined file tools, validation gate, and real-model "
-            "executor proof are installed. Phase 2 connects reconnaissance, planning, and repair "
-            "to this view."
-        )
-        foundation_text.setObjectName("muted")
-        foundation_text.setWordWrap(True)
-        foundation_layout.addWidget(foundation_text)
-        layout.addWidget(foundation)
-        layout.addStretch()
+        status_card = QFrame()
+        status_card.setObjectName("metricCard")
+        status_layout = QVBoxLayout(status_card)
+        status_layout.addWidget(QLabel("RUN STATUS"))
+        self.build_status = QLabel("Select a project and enter a request.")
+        self.build_status.setObjectName("muted")
+        self.build_status.setWordWrap(True)
+        status_layout.addWidget(self.build_status)
+        self.build_events = QListWidget()
+        self.build_events.setMinimumHeight(180)
+        status_layout.addWidget(self.build_events)
+        layout.addWidget(status_card, 1)
         return center
 
     def _build_inspector(self) -> QWidget:
@@ -407,6 +407,7 @@ class MainWindow(QMainWindow):
                 "Local Model Chat could not reach Ollama at 127.0.0.1:11434. Start Ollama, then restart this app.",
             )
         self._update_model_availability()
+        self._refresh_build_readiness()
 
     def _startup_worker_finished(self, worker: StartupWorker | None) -> None:
         if worker is None:
@@ -490,12 +491,14 @@ class MainWindow(QMainWindow):
             self.build_project_title.setText("No project selected")
             self.build_project_meta.setText("Add a local project from the sidebar to begin.")
             self.build_request.setEnabled(False)
+            self._refresh_build_readiness()
             return
         path = Path(project.path)
         self.build_project_title.setText(project.name)
         if not path.is_dir():
             self.build_project_meta.setText(f"{project.kind.title()} · Folder missing\n{project.path}")
             self.build_request.setEnabled(False)
+            self._refresh_build_readiness()
             return
         git_state = read_git_state(path)
         repository = (
@@ -507,6 +510,120 @@ class MainWindow(QMainWindow):
             f"{project.kind.title()} · {repository}\n{project.path}"
         )
         self.build_request.setEnabled(True)
+        self._refresh_build_readiness()
+
+    def _refresh_build_readiness(self) -> None:
+        if not hasattr(self, "build_status"):
+            return
+        project = self.registry.selected()
+        request = self.build_request.toPlainText().strip()
+        ready = False
+        if self.orchestration_worker is not None:
+            status = "Build is running locally. Follow the event timeline below."
+        elif project is None:
+            status = "Select a project before running a build."
+        elif not Path(project.path).is_dir():
+            status = "The selected project folder is missing."
+        else:
+            git_state = read_git_state(project.path)
+            if not git_state.available:
+                status = "Build mode requires a Git repository."
+            elif git_state.branch in {"main", "master", "Detached HEAD"} or not git_state.branch.startswith("molicoder/"):
+                status = "Switch to a dedicated branch named molicoder/<task>."
+            elif git_state.dirty:
+                status = "Commit or stash current changes first; Build mode requires a clean working tree."
+            elif not request:
+                status = "Ready for a request on this protected project branch."
+            elif self._installed_model_names and "molicoder:latest" not in self._installed_model_names:
+                status = "The molicoder:latest model is not installed in Ollama."
+            else:
+                ready = True
+                status = "Ready · local planning, sequential execution, validation, and repair enabled."
+        self.build_status.setText(status)
+        self.build_run_button.setEnabled(ready)
+
+    def _run_build(self) -> None:
+        if self.orchestration_worker is not None:
+            return
+        self._refresh_build_readiness()
+        if not self.build_run_button.isEnabled():
+            return
+        project = self.registry.selected()
+        request = self.build_request.toPlainText().strip()
+        if project is None or not request:
+            return
+        mode = self.build_mode.currentText()
+        if mode != "LOCAL_ONLY":
+            QMessageBox.information(
+                self,
+                "Mode not available yet",
+                "Phase 2 runs locally. Choose LOCAL_ONLY; frontier and manual planning arrive in later phases.",
+            )
+            return
+        try:
+            orchestrator = build_orchestrator(store=self.store, project=project, client=self.client)
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Build configuration error", str(exc))
+            return
+        worker = OrchestrationWorker(orchestrator, request, mode)
+        orchestrator.on_event = worker.relay_event
+        worker.event.connect(self._build_event)
+        worker.completed.connect(self._build_completed)
+        worker.failed.connect(self._build_failed)
+        worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
+        self.orchestration_worker = worker
+        self.build_events.clear()
+        self.build_request.setEnabled(False)
+        self.build_mode.setEnabled(False)
+        self._refresh_build_readiness()
+        worker.start()
+
+    def _build_event(self, kind: str, payload: dict) -> None:
+        labels = {
+            "run_started": "Run started",
+            "recon_completed": "Repository evidence collected",
+            "plan_created": "Plan validated",
+            "task_started": "Task started",
+            "task_completed": "Task completed",
+            "task_failed": "Task needs attention",
+            "run_completed": "Run completed",
+            "run_failed": "Run failed",
+        }
+        detail = ""
+        if kind == "plan_created":
+            detail = f" · {payload.get('tasks', 0)} task(s)"
+        elif kind in {"task_started", "task_completed", "task_failed"}:
+            detail = f" · {payload.get('title') or payload.get('key', '')}"
+        elif payload.get("error"):
+            detail = f" · {payload['error']}"
+        self.build_events.addItem(f"{labels.get(kind, kind.replace('_', ' ').title())}{detail}")
+        self.build_events.scrollToBottom()
+
+    def _build_completed(self, result) -> None:
+        if result.status == "completed":
+            self.build_status.setText(
+                f"Completed run {result.run_id} · {result.completed_tasks}/{result.total_tasks} tasks passed validation."
+            )
+        else:
+            self.build_status.setText(
+                f"Run {result.run_id} stopped · {result.completed_tasks}/{result.total_tasks} tasks completed. {result.error}"
+            )
+
+    def _build_failed(self, error: str) -> None:
+        self.build_status.setText(f"Build worker failed: {error}")
+        self.build_events.addItem(f"Worker failure · {error}")
+
+    def _orchestration_worker_finished(self, worker: OrchestrationWorker) -> None:
+        worker.deleteLater()
+        if self.orchestration_worker is worker:
+            self.orchestration_worker = None
+        self.build_request.setEnabled(self.registry.selected() is not None)
+        self.build_mode.setEnabled(True)
+        terminal_status = self.build_status.text()
+        self._refresh_build_readiness()
+        if not self.build_run_button.isEnabled():
+            terminal_status += f"\nNext run: {self.build_status.text()}"
+        self.build_status.setText(terminal_status)
 
     def _add_project(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Add local project")
@@ -923,6 +1040,14 @@ class MainWindow(QMainWindow):
         self.inspector.setVisible(not self.inspector.isVisible())
 
     def closeEvent(self, event) -> None:
+        if self.orchestration_worker and self.orchestration_worker.isRunning():
+            QMessageBox.warning(
+                self,
+                "Build still running",
+                "Wait for the current validated task to finish before closing MoliCoder.",
+            )
+            event.ignore()
+            return
         if self.chat_worker:
             self.chat_worker.cancel()
             self.chat_worker.wait(2500)

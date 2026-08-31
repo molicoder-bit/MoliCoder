@@ -4,6 +4,7 @@ from PySide6.QtCore import QThread, Signal
 
 from .domain import GenerationMetrics
 from .ollama import OllamaClient
+from .molicoder.orchestrator import OrchestrationResult, Phase2Orchestrator
 
 
 class ChatWorker(QThread):
@@ -62,3 +63,24 @@ class StartupWorker(QThread):
                 available = False
         self.ready.emit(available, models)
 
+
+class OrchestrationWorker(QThread):
+    event = Signal(str, object)
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, orchestrator: Phase2Orchestrator, request: str, mode: str) -> None:
+        super().__init__()
+        self.orchestrator = orchestrator
+        self.request = request
+        self.mode = mode
+
+    def relay_event(self, kind: str, payload: dict) -> None:
+        self.event.emit(kind, payload)
+
+    def run(self) -> None:
+        try:
+            result: OrchestrationResult = self.orchestrator.run(self.request, mode=self.mode)
+            self.completed.emit(result)
+        except Exception as exc:  # worker boundary: surface failures to the UI
+            self.failed.emit(str(exc))

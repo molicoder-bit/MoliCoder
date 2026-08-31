@@ -3,10 +3,25 @@
 Converting the existing `LocalModelChat` PySide6 application into a local-first
 software-development orchestration system.
 
-**Status:** implementation in progress. Phase 0 and the Phase 1 executor proof are
-complete as of 2026-08-31. The next implementation milestone is Phase 2 planning and
-repair.
+**Status:** implementation in progress. Phases 0–2 are complete as of 2026-08-31. The
+next implementation milestone is Phase 3 worktree orchestration.
 Originally written against commit `c2957e5`, verified against the live Ollama install and GPU on this machine.
+
+### Implemented milestone — Phase 2 planning and repair
+
+- Added deterministic repository reconnaissance with source-referenced evidence packets,
+  secret exclusion, relevant-file ranking, tests, constraints, and Git risks.
+- Added the local Qwen planner abstraction, strict multi-task plan schema, dependency
+  ordering, and one bounded schema-repair attempt.
+- Added persisted sequential orchestration across runs, plans, tasks, dependencies, and
+  event history, with matching JSON artifacts under `.molicoder/`.
+- Added fresh-context repair attempts, local diagnosis, normalized failure fingerprints,
+  and stuck/oscillating failure detection.
+- Activated the desktop Build workspace with branch and cleanliness guards, Enter-to-run,
+  fixed project validation, and a live event timeline.
+- Verified the real installed Qwen model through both the edit/validation loop and valid
+  multi-task planning; deterministic repair tests cover progress and genuine validation
+  failure handling without placing live inference in the default suite.
 
 ### Implemented milestone — Phase 1 executor proof
 

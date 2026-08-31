@@ -5,17 +5,21 @@ import pytest
 
 from local_model_chat.molicoder.executor import AgentExecutor
 from local_model_chat.molicoder.gateway import InferenceGateway
+from local_model_chat.molicoder.planner.local import LocalPlanner
+from local_model_chat.molicoder.recon import ReconPacket
 from local_model_chat.molicoder.tools import ToolDispatcher
 from local_model_chat.molicoder.validate import ProjectValidator, ValidationCommand
 
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        os.environ.get("MOLICODER_REAL_MODEL") != "1",
+        reason="set MOLICODER_REAL_MODEL=1 to exercise the installed Ollama model",
+    ),
+]
 
 
-@pytest.mark.skipif(
-    os.environ.get("MOLICODER_REAL_MODEL") != "1",
-    reason="set MOLICODER_REAL_MODEL=1 to exercise the installed Ollama model",
-)
 def test_real_model_edits_and_validates_temporary_project(tmp_path) -> None:
     (tmp_path / "sample.py").write_text(
         "def format_duration(seconds: int) -> str:\n    return str(seconds)\n",
@@ -47,3 +51,16 @@ def test_real_model_edits_and_validates_temporary_project(tmp_path) -> None:
 
     assert result.status == "completed", result
     assert validator.run().passed, result
+
+
+def test_real_model_returns_a_valid_multi_task_plan() -> None:
+    planner = LocalPlanner(gateway=InferenceGateway(), model="molicoder:latest")
+    packet = ReconPacket.empty(
+        "Plan exactly two dependent tasks: first add a duration formatter, then add its unit tests.",
+        "python",
+    )
+
+    plan = planner.plan(packet)
+
+    assert len(plan.tasks) == 2, plan
+    assert plan.ordered_tasks() == plan.tasks, plan

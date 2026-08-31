@@ -43,7 +43,7 @@ _SENSITIVE_NAMES = {
 }
 
 
-def _is_sensitive(path: Path) -> bool:
+def is_sensitive_path(path: Path) -> bool:
     lowered_parts = [part.lower() for part in path.parts]
     name = path.name.lower()
     return (
@@ -192,7 +192,7 @@ class ToolDispatcher:
             path.relative_to(self.root)
         except ValueError as exc:
             raise PermissionError(f"path is outside the worktree: {value}") from exc
-        if _is_sensitive(path.relative_to(self.root)):
+        if is_sensitive_path(path.relative_to(self.root)):
             raise PermissionError(f"access to sensitive path is denied: {value}")
         return path
 

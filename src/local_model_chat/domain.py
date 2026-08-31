@@ -54,3 +54,25 @@ class Project:
     kind: str
     created_at: str
     last_opened_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class TaskRecord:
+    id: int
+    run_id: int
+    key: str
+    title: str
+    objective: str
+    status: str
+    risk: str
+    attempts: int
+
+
+@dataclass(frozen=True, slots=True)
+class EventRecord:
+    id: int
+    run_id: int
+    task_id: int | None
+    kind: str
+    payload_json: str
+    created_at: str

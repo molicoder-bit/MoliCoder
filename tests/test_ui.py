@@ -1,6 +1,7 @@
 from local_model_chat.storage import ChatStore
 from local_model_chat.ui.main_window import MainWindow
 from local_model_chat.ui.widgets import ChatBubble
+import subprocess
 
 
 class FakeClient:
@@ -102,3 +103,31 @@ def test_project_shell_adds_project_and_switches_views(qtbot, tmp_path) -> None:
 
     window._set_view("chat")
     assert window.view_stack.currentWidget() is window.chat_view
+
+
+def test_build_run_requires_clean_dedicated_branch_and_request(qtbot, tmp_path) -> None:
+    project = tmp_path / "safe-project"
+    project.mkdir()
+    (project / "pyproject.toml").write_text("[project]\nname='safe'\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-b", "molicoder/test"], cwd=project, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=project, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=project, check=True)
+    window = MainWindow(ChatStore(tmp_path / "build.sqlite3"), FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: "connected" in window.connection_label.text().lower())
+    window._add_project_path(project)
+    subprocess.run(["git", "add", "."], cwd=project, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=project, check=True, capture_output=True)
+
+    window._update_build_project(window.registry.selected())
+    window._set_view("build")
+    assert not window.build_run_button.isEnabled()
+
+    window.build_request.setPlainText("Add a focused unit test")
+    assert window.build_run_button.isEnabled()
+    assert "Ready" in window.build_status.text()
+
+    (project / "dirty.py").write_text("x = 1\n", encoding="utf-8")
+    window._update_build_project(window.registry.selected())
+    assert not window.build_run_button.isEnabled()
+    assert "clean" in window.build_status.text().lower()

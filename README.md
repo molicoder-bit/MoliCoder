@@ -22,21 +22,27 @@ The app talks only to Ollama on `http://127.0.0.1:11434`. Conversations are stor
 - Tolerant Ollama tool parsing, including Qwen's bare and fenced JSON variants
 - Worktree-confined file tools, sensitive-path denial, and fixed validation commands
 - Persistent local-project registry with Python, Node, and Flutter detection
-- Per-project `.molicoder` metadata plus a dedicated Build workspace shell
+- Per-project `.molicoder` metadata, evidence, plans, task records, and run history
+- Functional local-only Build workspace with guarded branches and a live event timeline
+- Local Qwen multi-task planning with schema repair and dependency ordering
+- Sequential validated execution with fresh-context repair and failure fingerprinting
 
-## Phase 1 executor proof
+## Local Build mode
 
-The executor foundation is intentionally available as a guarded command while planning and
-repair are connected to the desktop Build view. It currently supports Python/pytest projects. Run it
-only from a clean, dedicated `molicoder/<task>` branch:
+Add a project in the sidebar, switch to **Build**, and work only from a clean, dedicated
+`molicoder/<task>` branch. Enter a small, mechanically verifiable request and MoliCoder will
+collect evidence, produce a validated plan, execute dependent tasks sequentially, run the
+project's fixed validation commands, and retry bounded failures with fresh context.
+
+The guarded executor command remains available for a single hand-written task:
 
 ```powershell
 git switch -c molicoder/example-task
 .\.venv\Scripts\molicoder-exec.exe --project . --yes "A small, explicit, testable task"
 ```
 
-The command refuses `main`, `master`, unrelated branch names, dirty worktrees, and projects
-without fixed pytest validation. It never lets the model choose shell commands.
+The UI refuses `main`, `master`, unrelated branch names, dirty worktrees, and projects
+without a fixed validation allowlist. It never lets the model choose shell commands.
 
 ## Run from source
 
