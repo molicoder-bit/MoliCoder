@@ -7,6 +7,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Generator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,12 @@ from .domain import GenerationMetrics
 
 class OllamaError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class ChatResponse:
+    message: dict[str, Any]
+    metrics: GenerationMetrics
 
 
 class OllamaClient:
@@ -76,6 +83,42 @@ class OllamaClient:
 
     def unload(self, model: str) -> None:
         self._request("/api/generate", {"model": model, "prompt": "", "keep_alive": 0, "stream": False})
+
+    def chat(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None,
+        context_window: int,
+        max_output_tokens: int,
+        temperature: float,
+        top_p: float,
+        keep_alive: str = "5m",
+    ) -> ChatResponse:
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "think": False,
+            "keep_alive": keep_alive,
+            "options": {
+                "num_ctx": context_window,
+                "num_predict": max_output_tokens,
+                "temperature": temperature,
+                "top_p": top_p,
+            },
+        }
+        if tools:
+            payload["tools"] = tools
+        started = time.monotonic()
+        response = dict(self._request("/api/chat", payload, timeout=3600))
+        if response.get("error"):
+            raise OllamaError(str(response["error"]))
+        message = response.get("message", {})
+        if not isinstance(message, dict):
+            raise OllamaError("Ollama returned an invalid chat message")
+        return ChatResponse(dict(message), _metrics_from_response(response, time.monotonic() - started))
 
     def stream_chat(
         self,
@@ -141,4 +184,3 @@ def _metrics_from_response(response: dict[str, Any], elapsed: float) -> Generati
         total_seconds=round(elapsed, 2),
         done_reason=str(response.get("done_reason", "")),
     )
-

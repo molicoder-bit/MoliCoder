@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-model-chat"
-version = "0.1.6"
+version = "0.2.0"
 description = "A private, native desktop chat interface for local Ollama models."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -21,6 +21,7 @@ dev = [
 
 [project.scripts]
 local-model-chat = "local_model_chat.main:main"
+molicoder-exec = "local_model_chat.molicoder.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

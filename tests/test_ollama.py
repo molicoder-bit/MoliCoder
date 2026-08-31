@@ -1,4 +1,6 @@
-from local_model_chat.ollama import _metrics_from_response
+import json
+
+from local_model_chat.ollama import OllamaClient, _metrics_from_response
 
 
 def test_metrics_conversion() -> None:
@@ -17,3 +19,33 @@ def test_metrics_conversion() -> None:
     assert metrics.output_tokens_per_second == 40.0
     assert metrics.load_seconds == 0.5
     assert metrics.total_seconds == 4.25
+
+
+def test_non_streaming_chat_sends_tools_and_returns_metrics(monkeypatch) -> None:
+    captured = {}
+
+    def fake_request(self, path, payload=None, timeout=None):
+        captured.update(path=path, payload=payload, timeout=timeout)
+        return {
+            "message": {"content": json.dumps({"name": "list_dir", "arguments": {"path": "."}})},
+            "prompt_eval_count": 10,
+            "eval_count": 5,
+        }
+
+    monkeypatch.setattr(OllamaClient, "_request", fake_request)
+    client = OllamaClient()
+    response = client.chat(
+        "molicoder:latest",
+        [{"role": "user", "content": "Inspect the repository"}],
+        tools=[{"type": "function", "function": {"name": "list_dir"}}],
+        context_window=16384,
+        max_output_tokens=2048,
+        temperature=0.2,
+        top_p=0.9,
+    )
+
+    assert captured["path"] == "/api/chat"
+    assert captured["payload"]["stream"] is False
+    assert captured["payload"]["tools"][0]["function"]["name"] == "list_dir"
+    assert response.message["content"].startswith("{")
+    assert response.metrics.prompt_tokens == 10

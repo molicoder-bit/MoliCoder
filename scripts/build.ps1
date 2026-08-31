@@ -11,4 +11,4 @@ if (-not (Test-Path -LiteralPath $python)) {
 & $python -m pytest (Join-Path $projectRoot "tests")
 & $python -m PyInstaller --noconfirm --clean (Join-Path $projectRoot "LocalModelChat.spec") --distpath (Join-Path $projectRoot "dist") --workpath (Join-Path $projectRoot "build")
 
-Write-Host "Built: $(Join-Path $projectRoot 'dist\LocalModelChat\LocalModelChat.exe')"
+Write-Host "Built: $(Join-Path $projectRoot 'dist\MoliCoder\MoliCoder.exe')"

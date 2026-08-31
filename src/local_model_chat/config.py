@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-APP_NAME = "Local Model Chat"
+APP_NAME = "MoliCoder"
 APP_SLUG = "LocalModelChat"
 OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 SAFE_CONTEXT_FRACTION = 0.95
@@ -42,11 +42,11 @@ MODEL_PRESETS: dict[str, ModelPreset] = {
         ),
         show_thinking=True,
     ),
-    "local-coding:latest": ModelPreset(
-        name="local-coding:latest",
-        label="Coding",
+    "molicoder:latest": ModelPreset(
+        name="molicoder:latest",
+        label="MoliCoder",
         role="Qwen 2.5 Coder · Q4_K_M",
-        context_window=8192,
+        context_window=16384,
         max_output_tokens=2048,
         temperature=0.2,
         top_p=0.9,
