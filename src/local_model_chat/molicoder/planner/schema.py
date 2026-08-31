@@ -17,6 +17,7 @@ class PlanTask:
     objective: str
     risk: str
     depends_on: tuple[str, ...]
+    expected_paths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +90,9 @@ def parse_plan(value: str | dict[str, Any]) -> Plan:
         depends = item.get("depends_on", [])
         if not isinstance(depends, list) or not all(isinstance(dep, str) for dep in depends):
             raise PlanValidationError(f"tasks[{index}].depends_on must be a string list")
+        expected_paths = item.get("expected_paths", [])
+        if not isinstance(expected_paths, list) or not all(isinstance(path, str) and path.strip() for path in expected_paths):
+            raise PlanValidationError(f"tasks[{index}].expected_paths must be a string list")
         tasks.append(
             PlanTask(
                 key,
@@ -96,6 +100,7 @@ def parse_plan(value: str | dict[str, Any]) -> Plan:
                 _required_text(item.get("objective"), f"tasks[{index}].objective"),
                 risk,
                 tuple(depends),
+                tuple(path.replace("\\", "/").strip() for path in expected_paths),
             )
         )
     for task in tasks:

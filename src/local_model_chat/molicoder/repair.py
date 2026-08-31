@@ -22,10 +22,12 @@ class RepairLoop:
         *,
         execute: Callable[[str], ExecutionResult],
         diagnose: Callable[[str], str],
+        rescue: Callable[[str], str] | None = None,
         max_attempts: int = 4,
     ) -> None:
         self.execute = execute
         self.diagnose = diagnose
+        self.rescue = rescue
         self.max_attempts = max_attempts
 
     @staticmethod
@@ -36,6 +38,7 @@ class RepairLoop:
         fingerprints: list[str] = []
         previous = ""
         diagnosis = ""
+        rescue_used = False
         last = ExecutionResult("failed", "", 0, 0, "not started")
         for attempt in range(1, self.max_attempts + 1):
             if attempt == 1:
@@ -58,5 +61,14 @@ class RepairLoop:
             fingerprints.append(failure_fingerprint(previous))
             progress = classify_progress(fingerprints)
             if progress in {"stuck", "oscillating"}:
+                if self.rescue is not None and not rescue_used and attempt < self.max_attempts:
+                    rescue_used = True
+                    try:
+                        diagnosis = self.rescue(
+                            f"Task:\n{objective}\n\nLocal diagnosis:\n{diagnosis}\n\nFailure:\n{previous}"
+                        )
+                    except Exception:
+                        return RepairOutcome("escalation_required", attempt, last, tuple(fingerprints), progress)
+                    continue
                 return RepairOutcome("escalation_required", attempt, last, tuple(fingerprints), progress)
         return RepairOutcome("failed", self.max_attempts, last, tuple(fingerprints), "attempt_budget")

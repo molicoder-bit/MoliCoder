@@ -105,11 +105,11 @@ def test_project_shell_adds_project_and_switches_views(qtbot, tmp_path) -> None:
     assert window.view_stack.currentWidget() is window.chat_view
 
 
-def test_build_run_requires_clean_dedicated_branch_and_request(qtbot, tmp_path) -> None:
+def test_build_run_requires_clean_named_branch_and_request(qtbot, tmp_path) -> None:
     project = tmp_path / "safe-project"
     project.mkdir()
     (project / "pyproject.toml").write_text("[project]\nname='safe'\n", encoding="utf-8")
-    subprocess.run(["git", "init", "-b", "molicoder/test"], cwd=project, check=True, capture_output=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=project, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=project, check=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=project, check=True)
     window = MainWindow(ChatStore(tmp_path / "build.sqlite3"), FakeClient())

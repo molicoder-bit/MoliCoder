@@ -10,12 +10,15 @@ from ..ollama import OllamaClient
 from ..storage import ChatStore
 from .executor import AgentExecutor, ExecutionResult
 from .gateway import InferenceGateway
-from .orchestrator import Phase2Orchestrator
+from .orchestrator import WorktreeOrchestrator
 from .planner.local import LocalPlanner
+from .planner.codex_cli import CallBudget, CodexCliConsultant, CodexCliPlanner, ExternalUnavailable, RoutedPlanner
 from .projectstate import ensure_project_state
-from .repair import RepairLoop
+from .repair import RepairLoop, RepairOutcome
 from .tools import ToolDispatcher
 from .validate import ProjectValidator, ValidationCommand
+from .metrics import AdaptiveConcurrency
+from .skills import SkillLibrary
 
 
 def _python_executable(root: Path) -> str:
@@ -82,21 +85,33 @@ def build_orchestrator(
     store: ChatStore,
     project: Project,
     client: OllamaClient | None = None,
+    mode: str = "LOCAL_ONLY",
     on_event: Callable[[str, dict], None] | None = None,
-) -> Phase2Orchestrator:
+) -> WorktreeOrchestrator:
     root = Path(project.path).resolve()
-    validator = build_validator(root)
     preset = MODEL_PRESETS["molicoder:latest"]
     gateway = InferenceGateway(client)
-    planner = LocalPlanner(
+    local_planner = LocalPlanner(
         gateway=gateway,
         model=preset.name,
         context_window=preset.context_window,
         max_output_tokens=preset.max_output_tokens,
     )
+    external_planner = None
+    consultant = None
+    if mode.upper() in {"AUTO", "FRONTIER_PLAN"}:
+        try:
+            budget = CallBudget(max_external_calls=3, max_planning_calls=1, max_rescue_calls=1)
+            external_planner = CodexCliPlanner(project_root=root, budget=budget)
+            consultant = CodexCliConsultant(project_root=root, budget=budget)
+        except ExternalUnavailable:
+            external_planner = None
+            consultant = None
+    planner = RoutedPlanner(mode, local=local_planner, external=external_planner)
 
-    def execute(objective: str) -> ExecutionResult:
-        dispatcher = ToolDispatcher(root, validation=validator.run_and_summarize)
+    def execute(worktree: Path, objective: str) -> RepairOutcome:
+        validator = build_validator(worktree)
+        dispatcher = ToolDispatcher(worktree, validation=validator.run_and_summarize)
         executor = AgentExecutor(
             gateway=gateway,
             dispatcher=dispatcher,
@@ -106,13 +121,22 @@ def build_orchestrator(
             temperature=preset.temperature,
             top_p=preset.top_p,
         )
-        return executor.run(objective)
+        loop = RepairLoop(
+            execute=executor.run,
+            diagnose=LocalDiagnoser(gateway, preset.name),
+            rescue=consultant.rescue if consultant else None,
+        )
+        return loop.run(SkillLibrary(worktree).augment(objective))
 
-    repair = RepairLoop(execute=execute, diagnose=LocalDiagnoser(gateway, preset.name))
-    return Phase2Orchestrator(
+    return WorktreeOrchestrator(
         store=store,
         project=project,
         planner=planner,
-        repair=repair,
+        execute_task=execute,
+        repair_conflict=execute,
+        validate_integration=lambda worktree: build_validator(worktree).run_and_summarize(),
+        review_integration=consultant.review if consultant and mode.upper() == "FRONTIER_PLAN" else None,
+        external_sources=(consultant,) if consultant else (),
+        max_workers=AdaptiveConcurrency(max_workers=4).recommend(project.kind),
         on_event=on_event,
     )

@@ -3,8 +3,8 @@
 Converting the existing `LocalModelChat` PySide6 application into a local-first
 software-development orchestration system.
 
-**Status:** implementation in progress. Phases 0–2 are complete as of 2026-08-31. The
-next implementation milestone is Phase 3 worktree orchestration.
+**Status:** Phases 0–5 are implemented as of 2026-08-31. MoliCoder 1.0 includes local
+chat, isolated local execution, optional Codex CLI consulting, and resource analytics.
 Originally written against commit `c2957e5`, verified against the live Ollama install and GPU on this machine.
 
 ### Implemented milestone — Phase 2 planning and repair
@@ -22,6 +22,42 @@ Originally written against commit `c2957e5`, verified against the live Ollama in
 - Verified the real installed Qwen model through both the edit/validation loop and valid
   multi-task planning; deterministic repair tests cover progress and genuine validation
   failure handling without placing live inference in the default suite.
+
+### Implemented milestone — Phase 3 orchestration
+
+- Added dependency-aware scheduling with expected-path conflict exclusion.
+- Runs independent ready tasks in isolated Git branches and worktrees while the serialized
+  Ollama gateway preserves the machine's single inference lane.
+- Commits task results independently, merges them into a separate integration worktree,
+  validates the integrated result, and keeps the user's checkout untouched.
+- Detects real Git conflicts by path and gives the local repair loop one bounded resolution
+  path before integration validation.
+- Added pause, resume, cooperative cancel, integrated diff inspection, and an explicit,
+  user-confirmed merge control in the Build view.
+
+### Implemented milestone — Phase 4 external intelligence
+
+- Added the Codex CLI planner with binary discovery, stdin packets, read-only sandboxing,
+  schema-constrained output, JSONL usage capture, ephemeral sessions, and timeouts.
+- Isolates the adapter from incompatible user configuration while preserving OAuth login;
+  missing binaries, invalid login, quota exhaustion, and nonzero exits fall back locally.
+- Added `LOCAL_ONLY`, `AUTO`, `FRONTIER_PLAN`, and `MANUAL_PLAN` routing with readable
+  high-risk AUTO heuristics and hard planning/rescue/total external-call ceilings.
+- Added one bounded read-only frontier rescue strategy after genuine local stagnation and
+  optional frontier review of the validated integration branch.
+- Records every external call by purpose, reason, tokens, duration, and status; OAuth calls
+  intentionally have no fabricated dollar estimate.
+
+### Implemented milestone — Phase 5 resource optimization
+
+- Added adaptive deterministic worker selection by project type and observed validation vs.
+  inference cost; CPU validation can overlap another task's serialized GPU inference.
+- Added reusable, keyword-matched project skills under `.molicoder/skills/`.
+- Records local worker tokens, duration, status, repair fingerprints, and interruption state.
+- Added project analytics comparing local-only and externally assisted run outcomes, surfaced
+  in the Build workspace after each run.
+- Expanded opt-in integration coverage to real local multi-task orchestration and a full
+  frontier-plan/local-execute/frontier-review workflow.
 
 ### Implemented milestone — Phase 1 executor proof
 

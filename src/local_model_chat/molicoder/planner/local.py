@@ -43,7 +43,7 @@ class LocalPlanner:
         output_contract = (
             'Return exactly this JSON shape: {"objective":"...","tasks":['
             '{"key":"task-1","title":"...","objective":"...",'
-            '"risk":"low","depends_on":[]}]}. '
+            '"risk":"low","depends_on":[],"expected_paths":["src/file.py"]}]}. '
             "The top-level object may contain only objective and tasks. "
             "Do not copy repository evidence fields into the output."
         )
@@ -52,7 +52,7 @@ class LocalPlanner:
                 "role": "system",
                 "content": (
                     "You are MoliCoder's local planner. Convert repository evidence into a coding plan. "
-                    "Each task needs key, title, objective, risk (low/medium/high), and depends_on. "
+                    "Each task needs key, title, objective, risk (low/medium/high), depends_on, and expected_paths. "
                     "Tasks must be small, explicit, single-file where possible, and mechanically verifiable. "
                     + output_contract
                 ),

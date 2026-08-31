@@ -53,3 +53,52 @@ def test_orchestration_schema_is_initialized(tmp_path) -> None:
         "projects", "runs", "plans", "tasks", "task_deps", "worker_runs",
         "validations", "failures", "external_calls", "events",
     } <= tables
+
+
+def test_external_calls_are_persisted_and_counted(tmp_path) -> None:
+    store = ChatStore(tmp_path / "external.sqlite3")
+    project = store.upsert_project("sample", str(tmp_path / "sample"), "python")
+    run_id = store.create_run(project.id, "feature", "AUTO")
+
+    store.add_external_call(run_id, "codex-cli", "planning", "planning_complexity", 20, 5, 1.25, "completed")
+
+    calls = store.list_external_calls(run_id)
+    assert len(calls) == 1
+    assert calls[0]["purpose"] == "planning"
+    assert calls[0]["est_cost"] is None
+
+
+def test_legacy_external_call_columns_are_migrated_during_initialization(tmp_path) -> None:
+    database = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """CREATE TABLE external_calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                task_id INTEGER,
+                provider TEXT NOT NULL,
+                purpose TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                est_cost REAL,
+                created_at TEXT NOT NULL
+            )"""
+        )
+
+    ChatStore(database)
+
+    with sqlite3.connect(database) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(external_calls)")}
+    assert {"seconds", "status"} <= columns
+
+
+def test_running_runs_can_be_recovered_as_interrupted(tmp_path) -> None:
+    store = ChatStore(tmp_path / "recovery.sqlite3")
+    project = store.upsert_project("sample", str(tmp_path / "sample"), "python")
+    run_id = store.create_run(project.id, "feature", "LOCAL_ONLY")
+
+    recovered = store.recover_interrupted_runs()
+
+    assert recovered == (run_id,)
+    assert store.get_run(run_id)["status"] == "interrupted"

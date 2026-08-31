@@ -83,3 +83,22 @@ def test_local_planner_repairs_malformed_plan_once() -> None:
     assert len(gateway.calls) == 2
     assert "invalid" in gateway.calls[1]["messages"][-1]["content"].lower()
 
+
+def test_plan_accepts_optional_expected_paths() -> None:
+    plan = parse_plan(
+        {
+            "objective": "Feature",
+            "tasks": [
+                {
+                    "key": "one",
+                    "title": "One",
+                    "objective": "Edit one file",
+                    "risk": "low",
+                    "depends_on": [],
+                    "expected_paths": ["src/app.py"],
+                }
+            ],
+        }
+    )
+
+    assert plan.tasks[0].expected_paths == ("src/app.py",)

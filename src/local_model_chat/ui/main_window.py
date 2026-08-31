@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
@@ -9,7 +10,7 @@ from PySide6.QtWidgets import (
     QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
     QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSpinBox,
-    QSplitter, QStackedWidget, QVBoxLayout, QWidget,
+    QSplitter, QStackedWidget, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from ..attachments import MAX_MESSAGE_BYTES, AttachmentError, load_attachment, render_attachments
@@ -19,6 +20,7 @@ from ..domain import Attachment, GenerationMetrics, Message, Project
 from ..molicoder.projectstate import read_git_state
 from ..molicoder.registry import ProjectRegistry
 from ..molicoder.runtime import build_orchestrator
+from ..molicoder.metrics import RunAnalytics
 from ..ollama import OllamaClient
 from ..storage import ChatStore
 from ..telemetry import format_bytes, read_nvidia_telemetry
@@ -30,6 +32,7 @@ class MainWindow(QMainWindow):
     def __init__(self, store: ChatStore | None = None, client: OllamaClient | None = None) -> None:
         super().__init__()
         self.store = store or ChatStore()
+        self.store.recover_interrupted_runs()
         self.registry = ProjectRegistry(self.store)
         self.client = client or OllamaClient()
         self.current_project_id: int | None = None
@@ -40,6 +43,8 @@ class MainWindow(QMainWindow):
         self.orchestration_worker: OrchestrationWorker | None = None
         self.active_bubble: ChatBubble | None = None
         self.last_metrics = GenerationMetrics()
+        self.last_integration_branch: str | None = None
+        self.last_integration_path: Path | None = None
         self._installed_model_names: set[str] = set()
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setSingleShot(True)
@@ -285,6 +290,15 @@ class MainWindow(QMainWindow):
         self.build_run_button.setEnabled(False)
         self.build_run_button.clicked.connect(self._run_build)
         controls.addWidget(self.build_run_button)
+        self.build_pause_button = QPushButton("Pause")
+        self.build_pause_button.setEnabled(False)
+        self.build_pause_button.clicked.connect(self._toggle_build_pause)
+        controls.addWidget(self.build_pause_button)
+        self.build_cancel_button = QPushButton("Cancel")
+        self.build_cancel_button.setObjectName("danger")
+        self.build_cancel_button.setEnabled(False)
+        self.build_cancel_button.clicked.connect(self._cancel_build)
+        controls.addWidget(self.build_cancel_button)
         request_layout.addLayout(controls)
         layout.addWidget(request_card)
 
@@ -299,6 +313,14 @@ class MainWindow(QMainWindow):
         self.build_events = QListWidget()
         self.build_events.setMinimumHeight(180)
         status_layout.addWidget(self.build_events)
+        self.build_details = QTextBrowser()
+        self.build_details.setPlaceholderText("Integrated diff and frontier review details appear here.")
+        self.build_details.setMinimumHeight(150)
+        status_layout.addWidget(self.build_details)
+        self.build_merge_button = QPushButton("Merge integration branch")
+        self.build_merge_button.setEnabled(False)
+        self.build_merge_button.clicked.connect(self._merge_last_build)
+        status_layout.addWidget(self.build_merge_button)
         layout.addWidget(status_card, 1)
         return center
 
@@ -528,8 +550,8 @@ class MainWindow(QMainWindow):
             git_state = read_git_state(project.path)
             if not git_state.available:
                 status = "Build mode requires a Git repository."
-            elif git_state.branch in {"main", "master", "Detached HEAD"} or not git_state.branch.startswith("molicoder/"):
-                status = "Switch to a dedicated branch named molicoder/<task>."
+            elif git_state.branch == "Detached HEAD":
+                status = "Switch to a named Git branch before running Build mode."
             elif git_state.dirty:
                 status = "Commit or stash current changes first; Build mode requires a clean working tree."
             elif not request:
@@ -553,15 +575,17 @@ class MainWindow(QMainWindow):
         if project is None or not request:
             return
         mode = self.build_mode.currentText()
-        if mode != "LOCAL_ONLY":
-            QMessageBox.information(
-                self,
-                "Mode not available yet",
-                "Phase 2 runs locally. Choose LOCAL_ONLY; frontier and manual planning arrive in later phases.",
-            )
+        if mode in {"AUTO", "FRONTIER_PLAN"} and QMessageBox.question(
+            self,
+            "Use Codex subscription quota",
+            (
+                "This mode may call the Codex CLI for planning, rescue, or review. "
+                "External calls are read-only, metered by count, and fall back locally if unavailable. Continue?"
+            ),
+        ) != QMessageBox.StandardButton.Yes:
             return
         try:
-            orchestrator = build_orchestrator(store=self.store, project=project, client=self.client)
+            orchestrator = build_orchestrator(store=self.store, project=project, client=self.client, mode=mode)
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Build configuration error", str(exc))
             return
@@ -573,8 +597,12 @@ class MainWindow(QMainWindow):
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
         self.orchestration_worker = worker
         self.build_events.clear()
+        self.build_details.clear()
+        self.build_merge_button.setEnabled(False)
         self.build_request.setEnabled(False)
         self.build_mode.setEnabled(False)
+        self.build_pause_button.setEnabled(True)
+        self.build_cancel_button.setEnabled(True)
         self._refresh_build_readiness()
         worker.start()
 
@@ -586,8 +614,14 @@ class MainWindow(QMainWindow):
             "task_started": "Task started",
             "task_completed": "Task completed",
             "task_failed": "Task needs attention",
+            "integration_started": "Integration started",
+            "integration_conflict": "Integration conflict detected",
+            "integration_completed": "Integration validated",
+            "integration_reviewed": "Frontier review completed",
             "run_completed": "Run completed",
             "run_failed": "Run failed",
+            "run_cancelled": "Run cancelled",
+            "external_call": "External consultant call completed",
         }
         detail = ""
         if kind == "plan_created":
@@ -598,15 +632,50 @@ class MainWindow(QMainWindow):
             detail = f" · {payload['error']}"
         self.build_events.addItem(f"{labels.get(kind, kind.replace('_', ' ').title())}{detail}")
         self.build_events.scrollToBottom()
+        if kind == "integration_reviewed" and payload.get("review"):
+            self.build_details.setPlainText(str(payload["review"]))
+
+    def _toggle_build_pause(self) -> None:
+        worker = self.orchestration_worker
+        if worker is None:
+            return
+        if worker.paused:
+            worker.resume()
+            self.build_pause_button.setText("Pause")
+            self.build_status.setText("Build resumed. Changes take effect at orchestration boundaries.")
+        else:
+            worker.pause()
+            self.build_pause_button.setText("Resume")
+            self.build_status.setText("Pause requested. The active model or validation step will finish first.")
+
+    def _cancel_build(self) -> None:
+        worker = self.orchestration_worker
+        if worker is None:
+            return
+        worker.cancel()
+        self.build_cancel_button.setEnabled(False)
+        self.build_status.setText("Cancellation requested. The active safe step will finish first.")
 
     def _build_completed(self, result) -> None:
+        project = self.registry.selected()
+        metrics = RunAnalytics(self.store).project_summary(project.id) if project else None
+        usage = (
+            f"\nHistory: {metrics.completed_runs}/{metrics.total_runs} runs completed · "
+            f"{metrics.local_worker_runs} local workers · {metrics.external_calls} external calls"
+            if metrics else ""
+        )
         if result.status == "completed":
+            self.last_integration_branch = result.integration_branch
+            self.last_integration_path = result.integration_path
+            self.build_merge_button.setEnabled(bool(result.integration_branch))
             self.build_status.setText(
-                f"Completed run {result.run_id} · {result.completed_tasks}/{result.total_tasks} tasks passed validation."
+                f"Completed run {result.run_id} · {result.completed_tasks}/{result.total_tasks} tasks passed validation.\n"
+                f"Integrated safely at {result.integration_path}{usage}"
             )
+            self._show_integration_diff(result.integration_path)
         else:
             self.build_status.setText(
-                f"Run {result.run_id} stopped · {result.completed_tasks}/{result.total_tasks} tasks completed. {result.error}"
+                f"Run {result.run_id} stopped · {result.completed_tasks}/{result.total_tasks} tasks completed. {result.error}{usage}"
             )
 
     def _build_failed(self, error: str) -> None:
@@ -619,11 +688,70 @@ class MainWindow(QMainWindow):
             self.orchestration_worker = None
         self.build_request.setEnabled(self.registry.selected() is not None)
         self.build_mode.setEnabled(True)
+        self.build_pause_button.setEnabled(False)
+        self.build_pause_button.setText("Pause")
+        self.build_cancel_button.setEnabled(False)
         terminal_status = self.build_status.text()
         self._refresh_build_readiness()
         if not self.build_run_button.isEnabled():
             terminal_status += f"\nNext run: {self.build_status.text()}"
         self.build_status.setText(terminal_status)
+
+    def _show_integration_diff(self, integration_path: Path | None) -> None:
+        project = self.registry.selected()
+        if integration_path is None or project is None:
+            return
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        base = subprocess.run(
+            ["git", "-C", project.path, "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=False, creationflags=creationflags,
+        ).stdout.strip()
+        if not base:
+            return
+        diff = subprocess.run(
+            ["git", "-C", str(integration_path), "diff", "--stat", base, "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False, creationflags=creationflags,
+        ).stdout
+        patch = subprocess.run(
+            ["git", "-C", str(integration_path), "diff", "--unified=3", base, "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False, creationflags=creationflags,
+        ).stdout
+        self.build_details.setPlainText((diff + "\n" + patch)[:100000])
+
+    def _merge_last_build(self) -> None:
+        project = self.registry.selected()
+        branch = self.last_integration_branch
+        if project is None or not branch:
+            return
+        state = read_git_state(project.path)
+        if not state.available or state.dirty:
+            QMessageBox.warning(self, "Cannot merge", "The project checkout must be a clean named branch before merging.")
+            return
+        if QMessageBox.question(
+            self,
+            "Merge validated build",
+            f"Merge {branch} into the current branch {state.branch}?",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        merged = subprocess.run(
+            ["git", "-C", project.path, "-c", "user.name=MoliCoder", "-c", "user.email=molicoder@localhost",
+             "merge", "--no-ff", "--no-edit", branch],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False, creationflags=creationflags,
+        )
+        if merged.returncode != 0:
+            subprocess.run(
+                ["git", "-C", project.path, "merge", "--abort"],
+                capture_output=True, check=False, creationflags=creationflags,
+            )
+            QMessageBox.critical(self, "Merge failed", (merged.stdout + merged.stderr)[-4000:])
+            return
+        self.build_merge_button.setEnabled(False)
+        self.build_status.setText(f"Merged {branch} into {state.branch}. Review and push manually when ready.")
+        self._load_project_list(select_id=project.id)
 
     def _add_project(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Add local project")

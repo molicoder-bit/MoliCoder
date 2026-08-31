@@ -139,6 +139,8 @@ class ChatStore:
                     input_tokens INTEGER NOT NULL DEFAULT 0,
                     output_tokens INTEGER NOT NULL DEFAULT 0,
                     est_cost REAL,
+                    seconds REAL NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'completed',
                     created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS events (
@@ -159,6 +161,17 @@ class ChatStore:
                     ON events(run_id, id);
                 """
             )
+            external_columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(external_calls)").fetchall()
+            }
+            if "seconds" not in external_columns:
+                connection.execute(
+                    "ALTER TABLE external_calls ADD COLUMN seconds REAL NOT NULL DEFAULT 0"
+                )
+            if "status" not in external_columns:
+                connection.execute(
+                    "ALTER TABLE external_calls ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'"
+                )
             connection.commit()
 
     def create_conversation(self, model: str, title: str = "New chat") -> Conversation:
@@ -332,6 +345,27 @@ class ChatStore:
             )
             connection.commit()
 
+    def recover_interrupted_runs(self) -> tuple[int, ...]:
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            rows = connection.execute("SELECT id FROM runs WHERE status = 'running' ORDER BY id").fetchall()
+            ids = tuple(int(row[0]) for row in rows)
+            if ids:
+                connection.execute(
+                    "UPDATE runs SET status = 'interrupted', ended_at = ? WHERE status = 'running'",
+                    (now,),
+                )
+                connection.commit()
+        return ids
+
+    def get_run(self, run_id: int) -> dict | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT id, project_id, request, mode, status, started_at, ended_at FROM runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
     def save_plan(self, run_id: int, source: str, provider: str, payload: dict) -> int:
         now = datetime.now().isoformat(timespec="microseconds")
         with closing(self._connect()) as connection:
@@ -373,14 +407,38 @@ class ChatStore:
             )
             connection.commit()
 
+    def update_task_workspace(
+        self,
+        task_id: int,
+        *,
+        worktree: str,
+        branch: str,
+        base_commit: str,
+        changed_paths: tuple[str, ...] = (),
+    ) -> None:
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """UPDATE tasks SET worktree = ?, branch = ?, base_commit = ?,
+                       changed_paths = ?, updated_at = ? WHERE id = ?""",
+                (worktree, branch, base_commit, json.dumps(changed_paths), now, task_id),
+            )
+            connection.commit()
+
     def list_run_tasks(self, run_id: int) -> list[TaskRecord]:
         with closing(self._connect()) as connection:
             rows = connection.execute(
-                """SELECT id, run_id, key, title, objective, status, risk, attempts
+                """SELECT id, run_id, key, title, objective, status, risk, attempts,
+                          worktree, branch, base_commit, changed_paths
                    FROM tasks WHERE run_id = ? ORDER BY id""",
                 (run_id,),
             ).fetchall()
-        return [TaskRecord(**dict(row)) for row in rows]
+        records: list[TaskRecord] = []
+        for row in rows:
+            payload = dict(row)
+            payload["changed_paths"] = tuple(json.loads(payload["changed_paths"] or "[]"))
+            records.append(TaskRecord(**payload))
+        return records
 
     def add_event(
         self, run_id: int, kind: str, payload: dict, task_id: int | None = None
@@ -403,6 +461,73 @@ class ChatStore:
                 (run_id,),
             ).fetchall()
         return [EventRecord(**dict(row)) for row in rows]
+
+    def add_external_call(
+        self,
+        run_id: int,
+        provider: str,
+        purpose: str,
+        reason: str,
+        input_tokens: int,
+        output_tokens: int,
+        seconds: float,
+        status: str,
+        task_id: int | None = None,
+    ) -> int:
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """INSERT INTO external_calls(
+                       run_id, task_id, provider, purpose, reason, input_tokens,
+                       output_tokens, est_cost, seconds, status, created_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)""",
+                (run_id, task_id, provider, purpose, reason, input_tokens, output_tokens, seconds, status, now),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def add_worker_run(
+        self,
+        task_id: int,
+        role: str,
+        model: str,
+        provider: str,
+        prompt_tokens: int,
+        output_tokens: int,
+        seconds: float,
+        status: str,
+    ) -> int:
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """INSERT INTO worker_runs(
+                       task_id, role, model, provider, prompt_tokens, output_tokens,
+                       seconds, status, created_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (task_id, role, model, provider, prompt_tokens, output_tokens, seconds, status, now),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def add_failure(self, task_id: int, fingerprint: str, cluster: dict) -> int:
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                "INSERT INTO failures(task_id, fingerprint, cluster_json, created_at) VALUES (?, ?, ?, ?)",
+                (task_id, fingerprint, json.dumps(cluster, ensure_ascii=False), now),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def list_external_calls(self, run_id: int) -> list[dict]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT id, run_id, task_id, provider, purpose, reason, input_tokens,
+                          output_tokens, est_cost, seconds, status, created_at
+                   FROM external_calls WHERE run_id = ? ORDER BY id""",
+                (run_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def export_markdown(self, conversation_id: int, destination: Path) -> None:
         conversation = self.get_conversation(conversation_id)

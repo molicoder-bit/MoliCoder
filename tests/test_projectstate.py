@@ -30,7 +30,8 @@ def test_ensure_project_state_creates_local_metadata_without_overwriting_instruc
     assert payload["kind"] == "python"
     assert payload["validation"][0]["name"] == "pytest"
     assert instructions.read_text(encoding="utf-8") == "Keep this rule.\n"
-    assert (tmp_path / ".molicoder" / ".gitignore").read_text(encoding="utf-8") == "logs/\n"
+    ignored = (tmp_path / ".molicoder" / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert ignored == ["logs/", "plans/", "tasks/", "runs/", "failures/", "worktrees/"]
 
 
 def test_unknown_non_git_folder_is_supported(tmp_path) -> None:

@@ -20,6 +20,9 @@ class ExecutionResult:
     tool_calls: int
     error: str = ""
     trace: tuple[str, ...] = ()
+    prompt_tokens: int = 0
+    output_tokens: int = 0
+    seconds: float = 0.0
 
 
 class AgentExecutor:
@@ -72,12 +75,20 @@ class AgentExecutor:
         ]
         started = time.monotonic()
         tool_count = 0
+        prompt_tokens = 0
+        output_tokens = 0
         trace: list[str] = []
+
+        def result(status: str, final: str, turns: int, error: str = "") -> ExecutionResult:
+            return ExecutionResult(
+                status, final, turns, tool_count, error, tuple(trace),
+                prompt_tokens, output_tokens, time.monotonic() - started,
+            )
         malformed_reprompted = False
         validation_passed = False
         for turn in range(1, self.max_turns + 1):
             if time.monotonic() - started > self.max_seconds:
-                return ExecutionResult("budget_exhausted", "", turn - 1, tool_count, "time budget exceeded", tuple(trace))
+                return result("budget_exhausted", "", turn - 1, "time budget exceeded")
             response = self.gateway.chat(
                 model=self.model,
                 messages=list(messages),
@@ -88,6 +99,8 @@ class AgentExecutor:
                 top_p=self.top_p,
             )
             message = dict(response.message)
+            prompt_tokens += response.metrics.prompt_tokens
+            output_tokens += response.metrics.output_tokens
             content = str(message.get("content", ""))
             try:
                 calls = parse_tool_calls(message)
@@ -96,7 +109,7 @@ class AgentExecutor:
                     raise ToolParseError(f"tool is not available in this task: {unavailable[0]}")
             except ToolParseError as exc:
                 if malformed_reprompted:
-                    return ExecutionResult("failed", content, turn, tool_count, str(exc), tuple(trace))
+                    return result("failed", content, turn, str(exc))
                 malformed_reprompted = True
                 messages.append({"role": "assistant", "content": content})
                 messages.append(
@@ -113,7 +126,7 @@ class AgentExecutor:
             if not calls:
                 if content.strip():
                     if not self.require_validation or validation_passed:
-                        return ExecutionResult("completed", content.strip(), turn, tool_count, trace=tuple(trace))
+                        return result("completed", content.strip(), turn)
                     messages.append({"role": "assistant", "content": content})
                     messages.append(
                         {
@@ -126,7 +139,7 @@ class AgentExecutor:
                         }
                     )
                     continue
-                return ExecutionResult("failed", "", turn, tool_count, "model returned an empty response", tuple(trace))
+                return result("failed", "", turn, "model returned an empty response")
             # The installed Qwen often emits valid calls as JSON in content. Convert
             # every parsed call back to the canonical Ollama conversation shape so the
             # next model turn sees a real tool interaction, not assistant prose.
@@ -176,4 +189,4 @@ class AgentExecutor:
                         }
                     )
                     break
-        return ExecutionResult("budget_exhausted", "", self.max_turns, tool_count, "turn budget exceeded", tuple(trace))
+        return result("budget_exhausted", "", self.max_turns, "turn budget exceeded")

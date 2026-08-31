@@ -66,6 +66,10 @@ class TaskRecord:
     status: str
     risk: str
     attempts: int
+    worktree: str | None = None
+    branch: str | None = None
+    base_commit: str | None = None
+    changed_paths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

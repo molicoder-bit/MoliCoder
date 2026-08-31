@@ -46,3 +46,26 @@ def test_repair_stops_on_identical_fingerprint_three_times() -> None:
     assert outcome.reason == "stuck"
     assert outcome.attempts == 3
 
+
+def test_repair_loop_uses_one_external_strategy_after_local_stall() -> None:
+    calls = []
+
+    def execute(prompt):
+        calls.append(prompt)
+        if len(calls) == 4:
+            return ExecutionResult("completed", "fixed", 1, 1)
+        return ExecutionResult("failed", "", 1, 1, "same error")
+
+    rescues = []
+    loop = RepairLoop(
+        execute=execute,
+        diagnose=lambda _failure: "local diagnosis",
+        rescue=lambda packet: rescues.append(packet) or "external strategy",
+        max_attempts=4,
+    )
+
+    outcome = loop.run("fix it")
+
+    assert outcome.status == "completed"
+    assert len(rescues) == 1
+    assert "external strategy" in calls[-1]

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-model-chat"
-version = "0.4.0"
-description = "A private, native desktop chat interface for local Ollama models."
+version = "1.0.0"
+description = "A local-first desktop coding orchestrator with Ollama execution and optional Codex consulting."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -25,6 +25,9 @@ molicoder-exec = "local_model_chat.molicoder.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+local_model_chat = ["molicoder/planner/plan.schema.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

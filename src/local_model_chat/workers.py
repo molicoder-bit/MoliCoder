@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from PySide6.QtCore import QThread, Signal
 
 from .domain import GenerationMetrics
@@ -74,6 +75,25 @@ class OrchestrationWorker(QThread):
         self.orchestrator = orchestrator
         self.request = request
         self.mode = mode
+        self._cancelled = threading.Event()
+        self._resume = threading.Event()
+        self._resume.set()
+        self.orchestrator.should_cancel = self._cancelled.is_set
+        self.orchestrator.wait_if_paused = self._resume.wait
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+        self._resume.set()
+
+    def pause(self) -> None:
+        self._resume.clear()
+
+    def resume(self) -> None:
+        self._resume.set()
+
+    @property
+    def paused(self) -> bool:
+        return not self._resume.is_set()
 
     def relay_event(self, kind: str, payload: dict) -> None:
         self.event.emit(kind, payload)

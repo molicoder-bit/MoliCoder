@@ -52,7 +52,7 @@ def ensure_project_state(root: str | Path) -> ProjectState:
         raise ValueError(f"project folder does not exist: {path}")
     state_dir = path / ".molicoder"
     state_dir.mkdir(parents=True, exist_ok=True)
-    for child in ("plans", "tasks", "runs", "logs", "failures"):
+    for child in ("plans", "tasks", "runs", "logs", "failures", "skills"):
         (state_dir / child).mkdir(exist_ok=True)
     config_path = state_dir / "project.json"
     if config_path.is_file():
@@ -79,8 +79,11 @@ def ensure_project_state(root: str | Path) -> ProjectState:
             newline="",
         )
     ignore = state_dir / ".gitignore"
-    if not ignore.exists():
-        ignore.write_text("logs/\n", encoding="utf-8", newline="")
+    ignored = ("logs/", "plans/", "tasks/", "runs/", "failures/", "worktrees/")
+    existing = ignore.read_text(encoding="utf-8").splitlines() if ignore.exists() else []
+    missing = [entry for entry in ignored if entry not in existing]
+    if missing:
+        ignore.write_text("\n".join(existing + missing) + "\n", encoding="utf-8", newline="")
     return ProjectState(path, str(config["kind"]), config)
 
 

@@ -4,7 +4,7 @@ a = Analysis(
     ["run_app.py"],
     pathex=["src"],
     binaries=[],
-    datas=[],
+    datas=[("src/local_model_chat/molicoder/planner/plan.schema.json", "local_model_chat/molicoder/planner")],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
