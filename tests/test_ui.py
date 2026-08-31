@@ -9,7 +9,7 @@ class FakeClient:
 
     def tags(self):
         return [
-            {"name": "local-coding:latest"},
+            {"name": "molicoder:latest"},
             {"name": "local-reasoning:latest"},
         ]
 
@@ -30,8 +30,8 @@ def test_main_window_starts_and_creates_initial_chat(qtbot, tmp_path) -> None:
     qtbot.waitUntil(lambda: window.startup_worker is None)
     assert window.current_conversation_id is not None
     assert window.model_combo.count() == 2
-    assert window.preset.name == "local-coding:latest"
-    assert "8,192" in window.model_badge.text()
+    assert window.preset.name == "molicoder:latest"
+    assert "16,384" in window.model_badge.text()
     assert "reserved output" in window.context_label.text()
 
 

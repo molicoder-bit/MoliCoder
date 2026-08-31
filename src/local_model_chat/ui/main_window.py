@@ -131,7 +131,7 @@ class MainWindow(QMainWindow):
         self.model_combo = QComboBox()
         for preset in MODEL_PRESETS.values():
             self.model_combo.addItem(f"{preset.label}  ·  {preset.role}", preset.name)
-        default_index = self.model_combo.findData("local-coding:latest")
+        default_index = self.model_combo.findData("molicoder:latest")
         self.model_combo.setCurrentIndex(max(0, default_index))
         self.model_combo.currentIndexChanged.connect(self._model_changed)
         model_row.addWidget(self.model_combo)
