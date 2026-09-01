@@ -13,6 +13,17 @@ a = Analysis(
     noarchive=False,
     optimize=1,
 )
+
+# Codex and document-tool runtimes can add their own ICU builds to PATH. Qt on
+# Windows uses the operating system ICU ABI, so packaging a PATH-provided ICU
+# can make QtGui fail at import time with ERROR_PROC_NOT_FOUND.
+excluded_host_binaries = {"icuuc.dll", "icuin.dll", "icudt.dll"}
+a.binaries = [
+    binary
+    for binary in a.binaries
+    if binary[0].replace("\\", "/").rsplit("/", 1)[-1].lower() not in excluded_host_binaries
+]
+
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,

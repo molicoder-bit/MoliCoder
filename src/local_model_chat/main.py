@@ -11,6 +11,8 @@ from .ui.styles import APP_STYLESHEET
 
 
 def main() -> int:
+    if "--package-health-check" in sys.argv:
+        return 0
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("molicoder-bit")
@@ -24,4 +26,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

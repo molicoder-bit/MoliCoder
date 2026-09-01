@@ -85,6 +85,15 @@ The app attempts to start Ollama if it is installed but not running. It never do
 ```
 
 The build is written to `dist\MoliCoder`. Installation copies it to `%LOCALAPPDATA%\Programs\MoliCoder` and creates a desktop shortcut.
+Launch the installed app from the **MoliCoder** desktop shortcut or run:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\MoliCoder\MoliCoder.exe"
+```
+
+The build performs a packaged-import health check before it can succeed. Its PyInstaller
+configuration also excludes unrelated ICU DLLs inherited from developer-tool `PATH` entries,
+which would otherwise conflict with Qt's Windows system interface.
 
 ## Privacy and storage
 
