@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ..domain import Project
 from ..storage import ChatStore
-from .projectstate import ensure_project_state
+from .projectstate import bootstrap_project, ensure_project_state
 
 
 _SELECTED_PROJECT_SETTING = "molicoder.selected_project_id"
@@ -26,6 +26,10 @@ class ProjectRegistry:
         )
         self.select(project.id)
         return self.store.get_project(project.id) or project
+
+    def create(self, parent: str | Path, name: str, kind: str) -> Project:
+        state = bootstrap_project(parent, name, kind)
+        return self.add(state.root, name=name)
 
     def list(self) -> list[Project]:
         return self.store.list_projects()

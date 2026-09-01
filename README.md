@@ -33,7 +33,14 @@ The app talks only to Ollama on `http://127.0.0.1:11434`. Conversations are stor
 
 ## Local Build mode
 
-Add a project in the sidebar, switch to **Build**, and start from any clean, named Git branch.
+For a new application, click **New** beside **Projects**, choose a parent folder, enter a
+project name, and select Python, Node.js, or Flutter. MoliCoder creates the folder, language
+marker, local metadata, Git repository, and initial commit, then opens a build-ready project.
+Python projects also receive an isolated `.venv` with the pinned test runner; this one-time setup
+downloads `pytest` from PyPI but requires no account or API key.
+
+To work on an existing repository, click **Add** and select it. Existing projects must start from
+a clean, named Git branch.
 Enter a small, mechanically verifiable request and MoliCoder will
 collect evidence, produce a validated plan, execute dependency-ready tasks with safe overlap, run the
 project's fixed validation commands, and retry bounded failures with fresh context. Task edits

@@ -128,7 +128,11 @@ class MainWindow(QMainWindow):
         projects_label.setObjectName("sectionTitle")
         projects_row.addWidget(projects_label)
         projects_row.addStretch()
-        add_project = QPushButton("＋ Add")
+        new_project = QPushButton("＋ New")
+        new_project.setObjectName("primary")
+        new_project.clicked.connect(self._create_project)
+        projects_row.addWidget(new_project)
+        add_project = QPushButton("Add")
         add_project.setObjectName("ghost")
         add_project.clicked.connect(self._add_project)
         projects_row.addWidget(add_project)
@@ -761,6 +765,38 @@ class MainWindow(QMainWindow):
             self._add_project_path(path)
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Could not add project", str(exc))
+
+    def _create_project(self) -> None:
+        parent = QFileDialog.getExistingDirectory(self, "Choose where to create the project")
+        if not parent:
+            return
+        name, accepted = QInputDialog.getText(self, "New project", "Project name")
+        if not accepted or not name.strip():
+            return
+        language, accepted = QInputDialog.getItem(
+            self,
+            "New project",
+            "Language",
+            ["Python", "Node.js", "Flutter"],
+            0,
+            False,
+        )
+        if not accepted:
+            return
+        kinds = {"Python": "python", "Node.js": "node", "Flutter": "flutter"}
+        try:
+            self.build_status.setText("Creating the project, local environment, and initial Git commit…")
+            QApplication.processEvents()
+            self._create_project_at(parent, name, kinds[language])
+        except (OSError, ValueError) as exc:
+            self._refresh_build_readiness()
+            QMessageBox.critical(self, "Could not create project", str(exc))
+
+    def _create_project_at(self, parent: str | Path, name: str, kind: str) -> Project:
+        project = self.registry.create(parent, name, kind)
+        self._load_project_list(select_id=project.id)
+        self._set_view("build")
+        return project
 
     def _add_project_path(self, path: str | Path) -> Project:
         project = self.registry.add(path)

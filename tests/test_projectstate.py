@@ -38,3 +38,13 @@ def test_unknown_non_git_folder_is_supported(tmp_path) -> None:
     state = ensure_project_state(tmp_path)
     assert state.kind == "unknown"
 
+
+def test_unknown_metadata_upgrades_after_a_language_marker_is_added(tmp_path) -> None:
+    assert ensure_project_state(tmp_path).kind == "unknown"
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='upgrade'\n", encoding="utf-8")
+
+    upgraded = ensure_project_state(tmp_path)
+
+    assert upgraded.kind == "python"
+    assert upgraded.config["validation"][0]["name"] == "pytest"
+

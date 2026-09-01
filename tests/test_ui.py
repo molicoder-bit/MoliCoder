@@ -105,6 +105,25 @@ def test_project_shell_adds_project_and_switches_views(qtbot, tmp_path) -> None:
     assert window.view_stack.currentWidget() is window.chat_view
 
 
+def test_new_project_is_immediately_ready_for_a_build(qtbot, tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "local_model_chat.molicoder.projectstate._setup_python_environment",
+        lambda _root: None,
+    )
+    window = MainWindow(ChatStore(tmp_path / "new-project.sqlite3"), FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: window.startup_worker is None)
+
+    project = window._create_project_at(tmp_path, "ready-project", "python")
+    window._set_view("build")
+    window.build_request.setPlainText("Create a small expense tracker with tests")
+
+    assert project.kind == "python"
+    assert window.registry.selected().id == project.id
+    assert window.build_run_button.isEnabled()
+    assert "Ready" in window.build_status.text()
+
+
 def test_build_run_requires_clean_named_branch_and_request(qtbot, tmp_path) -> None:
     project = tmp_path / "safe-project"
     project.mkdir()

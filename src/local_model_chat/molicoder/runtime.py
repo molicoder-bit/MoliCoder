@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import shutil
 from pathlib import Path
 from typing import Callable
 
@@ -23,7 +24,15 @@ from .skills import SkillLibrary
 
 def _python_executable(root: Path) -> str:
     candidates = (root / ".venv" / "Scripts" / "python.exe", root / ".venv" / "bin" / "python")
-    return str(next((candidate for candidate in candidates if candidate.is_file()), Path(sys.executable)))
+    project_python = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if project_python is not None:
+        return str(project_python)
+    if getattr(sys, "frozen", False):
+        system_python = shutil.which("python") or shutil.which("python3")
+        if not system_python:
+            raise ValueError("Python validation requires a project .venv or Python installed in PATH")
+        return system_python
+    return sys.executable
 
 
 def build_validator(root: str | Path) -> ProjectValidator:
