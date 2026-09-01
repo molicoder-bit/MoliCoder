@@ -51,3 +51,5 @@ def test_installer_uses_a_clean_staged_directory_and_preserves_a_backup() -> Non
     assert "$stagingRoot" in script
     assert "$backupRoot" in script
     assert "Move-Item -LiteralPath $installRoot" in script
+    assert "Get-CimInstance Win32_Process" in script
+    assert "Remove-Item -LiteralPath $stagingRoot" in script

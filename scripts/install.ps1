@@ -18,6 +18,15 @@ foreach ($target in @($installRoot, $stagingRoot, $backupRoot)) {
     }
 }
 
+$installedExecutable = Join-Path $installRoot "MoliCoder.exe"
+$runningInstall = Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -eq "MoliCoder.exe" -and
+    $_.ExecutablePath -eq $installedExecutable
+}
+if ($runningInstall) {
+    throw "Close MoliCoder before installing the update. Running process: $($runningInstall.ProcessId -join ', ')"
+}
+
 New-Item -ItemType Directory -Path $stagingRoot | Out-Null
 Copy-Item -Path (Join-Path $source "*") -Destination $stagingRoot -Recurse -Force
 
@@ -31,6 +40,9 @@ try {
 } catch {
     if ($backupCreated -and -not (Test-Path -LiteralPath $installRoot)) {
         Move-Item -LiteralPath $backupRoot -Destination $installRoot -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $stagingRoot) {
+        Remove-Item -LiteralPath $stagingRoot -Recurse -Force
     }
     throw
 }
