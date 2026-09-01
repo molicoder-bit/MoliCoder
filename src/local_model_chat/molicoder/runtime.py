@@ -35,13 +35,22 @@ def _python_executable(root: Path) -> str:
     return sys.executable
 
 
-def build_validator(root: str | Path) -> ProjectValidator:
+def build_validator(
+    root: str | Path,
+    *,
+    environment_root: str | Path | None = None,
+) -> ProjectValidator:
     state = ensure_project_state(root)
     raw_commands = state.config.get("validation")
     if not isinstance(raw_commands, list) or not raw_commands:
         raise ValueError("project has no validation allowlist in .molicoder/project.json")
     commands: list[ValidationCommand] = []
-    python = _python_executable(state.root)
+    # Git worktrees intentionally exclude the project's ignored .venv. Resolve
+    # Python from the source checkout while still running validation in the
+    # isolated worktree.
+    python = _python_executable(
+        Path(environment_root).resolve() if environment_root is not None else state.root
+    )
     for raw in raw_commands:
         if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
             raise ValueError("invalid validation command in .molicoder/project.json")
@@ -119,7 +128,7 @@ def build_orchestrator(
     planner = RoutedPlanner(mode, local=local_planner, external=external_planner)
 
     def execute(worktree: Path, objective: str) -> RepairOutcome:
-        validator = build_validator(worktree)
+        validator = build_validator(worktree, environment_root=root)
         dispatcher = ToolDispatcher(worktree, validation=validator.run_and_summarize)
         executor = AgentExecutor(
             gateway=gateway,
@@ -143,7 +152,9 @@ def build_orchestrator(
         planner=planner,
         execute_task=execute,
         repair_conflict=execute,
-        validate_integration=lambda worktree: build_validator(worktree).run_and_summarize(),
+        validate_integration=lambda worktree: build_validator(
+            worktree, environment_root=root
+        ).run_and_summarize(),
         review_integration=consultant.review if consultant and mode.upper() == "FRONTIER_PLAN" else None,
         external_sources=(consultant,) if consultant else (),
         max_workers=AdaptiveConcurrency(max_workers=4).recommend(project.kind),

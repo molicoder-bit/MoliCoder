@@ -76,8 +76,21 @@ class WorktreeManager:
     def create_integration(self) -> TaskWorkspace:
         return self._create("integration", f"molicoder/run-{self.run_id}/integration")
 
+    def _stage_changes(self, workspace: Path) -> None:
+        # Validation must never turn interpreter/test caches into task output,
+        # even when an imported repository has no useful .gitignore yet.
+        self._git(
+            "add", "-A", "--", ".",
+            ":(glob,exclude)**/__pycache__/**",
+            ":(glob,exclude)**/*.pyc",
+            ":(glob,exclude)**/*.pyo",
+            ":(glob,exclude)**/.pytest_cache/**",
+            ":(exclude).pytest_cache/**",
+            cwd=workspace,
+        )
+
     def commit(self, workspace: TaskWorkspace, message: str) -> tuple[str, ...]:
-        self._git("add", "-A", cwd=workspace.path)
+        self._stage_changes(workspace.path)
         names = self._git("diff", "--cached", "--name-only", "--", cwd=workspace.path).stdout.splitlines()
         paths = tuple(sorted(path.strip().replace("\\", "/") for path in names if path.strip()))
         if not paths:
@@ -116,7 +129,7 @@ class WorktreeManager:
                 content = target.read_text(encoding="utf-8", errors="replace")
                 if "<<<<<<<" in content or "=======" in content or ">>>>>>>" in content:
                     raise IntegrationConflict(paths, "conflict markers remain after repair")
-        self._git("add", "-A", cwd=integration.path)
+        self._stage_changes(integration.path)
         names = self._git(
             "diff", "--cached", "--name-only", "--", cwd=integration.path
         ).stdout.splitlines()

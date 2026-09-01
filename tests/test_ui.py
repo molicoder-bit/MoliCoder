@@ -150,3 +150,38 @@ def test_build_run_requires_clean_named_branch_and_request(qtbot, tmp_path) -> N
     window._update_build_project(window.registry.selected())
     assert not window.build_run_button.isEnabled()
     assert "clean" in window.build_status.text().lower()
+
+
+def test_build_failure_shows_diagnostics_and_run_log(qtbot, tmp_path) -> None:
+    window = MainWindow(ChatStore(tmp_path / "diagnostics.sqlite3"), FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: window.startup_worker is None)
+    run_log = tmp_path / "project" / ".molicoder" / "logs" / "run-7.jsonl"
+
+    window._build_event(
+        "run_started",
+        {"request": "build a calculator", "mode": "LOCAL_ONLY", "log_path": str(run_log)},
+    )
+    window._build_event(
+        "task_failed",
+        {
+            "key": "task-1",
+            "title": "Create project structure",
+            "reason": "attempt_budget",
+            "executor_error": "turn budget exceeded",
+            "turns": 4,
+            "tool_calls": 0,
+            "prompt_tokens": 7053,
+            "output_tokens": 240,
+            "trace": ["turn 4: no tool call; model said: I should inspect first"],
+            "worktree": str(tmp_path / "worktree"),
+        },
+    )
+
+    assert window.last_run_log_path == run_log
+    assert window.build_log_button.isEnabled()
+    details = window.build_details.toPlainText().lower()
+    assert "turn budget exceeded" in details
+    assert "no tool call" in details
+    assert "7,053" in details
+    assert "run log" in details

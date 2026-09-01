@@ -166,15 +166,47 @@ def _content_json(content: str) -> Any | None:
     return values
 
 
+def _embedded_tool_values(content: str) -> list[Any]:
+    """Recover strict JSON calls from the common prose/code style of small local models."""
+    decoder = json.JSONDecoder()
+    located: list[tuple[int, int, Any]] = []
+    function_names = "|".join(re.escape(name) for name in _ARGUMENTS)
+    for match in re.finditer(rf"\b({function_names})\s*\(\s*", content):
+        try:
+            arguments, end = decoder.raw_decode(content, match.end())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(arguments, dict):
+            located.append(
+                (match.start(), end, {"name": match.group(1), "arguments": arguments})
+            )
+
+    function_spans = [(start, end) for start, end, _value in located]
+    for start, character in enumerate(content):
+        if character != "{" or any(left <= start < right for left, right in function_spans):
+            continue
+        try:
+            value, end = decoder.raw_decode(content, start)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and ("name" in value or "function" in value):
+            located.append((start, end, value))
+
+    located.sort(key=lambda item: item[0])
+    return [value for _start, _end, value in located]
+
+
 def parse_tool_calls(message: dict[str, Any]) -> list[ToolCall]:
     structured = message.get("tool_calls")
     if structured is not None:
         if not isinstance(structured, list):
             raise ToolParseError("message.tool_calls must be a list")
         return [_validate_call(item) for item in structured]
-    decoded = _content_json(str(message.get("content", "")))
+    content = str(message.get("content", ""))
+    decoded = _content_json(content)
     if decoded is None:
-        return []
+        values = _embedded_tool_values(content)
+        return [_validate_call(item) for item in values]
     values = decoded if isinstance(decoded, list) else [decoded]
     return [_validate_call(item) for item in values]
 

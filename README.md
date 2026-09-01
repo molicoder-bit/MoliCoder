@@ -19,13 +19,13 @@ The app talks only to Ollama on `http://127.0.0.1:11434`. Conversations are stor
 - Per-model generation controls and automatic model switching via a new chat
 - Keyboard-first composing: Enter sends; Shift+Enter inserts a new line
 - Bounded local executor with a serialized inference lane and mandatory validation gate
-- Tolerant Ollama tool parsing, including Qwen's bare and fenced JSON variants
+- Tolerant Ollama tool parsing, including Qwen's bare, fenced, and function-style variants
 - Worktree-confined file tools, sensitive-path denial, and fixed validation commands
 - Persistent local-project registry with Python, Node, and Flutter detection
 - Per-project `.molicoder` metadata, evidence, plans, task records, and run history
-- Functional local-only Build workspace with guarded branches and a live event timeline
+- Functional local-only Build workspace with guarded branches, detailed failures, and a live event timeline
 - Local Qwen multi-task planning with schema repair and dependency ordering
-- Sequential validated execution with fresh-context repair and failure fingerprinting
+- Dependency-aware validated execution with fresh-context repair and failure fingerprinting
 - Isolated Git task worktrees, dependency scheduling, integration merging, and conflict repair
 - Optional read-only Codex CLI planning, rescue, and integration review with local fallback
 - Adaptive CPU/GPU overlap, reusable project skills, and run-effectiveness analytics
@@ -46,6 +46,11 @@ collect evidence, produce a validated plan, execute dependency-ready tasks with 
 project's fixed validation commands, and retry bounded failures with fresh context. Task edits
 occur in isolated `molicoder/run-*/...` branches; the current checkout is changed only when you
 explicitly confirm **Merge integration branch**.
+
+Every build writes a structured JSONL audit trail to
+`.molicoder/logs/run-<id>.jsonl`. Select a failed event to see its model replies, tool calls,
+token usage, validation error, and worktree in the app, or click **Open run log** for the full
+timeline. Validation command output is stored beside it in the active task worktree.
 
 Build modes:
 
@@ -108,6 +113,7 @@ which would otherwise conflict with Qt's Windows system interface.
 - Default exports: `%LOCALAPPDATA%\LocalModelChat\exports`
 - API endpoint: loopback only (`127.0.0.1`)
 - Task worktrees: `%LOCALAPPDATA%\LocalModelChat\worktrees`
+- Build audit logs: `<project>\.molicoder\logs\run-<id>.jsonl`
 - Attached files are embedded as text in the prompt and saved with the message.
 
 Deleting chats is permanent. Back up the SQLite file if the history matters.

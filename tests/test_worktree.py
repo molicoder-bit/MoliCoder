@@ -98,3 +98,23 @@ def test_default_worktree_paths_distinguish_same_named_repositories(tmp_path, mo
     second_manager = WorktreeManager(second, run_id=1)
 
     assert first_manager.base_dir != second_manager.base_dir
+
+
+def test_task_commit_excludes_python_cache_artifacts(tmp_path) -> None:
+    root = _repo(tmp_path)
+    manager = WorktreeManager(root, run_id=10, base_dir=tmp_path / "trees")
+    workspace = manager.create_task("cache-safe")
+    (workspace.path / "feature.py").write_text("value = 1\n", encoding="utf-8")
+    cache = workspace.path / "__pycache__"
+    cache.mkdir()
+    (cache / "feature.cpython-313.pyc").write_bytes(b"generated")
+    pytest_cache = workspace.path / ".pytest_cache"
+    pytest_cache.mkdir()
+    (pytest_cache / "README.md").write_text("generated\n", encoding="utf-8")
+
+    changed = manager.commit(workspace, "cache-safe task")
+
+    assert changed == ("feature.py",)
+    tracked = _git(workspace.path, "ls-tree", "-r", "--name-only", "HEAD").stdout
+    assert "__pycache__" not in tracked
+    assert ".pytest_cache" not in tracked

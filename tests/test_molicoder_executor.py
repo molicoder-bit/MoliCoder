@@ -164,3 +164,25 @@ def test_failed_validation_immediately_requests_repair(tmp_path) -> None:
     correction = gateway.requests[1][-1]["content"].lower()
     assert "validation failed" in correction
     assert "read the failing test" in correction
+
+
+def test_executor_keeps_actionable_diagnostics_when_model_never_calls_a_tool(tmp_path) -> None:
+    gateway = FakeGateway(
+        [
+            {"content": "I will create the requested project structure."},
+            {"content": "First I should inspect the repository."},
+        ]
+    )
+    executor = AgentExecutor(
+        gateway=gateway,
+        dispatcher=ToolDispatcher(tmp_path, validation=lambda: "validation passed"),
+        model="molicoder:latest",
+        max_turns=2,
+    )
+
+    result = executor.run("Create the project structure")
+
+    assert result.status == "budget_exhausted"
+    assert result.error == "turn budget exceeded"
+    assert any("no tool call" in entry.lower() for entry in result.trace)
+    assert any("inspect the repository" in entry.lower() for entry in result.trace)

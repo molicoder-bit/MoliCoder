@@ -44,7 +44,8 @@ def test_worktree_orchestrator_integrates_without_touching_checkout(tmp_path) ->
 
     def execute(worktree, objective):
         barrier.wait()
-        (worktree / f"{objective}.txt").write_text(objective + "\n", encoding="utf-8")
+        task_name = "alpha" if "Assigned task: Alpha" in objective else "beta"
+        (worktree / f"{task_name}.txt").write_text(task_name + "\n", encoding="utf-8")
         result = ExecutionResult("completed", "done", 1, 1)
         return RepairOutcome("completed", 1, result, (), "")
 
@@ -149,3 +150,155 @@ def test_worktree_orchestrator_honors_cancellation_before_planning(tmp_path) -> 
 
     assert result.status == "cancelled"
     assert result.total_tasks == 0
+
+
+def test_failed_task_event_contains_executor_diagnostics(tmp_path) -> None:
+    root = tmp_path / "failed-repo"
+    root.mkdir()
+    (root / "pyproject.toml").write_text("[project]\nname='sample'\n", encoding="utf-8")
+    store = ChatStore(tmp_path / "failed.sqlite3")
+    project = ProjectRegistry(store).add(root)
+    _git(root, "init", "-b", "main")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "base")
+
+    def execute(_worktree, _objective):
+        execution = ExecutionResult(
+            "budget_exhausted",
+            "",
+            4,
+            0,
+            "turn budget exceeded",
+            ("turn 4: no tool call; model said: I should inspect first",),
+            7053,
+            240,
+            3.65,
+        )
+        return RepairOutcome("failed", 4, execution, ("fingerprint",), "attempt_budget")
+
+    events = []
+    orchestrator = WorktreeOrchestrator(
+        store=store,
+        project=project,
+        planner=TwoFilePlanner(),
+        execute_task=execute,
+        validate_integration=lambda _path: "validation passed",
+        worktree_base=tmp_path / "failed-trees",
+        max_workers=1,
+        on_event=lambda kind, payload: events.append((kind, payload)),
+    )
+
+    result = orchestrator.run("fail visibly")
+
+    assert result.status == "failed"
+    failure_payload = next(payload for kind, payload in events if kind == "task_failed")
+    assert failure_payload["reason"] == "attempt_budget"
+    assert failure_payload["executor_error"] == "turn budget exceeded"
+    assert failure_payload["turns"] == 4
+    assert failure_payload["tool_calls"] == 0
+    assert "inspect first" in failure_payload["trace"][-1]
+
+
+def test_worker_receives_original_request_plan_context_and_expected_paths(tmp_path) -> None:
+    root = tmp_path / "context-repo"
+    root.mkdir()
+    (root / "pyproject.toml").write_text("[project]\nname='sample'\n", encoding="utf-8")
+    store = ChatStore(tmp_path / "context.sqlite3")
+    project = ProjectRegistry(store).add(root)
+    _git(root, "init", "-b", "main")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "base")
+
+    class OneTaskPlanner:
+        provider = "test"
+
+        def plan(self, _packet):
+            return parse_plan(
+                {
+                    "objective": "Design a calculator with a fancy UI",
+                    "tasks": [
+                        {
+                            "key": "structure",
+                            "title": "Create project structure",
+                            "objective": "Set up the basic project structure.",
+                            "risk": "low",
+                            "depends_on": [],
+                            "expected_paths": ["src/calculator/ui.py", "tests/test_calculator.py"],
+                        }
+                    ],
+                }
+            )
+
+    received = []
+
+    def execute(worktree, objective):
+        received.append(objective)
+        (worktree / "created.txt").write_text("done\n", encoding="utf-8")
+        return RepairOutcome("completed", 1, ExecutionResult("completed", "done", 1, 1), (), "")
+
+    orchestrator = WorktreeOrchestrator(
+        store=store,
+        project=project,
+        planner=OneTaskPlanner(),
+        execute_task=execute,
+        validate_integration=lambda _path: "validation passed",
+        worktree_base=tmp_path / "context-trees",
+    )
+
+    result = orchestrator.run("Ok design me a calculator with a fancy UI")
+
+    assert result.status == "completed"
+    assert len(received) == 1
+    worker_prompt = received[0]
+    assert "Ok design me a calculator with a fancy UI" in worker_prompt
+    assert "Design a calculator with a fancy UI" in worker_prompt
+    assert "Create project structure" in worker_prompt
+    assert "Set up the basic project structure." in worker_prompt
+    assert "src/calculator/ui.py" in worker_prompt
+    assert "tests/test_calculator.py" in worker_prompt
+    assert "Verified repository paths" in worker_prompt
+    assert "pyproject.toml" in worker_prompt
+
+
+def test_parallel_worker_statuses_are_finalized_when_a_sibling_fails(tmp_path) -> None:
+    root = tmp_path / "parallel-failure-repo"
+    root.mkdir()
+    (root / "pyproject.toml").write_text("[project]\nname='sample'\n", encoding="utf-8")
+    store = ChatStore(tmp_path / "parallel-failure.sqlite3")
+    project = ProjectRegistry(store).add(root)
+    _git(root, "init", "-b", "main")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "base")
+    barrier = threading.Barrier(2, timeout=5)
+
+    def execute(worktree, objective):
+        barrier.wait()
+        if "Assigned task: Alpha" in objective:
+            execution = ExecutionResult("failed", "", 1, 0, "model refused")
+            return RepairOutcome("failed", 1, execution, ("failed",), "attempt_budget")
+        (worktree / "beta.txt").write_text("beta\n", encoding="utf-8")
+        execution = ExecutionResult("completed", "done", 1, 1)
+        return RepairOutcome("completed", 1, execution, (), "")
+
+    orchestrator = WorktreeOrchestrator(
+        store=store,
+        project=project,
+        planner=TwoFilePlanner(),
+        execute_task=execute,
+        validate_integration=lambda _path: "validation passed",
+        worktree_base=tmp_path / "parallel-failure-trees",
+        max_workers=2,
+    )
+
+    result = orchestrator.run("run parallel tasks")
+
+    assert result.status == "failed"
+    statuses = {record.key: record.status for record in store.list_run_tasks(result.run_id)}
+    assert "running" not in statuses.values()
+    assert statuses == {"alpha": "failed", "beta": "completed"}

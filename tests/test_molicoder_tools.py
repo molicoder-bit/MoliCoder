@@ -62,6 +62,35 @@ def test_parses_explicit_json_tool_fence_inside_explanatory_prose() -> None:
     assert parse_tool_calls({"content": content}) == [ToolCall("run_validation", {})]
 
 
+def test_parses_json_tool_call_from_python_fence_emitted_by_local_model() -> None:
+    content = (
+        "Let's run validation now.\n"
+        "```python\n"
+        '{"name": "run_validation", "arguments": {}}\n'
+        "```\n"
+        "If it fails I will repair it."
+    )
+
+    assert parse_tool_calls({"content": content}) == [ToolCall("run_validation", {})]
+
+
+def test_parses_function_style_calls_emitted_by_local_model() -> None:
+    content = (
+        "I will create the files.\n"
+        "```python\n"
+        'write_file({"path":"alpha.py","content":"def value():\\n    return \'new-a\'\\n"})\n'
+        'write_file({"path":"test_alpha.py","content":"from alpha import value\\n"})\n'
+        "```\n"
+        'Then validate: {"name":"run_validation","arguments":{}}'
+    )
+
+    assert parse_tool_calls({"content": content}) == [
+        ToolCall("write_file", {"path": "alpha.py", "content": "def value():\n    return 'new-a'\n"}),
+        ToolCall("write_file", {"path": "test_alpha.py", "content": "from alpha import value\n"}),
+        ToolCall("run_validation", {}),
+    ]
+
+
 def test_malformed_call_is_rejected() -> None:
     with pytest.raises(ToolParseError, match="required argument"):
         parse_tool_calls({"content": '{"name":"write_file","arguments":{"path":"a.py"}}'})

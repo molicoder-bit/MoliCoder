@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Protocol
 
@@ -46,11 +48,24 @@ class Phase2Orchestrator:
         self.planner = planner
         self.repair = repair
         self.on_event = on_event
+        self._event_log_lock = threading.Lock()
         if not self.root.is_dir():
             raise ValueError(f"project folder does not exist: {self.root}")
 
     def _event(self, run_id: int, kind: str, payload: dict, task_id: int | None = None) -> None:
         self.store.add_event(run_id, kind, payload, task_id)
+        log_path = self.root / ".molicoder" / "logs" / f"run-{run_id}.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "timestamp": datetime.now().astimezone().isoformat(timespec="milliseconds"),
+            "run_id": run_id,
+            "task_id": task_id,
+            "kind": kind,
+            "payload": payload,
+        }
+        with self._event_log_lock:
+            with log_path.open("a", encoding="utf-8", newline="") as stream:
+                stream.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
         if self.on_event:
             self.on_event(kind, payload)
 
@@ -64,7 +79,15 @@ class Phase2Orchestrator:
 
     def run(self, request: str, *, mode: str = "LOCAL_ONLY") -> OrchestrationResult:
         run_id = self.store.create_run(self.project.id, request, mode)
-        self._event(run_id, "run_started", {"request": request, "mode": mode})
+        self._event(
+            run_id,
+            "run_started",
+            {
+                "request": request,
+                "mode": mode,
+                "log_path": str(self.root / ".molicoder" / "logs" / f"run-{run_id}.jsonl"),
+            },
+        )
         try:
             packet = Reconnaissance(self.root).build(request)
             self._event(run_id, "recon_completed", packet.to_dict())
@@ -144,6 +167,7 @@ class WorktreeOrchestrator(Phase2Orchestrator):
         self.should_cancel = should_cancel or (lambda: False)
         self.wait_if_paused = wait_if_paused or (lambda: None)
         self.on_event = on_event
+        self._event_log_lock = threading.Lock()
         self.worktree_base = worktree_base
         if not self.root.is_dir():
             raise ValueError(f"project folder does not exist: {self.root}")
@@ -159,6 +183,31 @@ class WorktreeOrchestrator(Phase2Orchestrator):
                     call.input_tokens, call.output_tokens, call.seconds, call.status, task_id,
                 )
                 self._event(run_id, "external_call", asdict(call), task_id)
+
+    def _worker_prompt(
+        self,
+        request: str,
+        plan_objective: str,
+        task,
+        verified_paths: tuple[str, ...],
+    ) -> str:
+        expected = "\n".join(f"- {path}" for path in task.expected_paths) or "- Not specified; inspect the repository."
+        verified = "\n".join(
+            f"- {path}" for path in dict.fromkeys(verified_paths)
+        ) or "- No paths were verified during reconnaissance; start with list_dir at the repository root."
+        return (
+            f"Original development request:\n{request}\n\n"
+            f"Validated plan objective:\n{plan_objective}\n\n"
+            f"Assigned task: {task.title} ({task.key})\n"
+            f"Task objective:\n{task.objective}\n\n"
+            f"Verified repository paths (authoritative for files that already exist):\n{verified}\n\n"
+            f"Expected paths (unverified planning hints for possible edits/new files):\n{expected}\n\n"
+            f"Project type: {self.project.kind}\n"
+            "Implement this assigned task completely in the current isolated worktree. "
+            "Prefer verified existing paths over a conflicting planning hint. Inspect the existing "
+            "files, make concrete edits through the supplied tools, "
+            "and finish by running validation. Do not only describe what should be done."
+        )
 
     def _finish_worktree(
         self,
@@ -188,7 +237,16 @@ class WorktreeOrchestrator(Phase2Orchestrator):
 
     def run(self, request: str, *, mode: str = "LOCAL_ONLY") -> OrchestrationResult:
         run_id = self.store.create_run(self.project.id, request, mode)
-        self._event(run_id, "run_started", {"request": request, "mode": mode, "isolation": "git-worktrees"})
+        self._event(
+            run_id,
+            "run_started",
+            {
+                "request": request,
+                "mode": mode,
+                "isolation": "git-worktrees",
+                "log_path": str(self.root / ".molicoder" / "logs" / f"run-{run_id}.jsonl"),
+            },
+        )
         if self.should_cancel():
             return self._finish_worktree(run_id, "cancelled", 0, 0, error="cancelled by user")
         self.wait_if_paused()
@@ -225,17 +283,37 @@ class WorktreeOrchestrator(Phase2Orchestrator):
             )
             self.store.update_run_task(task_id, "running", 0)
             self._event(run_id, "task_started", asdict(task) | {"worktree": str(workspace.path)}, task_id)
-            outcome = self.execute_task(workspace.path, task.objective)
-            execution = outcome.execution
-            self.store.add_worker_run(
-                task_id, "executor", self.worker_model, "ollama",
-                execution.prompt_tokens, execution.output_tokens, execution.seconds, outcome.status,
+            outcome = self.execute_task(
+                workspace.path,
+                self._worker_prompt(
+                    request,
+                    plan.objective,
+                    task,
+                    packet.relevant_files + packet.architecture,
+                ),
             )
-            for fingerprint in outcome.fingerprints:
+            execution = outcome.execution
+            executions = outcome.executions or (execution,)
+            for attempt, attempted_execution in enumerate(executions, start=1):
+                self.store.add_worker_run(
+                    task_id, f"executor-attempt-{attempt}", self.worker_model, "ollama",
+                    attempted_execution.prompt_tokens, attempted_execution.output_tokens,
+                    attempted_execution.seconds, attempted_execution.status,
+                )
+            failed_executions = executions[:len(outcome.fingerprints)]
+            for attempt, (fingerprint, attempted_execution) in enumerate(
+                zip(outcome.fingerprints, failed_executions), start=1
+            ):
                 self.store.add_failure(
                     task_id,
                     fingerprint,
-                    {"reason": outcome.reason, "status": outcome.status, "attempts": outcome.attempts},
+                    {
+                        "reason": outcome.reason,
+                        "status": outcome.status,
+                        "attempt": attempt,
+                        "executor_error": attempted_execution.error,
+                        "trace": attempted_execution.trace[-12:],
+                    },
                 )
             self._record_external(run_id, task_id)
             changed = ()
@@ -246,6 +324,46 @@ class WorktreeOrchestrator(Phase2Orchestrator):
                     base_commit=workspace.base_commit, changed_paths=changed,
                 )
             return task, workspace, outcome, changed
+
+        def task_failure_payload(task, workspace, outcome) -> dict:
+            execution = outcome.execution
+            executions = outcome.executions or (execution,)
+            return {
+                "key": task.key,
+                "title": task.title,
+                "reason": outcome.reason,
+                "status": outcome.status,
+                "attempts": outcome.attempts,
+                "executor_status": execution.status,
+                "executor_error": execution.error,
+                "turns": sum(item.turns for item in executions),
+                "tool_calls": sum(item.tool_calls for item in executions),
+                "prompt_tokens": sum(item.prompt_tokens for item in executions),
+                "output_tokens": sum(item.output_tokens for item in executions),
+                "trace": [
+                    entry for item in executions for entry in item.trace[-12:]
+                ][-48:],
+                "worktree": str(workspace.path),
+            }
+
+        def task_completed_payload(task, workspace, outcome, changed) -> dict:
+            executions = outcome.executions or (outcome.execution,)
+            return {
+                "key": task.key,
+                "title": task.title,
+                "status": outcome.status,
+                "attempts": outcome.attempts,
+                "turns": sum(item.turns for item in executions),
+                "tool_calls": sum(item.tool_calls for item in executions),
+                "prompt_tokens": sum(item.prompt_tokens for item in executions),
+                "output_tokens": sum(item.output_tokens for item in executions),
+                "final_message": outcome.execution.final_message[:4000],
+                "trace": [
+                    entry for item in executions for entry in item.trace[-12:]
+                ][-48:],
+                "changed_paths": changed,
+                "worktree": str(workspace.path),
+            }
 
         failure = ""
         futures = {}
@@ -280,13 +398,54 @@ class WorktreeOrchestrator(Phase2Orchestrator):
                     if outcome.status != "completed":
                         scheduler.fail(task.key)
                         self.store.update_run_task(task_id, outcome.status, outcome.attempts)
-                        self._event(run_id, "task_failed", {"key": task.key, "reason": outcome.reason}, task_id)
+                        self._event(
+                            run_id, "task_failed",
+                            task_failure_payload(task, workspace, outcome), task_id,
+                        )
                         failure = outcome.reason or outcome.status
+                        if outcome.execution.error:
+                            failure += f" ({outcome.execution.error})"
                         break
                     self.store.update_run_task(task_id, "completed", outcome.attempts)
                     scheduler.complete(task.key, changed)
                     completed += 1
-                    self._event(run_id, "task_completed", {"key": task.key, "changed_paths": changed}, task_id)
+                    self._event(
+                        run_id, "task_completed",
+                        task_completed_payload(task, workspace, outcome, changed), task_id,
+                    )
+        # A sibling can fail while another parallel worker is still finishing.
+        # Drain those results so the database and event log never leave a task
+        # falsely marked as running.
+        if failure and futures:
+            for future, scheduled_task in tuple(futures.items()):
+                task_id = task_ids[scheduled_task.key]
+                try:
+                    task, workspace, outcome, changed = future.result()
+                except Exception as exc:
+                    scheduler.fail(scheduled_task.key)
+                    self.store.update_run_task(task_id, "failed", 0)
+                    self._event(
+                        run_id, "task_failed",
+                        {"key": scheduled_task.key, "reason": str(exc), "status": "failed"},
+                        task_id,
+                    )
+                    continue
+                workspaces_by_key[task.key] = workspace
+                if outcome.status == "completed":
+                    scheduler.complete(task.key, changed)
+                    self.store.update_run_task(task_id, "completed", outcome.attempts)
+                    completed += 1
+                    self._event(
+                        run_id, "task_completed",
+                        task_completed_payload(task, workspace, outcome, changed), task_id,
+                    )
+                else:
+                    scheduler.fail(task.key)
+                    self.store.update_run_task(task_id, outcome.status, outcome.attempts)
+                    self._event(
+                        run_id, "task_failed",
+                        task_failure_payload(task, workspace, outcome), task_id,
+                    )
         if failure:
             status = "cancelled" if failure == "cancelled by user" else "failed"
             return self._finish_worktree(run_id, status, completed, len(plan.tasks), error=failure)

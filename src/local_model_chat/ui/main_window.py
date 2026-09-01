@@ -4,8 +4,8 @@ import json
 import subprocess
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QColor
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
     QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMainWindow,
@@ -45,6 +45,7 @@ class MainWindow(QMainWindow):
         self.last_metrics = GenerationMetrics()
         self.last_integration_branch: str | None = None
         self.last_integration_path: Path | None = None
+        self.last_run_log_path: Path | None = None
         self._installed_model_names: set[str] = set()
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setSingleShot(True)
@@ -316,11 +317,16 @@ class MainWindow(QMainWindow):
         status_layout.addWidget(self.build_status)
         self.build_events = QListWidget()
         self.build_events.setMinimumHeight(180)
+        self.build_events.currentItemChanged.connect(self._build_event_selected)
         status_layout.addWidget(self.build_events)
         self.build_details = QTextBrowser()
         self.build_details.setPlaceholderText("Integrated diff and frontier review details appear here.")
         self.build_details.setMinimumHeight(150)
         status_layout.addWidget(self.build_details)
+        self.build_log_button = QPushButton("Open run log")
+        self.build_log_button.setEnabled(False)
+        self.build_log_button.clicked.connect(self._open_build_log)
+        status_layout.addWidget(self.build_log_button)
         self.build_merge_button = QPushButton("Merge integration branch")
         self.build_merge_button.setEnabled(False)
         self.build_merge_button.clicked.connect(self._merge_last_build)
@@ -602,6 +608,8 @@ class MainWindow(QMainWindow):
         self.orchestration_worker = worker
         self.build_events.clear()
         self.build_details.clear()
+        self.last_run_log_path = None
+        self.build_log_button.setEnabled(False)
         self.build_merge_button.setEnabled(False)
         self.build_request.setEnabled(False)
         self.build_mode.setEnabled(False)
@@ -634,10 +642,78 @@ class MainWindow(QMainWindow):
             detail = f" · {payload.get('title') or payload.get('key', '')}"
         elif payload.get("error"):
             detail = f" · {payload['error']}"
-        self.build_events.addItem(f"{labels.get(kind, kind.replace('_', ' ').title())}{detail}")
+        if kind == "task_failed" and payload.get("reason"):
+            detail += f" · {payload['reason']}"
+        item = QListWidgetItem(f"{labels.get(kind, kind.replace('_', ' ').title())}{detail}")
+        item.setData(Qt.ItemDataRole.UserRole, {"kind": kind, "payload": payload})
+        self.build_events.addItem(item)
         self.build_events.scrollToBottom()
+        if kind == "run_started" and payload.get("log_path"):
+            self.last_run_log_path = Path(str(payload["log_path"]))
+            self.build_log_button.setEnabled(True)
+        if kind in {"task_failed", "run_failed", "run_cancelled"}:
+            self.build_events.setCurrentItem(item)
+            self._show_build_event_details(kind, payload)
         if kind == "integration_reviewed" and payload.get("review"):
             self.build_details.setPlainText(str(payload["review"]))
+
+    def _build_event_selected(
+        self, current: QListWidgetItem | None, _previous: QListWidgetItem | None
+    ) -> None:
+        if current is None:
+            return
+        data = current.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(data, dict):
+            return
+        payload = data.get("payload")
+        if isinstance(payload, dict):
+            self._show_build_event_details(str(data.get("kind", "event")), payload)
+
+    def _show_build_event_details(self, kind: str, payload: dict) -> None:
+        labels = {
+            "run_started": "Run started",
+            "task_failed": "Task failed",
+            "run_failed": "Run failed",
+            "run_cancelled": "Run cancelled",
+        }
+        lines = [labels.get(kind, kind.replace("_", " ").title())]
+        if payload.get("title"):
+            lines.append(f"Task: {payload['title']} ({payload.get('key', 'unknown')})")
+        elif payload.get("key"):
+            lines.append(f"Task: {payload['key']}")
+        if payload.get("reason"):
+            lines.append(f"Reason: {payload['reason']}")
+        if payload.get("executor_error"):
+            lines.append(f"Executor error: {payload['executor_error']}")
+        if "turns" in payload or "tool_calls" in payload:
+            lines.append(
+                f"Model activity: {int(payload.get('turns', 0)):,} turns · "
+                f"{int(payload.get('tool_calls', 0)):,} tool calls"
+            )
+        if "prompt_tokens" in payload or "output_tokens" in payload:
+            lines.append(
+                f"Tokens: {int(payload.get('prompt_tokens', 0)):,} prompt · "
+                f"{int(payload.get('output_tokens', 0)):,} output"
+            )
+        if payload.get("worktree"):
+            lines.append(f"Worktree: {payload['worktree']}")
+        trace = payload.get("trace")
+        if isinstance(trace, (list, tuple)) and trace:
+            lines.extend(["", "Executor trace:"])
+            lines.extend(f"  {entry}" for entry in trace)
+        if self.last_run_log_path is not None:
+            lines.extend(["", f"Run log: {self.last_run_log_path}"])
+        self.build_details.setPlainText("\n".join(lines))
+
+    def _open_build_log(self) -> None:
+        if self.last_run_log_path is None:
+            return
+        if not self.last_run_log_path.is_file():
+            QMessageBox.information(
+                self, "Run log not found", f"The run log does not exist yet:\n{self.last_run_log_path}"
+            )
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_run_log_path)))
 
     def _toggle_build_pause(self) -> None:
         worker = self.orchestration_worker

@@ -14,6 +14,7 @@ class RepairOutcome:
     execution: ExecutionResult
     fingerprints: tuple[str, ...]
     reason: str
+    executions: tuple[ExecutionResult, ...] = ()
 
 
 class RepairLoop:
@@ -40,6 +41,7 @@ class RepairLoop:
         diagnosis = ""
         rescue_used = False
         last = ExecutionResult("failed", "", 0, 0, "not started")
+        executions: list[ExecutionResult] = []
         for attempt in range(1, self.max_attempts + 1):
             if attempt == 1:
                 prompt = objective
@@ -55,8 +57,11 @@ class RepairLoop:
                     f"Previous failure:\n{previous}"
                 )
             last = self.execute(prompt)
+            executions.append(last)
             if last.status == "completed":
-                return RepairOutcome("completed", attempt, last, tuple(fingerprints), "")
+                return RepairOutcome(
+                    "completed", attempt, last, tuple(fingerprints), "", tuple(executions)
+                )
             previous = self._failure_text(last)
             fingerprints.append(failure_fingerprint(previous))
             progress = classify_progress(fingerprints)
@@ -68,7 +73,16 @@ class RepairLoop:
                             f"Task:\n{objective}\n\nLocal diagnosis:\n{diagnosis}\n\nFailure:\n{previous}"
                         )
                     except Exception:
-                        return RepairOutcome("escalation_required", attempt, last, tuple(fingerprints), progress)
+                        return RepairOutcome(
+                            "escalation_required", attempt, last, tuple(fingerprints),
+                            progress, tuple(executions)
+                        )
                     continue
-                return RepairOutcome("escalation_required", attempt, last, tuple(fingerprints), progress)
-        return RepairOutcome("failed", self.max_attempts, last, tuple(fingerprints), "attempt_budget")
+                return RepairOutcome(
+                    "escalation_required", attempt, last, tuple(fingerprints),
+                    progress, tuple(executions)
+                )
+        return RepairOutcome(
+            "failed", self.max_attempts, last, tuple(fingerprints),
+            "attempt_budget", tuple(executions)
+        )

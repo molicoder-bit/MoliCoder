@@ -108,6 +108,8 @@ class AgentExecutor:
                 if unavailable:
                     raise ToolParseError(f"tool is not available in this task: {unavailable[0]}")
             except ToolParseError as exc:
+                excerpt = " ".join(content.split())[:1000] or "<empty>"
+                trace.append(f"turn {turn}: invalid tool call ({exc}); model said: {excerpt}")
                 if malformed_reprompted:
                     return result("failed", content, turn, str(exc))
                 malformed_reprompted = True
@@ -125,6 +127,8 @@ class AgentExecutor:
             malformed_reprompted = False
             if not calls:
                 if content.strip():
+                    excerpt = " ".join(content.split())[:1000]
+                    trace.append(f"turn {turn}: no tool call; model said: {excerpt}")
                     if not self.require_validation or validation_passed:
                         return result("completed", content.strip(), turn)
                     messages.append({"role": "assistant", "content": content})
@@ -139,7 +143,12 @@ class AgentExecutor:
                         }
                     )
                     continue
+                trace.append(f"turn {turn}: empty model response")
                 return result("failed", "", turn, "model returned an empty response")
+            trace.append(
+                f"turn {turn}: model requested {len(calls)} tool call(s): "
+                + ", ".join(call.name for call in calls)
+            )
             # The installed Qwen often emits valid calls as JSON in content. Convert
             # every parsed call back to the canonical Ollama conversation shape so the
             # next model turn sees a real tool interaction, not assistant prose.
