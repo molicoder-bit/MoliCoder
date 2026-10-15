@@ -107,3 +107,20 @@ def test_waiting_provider_state_has_visible_recovery(qtbot,tmp_path,status,reaso
     w._load_project_list(select_id=project.id);w._set_view('build')
     assert title in w.work_feedback.text() and not w.work_feedback.isHidden()
     assert w.failure_recovery.text() in {'Models & providers','Usage & limits'}
+
+
+def test_build_context_details_never_reuses_chat_receipt(qtbot,tmp_path,monkeypatch):
+    from PySide6.QtWidgets import QDialog,QTextBrowser
+    from local_model_chat.ui.workspace import show_context_details
+    store=ChatStore(tmp_path/'context.db')
+    w=MainWindow(store,start_ollama_check=False);qtbot.addWidget(w)
+    mid=store.add_message(Message(None,w.current_conversation_id,'assistant','Chat only'))
+    store.set_message_receipt(mid,{'provider':'chat-only-provider','requested_model':'chat-only-model'})
+    w._set_view('build')
+    captured=[]
+    def inspect(dialog):
+        captured.append(dialog.findChild(QTextBrowser).toPlainText())
+        return QDialog.DialogCode.Accepted
+    monkeypatch.setattr(QDialog,'exec',inspect)
+    show_context_details(w)
+    assert 'No Build request' in captured[-1] and 'chat-only-provider' not in captured[-1]

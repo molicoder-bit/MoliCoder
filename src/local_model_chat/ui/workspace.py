@@ -206,7 +206,18 @@ def show_context_details(w):
     dialog.resize(650, 450)
     layout = QVBoxLayout(dialog)
     text = QTextBrowser()
-    text.setPlainText(json.dumps(receipt, indent=2) if receipt else 'No receipt available for this conversation yet. Older replies may not have recorded attribution.')
+    if w.view_stack.currentWidget() == w.build_view:
+        from ..molicoder.evidence_view import render_task_evidence
+        status = w.store.current_project_run_status(w.current_project_id) if w.current_project_id else None
+        if status and status.run_id:
+            dialog.setWindowTitle('Build context and evidence')
+            text.setPlainText('Recorded evidence for the selected Build. Agent-internal context is not reported.\n\n' + render_task_evidence(w.store, status.run_id))
+        elif getattr(w, '_last_local_action', None):
+            text.setPlainText(json.dumps(w._last_local_action, indent=2) + '\nNo AI model used.')
+        else:
+            text.setPlainText('No Build request has run for this target. Selecting a project does not send its files to a model.')
+    else:
+        text.setPlainText(json.dumps(receipt, indent=2) if receipt else 'No receipt available for this conversation yet. Older replies may not have recorded attribution.')
     layout.addWidget(text)
     layout.addWidget(button('Close', dialog.accept))
     dialog.exec()
