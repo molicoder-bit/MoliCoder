@@ -245,6 +245,9 @@ The module names below are proposed until P06-04 confirms interfaces. Each check
   - [x] **I12-04b Negotiate versioned task/session event and log transport.** Pinned v0.97.0 session-message paging resumes from the saved cursor after restart; 11 focused tests pass.
   - [x] **I12-04c Add session cancellation with observed identity fencing.** Stop targets the observed agent execution ID; local WebSocket and identity fixtures pass.
   - [ ] **I12-04d Switch selected runs to Kandev-owned tasks and reconcile worktrees.** Preserve internal Build when Kandev is disabled.
+    - [x] **I12-04d1 Add separately authorized create-and-launch transport.** Pinned REST create can set `start_agent` only after exact create and launch approvals; a fixture proves denied calls never reach the endpoint (15 focused tests passed).
+    - [ ] **I12-04d2 Select Kandev ownership in Build and recover by external ID.** A selected run must never fall back to internal execution after remote creation.
+    - [ ] **I12-04d3 Reconcile the remote worktree and verify local acceptance.** Missing or mismatched worktree identity must require review.
 - [ ] **I12-05 Run harmless readiness and lifecycle tests.** D: I12-03, I12-04. N: `tests/` integration fixture. V: executable, backend, connection, agent profile, routing policy, test worktree/task, result, stop/restart, and no-Kandev regression pass. C/R: L/high. G1,G4.
 
 ### I13 — Verification and architectural consistency (5 tasks)

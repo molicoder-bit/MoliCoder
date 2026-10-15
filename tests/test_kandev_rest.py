@@ -108,6 +108,44 @@ def test_rest_create_needs_exact_external_authorization(tmp_path) -> None:
         KandevRestTaskApi(_config()).create("run:1", "Build parser")
 
 
+def test_agent_launch_requires_separate_exact_authorization(tmp_path) -> None:
+    store = ChatStore(tmp_path / "kandev.sqlite3")
+    api = KandevRestTaskApi(_config(), store=store)
+    fake = FakeOpener()
+    api._opener = fake
+    expiry = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    store.record_action_authorization(
+        project_id=None, action="kandev_task_create", scope="workspace-1:run:1",
+        risk="external", decision="approved", actor="user", expires_at=expiry,
+    )
+    with pytest.raises(PermissionError, match="approval"):
+        api.create_and_launch("run:1", "Build parser")
+    assert fake.requests == []
+
+    store.record_action_authorization(
+        project_id=None, action="kandev_agent_launch", scope="workspace-1:run:other:profile-1",
+        risk="external", decision="approved", actor="user", expires_at=expiry,
+    )
+    with pytest.raises(PermissionError, match="approval"):
+        api.create_and_launch("run:1", "Build parser")
+    assert fake.requests == []
+
+    store.record_action_authorization(
+        project_id=None, action="kandev_agent_launch", scope="workspace-1:run:1:profile-1",
+        risk="external", decision="approved", actor="user", expires_at=expiry,
+    )
+    fake.responses = [{
+        "id": "task-1", "external_id": "run:1", "creation_complete": True,
+        "state": "IN_PROGRESS", "primary_session_id": "session-1",
+    }]
+    result = api.create_and_launch("run:1", "Build parser")
+    assert result["primary_session_id"] == "session-1"
+    body = json.loads(fake.requests[0].data)
+    assert body["start_agent"] is True
+    assert body["external_id"] == "run:1"
+    assert body["agent_profile_id"] == "profile-1"
+
+
 def test_message_cursor_recovers_from_saved_event_without_replaying_content(tmp_path) -> None:
     store = ChatStore(tmp_path / "events.sqlite3")
     root = tmp_path / "project"

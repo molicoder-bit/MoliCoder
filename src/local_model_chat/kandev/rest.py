@@ -93,6 +93,13 @@ class KandevRestTaskApi:
         return decoded
 
     def create(self, external_id: str, objective: str) -> Mapping[str, object]:
+        return self._create(external_id, objective, start_agent=False)
+
+    def create_and_launch(self, external_id: str, objective: str) -> Mapping[str, object]:
+        """Create a Kandev-owned run only with a separate agent-launch approval."""
+        return self._create(external_id, objective, start_agent=True)
+
+    def _create(self, external_id: str, objective: str, *, start_agent: bool) -> Mapping[str, object]:
         if not re.fullmatch(r"[A-Za-z0-9._:-]{1,200}", external_id):
             raise ValueError("Kandev task external ID is invalid")
         if not objective.strip() or len(objective) > 12_000:
@@ -102,6 +109,12 @@ class KandevRestTaskApi:
         AuthorizationPolicy(self._store).require(ActionRequest(
             None, "kandev_task_create", f"{self.config.workspace_id}:{external_id}", ActionRisk.EXTERNAL,
         ))
+        if start_agent:
+            AuthorizationPolicy(self._store).require(ActionRequest(
+                None, "kandev_agent_launch",
+                f"{self.config.workspace_id}:{external_id}:{self.config.agent_profile_id}",
+                ActionRisk.EXTERNAL,
+            ))
         result = self._request("POST", "/tasks", {
             "workspace_id": self.config.workspace_id,
             "workflow_id": self.config.workflow_id,
@@ -111,7 +124,7 @@ class KandevRestTaskApi:
             "external_id": external_id,
             "repositories": [{"repository_id": self.config.repository_id}],
             "agent_profile_id": self.config.agent_profile_id,
-            "start_agent": False,
+            "start_agent": start_agent,
             "prepare_session": False,
         })
         assert result is not None
