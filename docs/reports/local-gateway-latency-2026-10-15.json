@@ -1,0 +1,81 @@
+{
+  "comparison": {
+    "context_tokens": 4096,
+    "direct": {
+      "mean_retries": 0,
+      "median_first_token_seconds": 0.05290544999843405,
+      "median_total_seconds": 0.23809634999997797,
+      "samples": 2
+    },
+    "gateway": {
+      "mean_retries": 0,
+      "median_first_token_seconds": 0.09058310000000347,
+      "median_total_seconds": 0.27658214999974007,
+      "samples": 2
+    },
+    "median_paired_total_delta_seconds": 0.038485799999762094,
+    "model_id": "molicoder:latest",
+    "paired_total_delta_range_seconds": [
+      0.025664000000688247,
+      0.05130759999883594
+    ],
+    "provider_id": "ollama-local"
+  },
+  "failures": [],
+  "samples": [
+    {
+      "case_id": "short-chat",
+      "context_tokens": 4096,
+      "first_token_seconds": 0.049124299999675713,
+      "model_id": "molicoder:latest",
+      "path": "direct",
+      "provider_id": "ollama-local",
+      "replicate": 0,
+      "retries": 0,
+      "total_seconds": 0.2344970000012836
+    },
+    {
+      "case_id": "short-chat",
+      "context_tokens": 4096,
+      "first_token_seconds": 0.09961530000146013,
+      "model_id": "molicoder:latest",
+      "path": "gateway",
+      "provider_id": "ollama-local",
+      "replicate": 0,
+      "retries": 0,
+      "total_seconds": 0.28580460000011954
+    },
+    {
+      "case_id": "short-chat",
+      "context_tokens": 4096,
+      "first_token_seconds": 0.08155089999854681,
+      "model_id": "molicoder:latest",
+      "path": "gateway",
+      "provider_id": "ollama-local",
+      "replicate": 1,
+      "retries": 0,
+      "total_seconds": 0.2673596999993606
+    },
+    {
+      "case_id": "short-chat",
+      "context_tokens": 4096,
+      "first_token_seconds": 0.05668659999719239,
+      "model_id": "molicoder:latest",
+      "path": "direct",
+      "provider_id": "ollama-local",
+      "replicate": 1,
+      "retries": 0,
+      "total_seconds": 0.24169569999867235
+    }
+  ],
+  "scope": "Local Ollama direct API versus MoliCoder loopback policy gateway; no paid provider account.",
+  "workload": {
+    "context_tokens": 4096,
+    "max_output_tokens": 16,
+    "model": "molicoder:latest",
+    "prompt": "Reply with exactly one sentence describing a small Python unit test.",
+    "replicates": 2,
+    "timeout_seconds_per_call": 60,
+    "warmups": 1
+  }
+}
