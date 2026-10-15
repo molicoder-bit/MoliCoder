@@ -124,3 +124,10 @@ def test_build_context_details_never_reuses_chat_receipt(qtbot,tmp_path,monkeypa
     monkeypatch.setattr(QDialog,'exec',inspect)
     show_context_details(w)
     assert 'No Build request' in captured[-1] and 'chat-only-provider' not in captured[-1]
+    project=store.upsert_project('Fixture',str(tmp_path),'python')
+    run=store.create_run(project.id,'Older run','HYBRID')
+    store.finish_run(run,'completed')
+    w._load_project_list(select_id=project.id)
+    w._last_local_action={'target':str(tmp_path/'current-folder'),'outcome':'created','detail':'Current local action'}
+    show_context_details(w)
+    assert 'Current local action' in captured[-1] and 'No AI model used' in captured[-1]

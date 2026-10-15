@@ -209,7 +209,9 @@ def show_context_details(w):
     if w.view_stack.currentWidget() == w.build_view:
         from ..molicoder.evidence_view import render_task_evidence
         status = w.store.current_project_run_status(w.current_project_id) if w.current_project_id else None
-        if status and status.run_id:
+        if getattr(w, '_last_local_action', None) and w.orchestration_worker is None:
+            text.setPlainText(json.dumps(w._last_local_action, indent=2) + '\nNo AI model used.')
+        elif status and status.run_id:
             dialog.setWindowTitle('Build context and evidence')
             text.setPlainText('Recorded evidence for the selected Build. Agent-internal context is not reported.\n\n' + render_task_evidence(w.store, status.run_id))
         elif getattr(w, '_last_local_action', None):
