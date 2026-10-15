@@ -21,7 +21,7 @@ def build_workspace(w):
     bar = QFrame(); bar.setObjectName('topbar')
     row = QHBoxLayout(bar); row.setContentsMargins(20, 12, 20, 12)
     logo_path = Path(__file__).parents[1] / 'assets' / 'molicodeLogo.png'
-    w.setWindowIcon(QIcon(str(logo_path)))
+    w.setWindowIcon(QIcon(str(logo_path.with_name('MoliCoder.ico'))))
     logo = QLabel(); logo.setObjectName('brandLogo'); logo.setFixedSize(46, 46)
     logo.setPixmap(QPixmap(str(logo_path)).scaled(42, 42, Qt.KeepAspectRatio, Qt.SmoothTransformation))
     logo.setAlignment(Qt.AlignCenter)

@@ -52,9 +52,26 @@ $shortcutPath = Join-Path $desktop "MoliCoder.lnk"
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = Join-Path $installRoot "MoliCoder.exe"
+$shortcut.IconLocation = (Join-Path $installRoot "MoliCoder.exe") + ",0"
 $shortcut.WorkingDirectory = $installRoot
 $shortcut.Description = "Local-first coding orchestration with Ollama"
 $shortcut.Save()
+
+# Refresh just the updated executable and shortcut in Explorer's icon cache.
+if (-not ("MoliCoderShellIconNotification" -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class MoliCoderShellIconNotification {
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern void SHChangeNotify(uint eventId, uint flags,
+        [MarshalAs(UnmanagedType.LPWStr)] string path, IntPtr unused);
+}
+'@
+}
+foreach ($iconTarget in @($installedExecutable, $shortcutPath)) {
+    [MoliCoderShellIconNotification]::SHChangeNotify(0x2000, 0x0005, $iconTarget, [IntPtr]::Zero)
+}
 
 Write-Host "Installed: $installRoot"
 if ($backupCreated) {

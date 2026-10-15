@@ -6,6 +6,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ("src/local_model_chat/assets/molicodeLogo.png", "local_model_chat/assets"),
+        ("src/local_model_chat/assets/MoliCoder.ico", "local_model_chat/assets"),
         ("src/local_model_chat/molicoder/planner/plan.schema.json", "local_model_chat/molicoder/planner"),
         ("src/local_model_chat/environment/manifests/releases.json", "local_model_chat/environment/manifests"),
     ],
@@ -35,6 +36,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="MoliCoder",
+    icon="src/local_model_chat/assets/MoliCoder.ico" if __import__("sys").platform == "win32" else None,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

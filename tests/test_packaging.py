@@ -15,6 +15,18 @@ def test_frontier_plan_schema_is_declared_as_package_data() -> None:
     package_data = config["tool"]["setuptools"]["package-data"]
     assert "molicoder/planner/plan.schema.json" in package_data["local_model_chat"]
     assert "environment/manifests/releases.json" in package_data["local_model_chat"]
+    assert "assets/*.ico" in package_data["local_model_chat"]
+
+
+def test_windows_icon_loads_at_taskbar_and_explorer_sizes(qtbot) -> None:
+    from PySide6.QtGui import QIcon
+
+    assets = Path(__file__).resolve().parents[1] / 'src/local_model_chat/assets'
+    icon = QIcon(str(assets / 'MoliCoder.ico'))
+    sizes = {(size.width(), size.height()) for size in icon.availableSizes()}
+    assert {(16, 16), (32, 32), (48, 48), (256, 256)} <= sizes
+    for size in (16, 32, 48, 256):
+        assert not icon.pixmap(size, size).isNull()
 
 
 def test_package_health_check_exits_before_creating_the_ui(monkeypatch) -> None:

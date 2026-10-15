@@ -38,6 +38,8 @@ Local Ollama chat needs no cloud account. Optional external agents and services 
 
 Matrix is the default theme: black surfaces, green accents, and monospace text, with the supplied MoliCode logo in the header. Projects are selected in the header; **History** contains projects, conversations, and Build runs. **Settings** brings together connections, installation, budgets, trust, and Kandev.
 
+Windows packages use the MoliCode logo for the executable, shortcut, and app window icons. The icon includes sizes from 16 to 256 pixels with a light tile for visibility on dark taskbars. To regenerate it from the supplied logo, run `.venv\Scripts\python.exe scripts\build_windows_icon.py` before packaging.
+
 Context estimates and reserved output stay visible above the workspace. The bottom drawer opens Activity, Changes, Validation, Usage, Knowledge, or Performance without permanent side panels. Build controls are grouped and its content scrolls vertically on smaller windows. Project switching is locked while a Build owns a worktree; Chat/Build switching preserves drafts.
 
 ![MoliCoder in the default Matrix theme, showing the theme selector and provider/model banner](docs/images/theme-matrix.png)

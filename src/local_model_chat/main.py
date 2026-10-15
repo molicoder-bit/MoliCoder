@@ -4,7 +4,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication
 
 from .config import APP_NAME
@@ -16,7 +16,11 @@ def main() -> int:
     if "--package-health-check" in sys.argv:
         return 0
     smoke_check = "--package-smoke-check" in sys.argv
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("molicoder-bit.MoliCoder")
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon(str(Path(__file__).parent / "assets" / "MoliCoder.ico")))
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("molicoder-bit")
     app.setStyle("Fusion")

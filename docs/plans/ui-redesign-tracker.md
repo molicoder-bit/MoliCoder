@@ -77,3 +77,10 @@ Tasks are checked only after verification. Existing execution and authorization 
 
 - [x] UI10-01 Confirm Matrix is selected on a fresh launch and saved Light preferences still restore. Theme suite: **3 passed**, including explicit fresh-launch assertions.
 - [x] UI10-02 Embed the current Matrix screenshot in the README's desktop workspace section and document Matrix as the first-launch default. Verified the tracked screenshot path and updated the preview caption.
+
+## UI11 — Windows logo icon (2026-10-15)
+
+- [x] UI11-01 Generate a Windows ICO from the supplied logo with nine resolutions (16–256 pixels) and a light tile for dark taskbars. Original PNG hash still matches Downloads; regeneration script uses the existing Qt dependency.
+- [x] UI11-02 Embed the icon in Windows executables, include it in Python packages, set application/window icons and Windows taskbar identity, and explicitly assign the desktop shortcut icon. Installer notifies Explorer of the two updated paths.
+- [x] UI11-03 Verify icon loading at taskbar/Explorer sizes and workspace behavior: **13 tests passed**. Inspect the icon preview and compare all nine embedded executable image resources with the generated ICO.
+- [x] UI11-04 Package and install **1.2.3**, preserving the previous install. Desktop and embedded-browser smoke checks passed; installed executable hash matches the verified build and shortcut icon points to the installed executable.
