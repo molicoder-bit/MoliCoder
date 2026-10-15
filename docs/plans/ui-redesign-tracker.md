@@ -38,11 +38,11 @@ Tasks are checked only after verification. Existing execution and authorization 
 - [x] UI07-03 Live Kandev lifecycle and embedded board.
 - [x] UI07-04 Screenshots, documentation and package.
 
-## Verification evidence — 2026-10-15
+## Verification evidence â€” 2026-10-15
 
 - Full Windows suite: 454 passed, 6 opt-in live inference tests skipped. No provider quota was spent.
 - Focused workspace tests cover separate drafts, compact Build access, visible context, project-specific connection profiles, process identity mismatch and active-agent Stop refusal.
-- Native Windows screenshots at 150% scaling: `docs/images/workspace-chat.png`, `workspace-build.png`, `workspace-kandev.png`; compact 1020 × 680 logical window checked with vertical scrolling. Chat/Build screenshots contain fixture conversation/run records.
+- Native Windows screenshots at 150% scaling: `docs/images/workspace-chat.png`, `workspace-build.png`, `workspace-kandev.png`; compact 1020 Ã— 680 logical window checked with vertical scrolling. Chat/Build screenshots contain fixture conversation/run records.
 - Real pinned Kandev service: start, health/version, safe idle stop, restart with the same data, and embedded DOM/rendering verified. No agent launched. Local managed service remains available on loopback port 38429.
 - Windows packaged UI/doctor and WebEngine local-page/JavaScript smoke checks passed. Final revision packaging and cross-platform CI are recorded below when complete.
 - Existing environment configuration remains a fallback; saved per-project profiles take precedence. Service data and process ownership receipts are separate from agent-task authorization.
@@ -57,9 +57,18 @@ Tasks are checked only after verification. Existing execution and authorization 
 - Windows hosted tests and packaged desktop/browser checks passed; artifact archival was in progress at final review. Validation is recorded at [Windows run](https://github.com/molicoder-bit/MoliCoder/actions/runs/38813196729). Local Windows full suite: 454 passed, 6 skipped before the final additional setup regression; final focused UI/package suite: 52 passed, with the added setup regression verified separately.
 - Supplied `molicodeLogo.png` is copied unchanged into package assets and used in the workspace header and application window icon. SHA-256 comparison with Downloads matched.
 
-## UI08 — Matrix and Light themes (2026-10-15)
+## UI08 â€” Matrix and Light themes (2026-10-15)
 
 - [x] UI08-01 Add a header switch with exactly Matrix and Light appearances and a saved preference; legacy dark preferences resolve to Matrix.
 - [x] UI08-02 Implement black/green monospace Matrix and warm Light palettes across native screens, dialogs, message documents and attachments.
-- [x] UI08-03 Verify immediate switching, restart restoration, invalid preference fallback, and unchanged Chat/Build drafts. Focused UI/theme/workspace suite: 49 passed. Both themes visually checked at native Windows scaling, including a 1020 × 680 logical window.
+- [x] UI08-03 Verify immediate switching, restart restoration, invalid preference fallback, and unchanged Chat/Build drafts. Focused UI/theme/workspace suite: 49 passed. Both themes visually checked at native Windows scaling, including a 1020 Ã— 680 logical window.
 - [x] UI08-04 Packaged and installed 1.2.1; desktop and embedded-browser startup smoke checks passed. Five packaging tests also passed. The original logo remains unchanged.
+
+## UI09 â€” Clear theme selection and provider/model identity (2026-10-15)
+
+- [x] UI09-01 Replace the target-theme button with a labeled Theme selector showing the current choice and exactly Matrix / Light; preserve saved preferences and drafts.
+- [x] UI09-02 Add a persistent provider/model banner that updates immediately with Chat model, mode, Build strategy, provider and task owner selection.
+- [x] UI09-03 Follow live external/local Build handoffs, distinguish configured from reported models, clear stale models on fallback, and explicitly label unknown CLI/Kandev models.
+- [x] UI09-04 Move Ollama health into Performance, label the Chat context estimate, and name the provider/model in custom API test progress and results.
+- [x] UI09-05 Verify theme persistence, selected versus live routes, connected Ollama with external GPT-4 configured, local Build's independent model, fallback identity, Kandev unknown identity and API test identity. Focused UI/theme/workspace/provider/package suite: **77 passed**; native Matrix and Light screenshots refreshed and compact 1020 Ã— 680 layout inspected. Preview screens use fixture project/model settings, with no inference calls.
+- [x] UI09-06 Document, package and install **1.2.2** at the existing user executable path. Packaged desktop and embedded-browser startup smoke checks passed; previous installation preserved.

@@ -42,9 +42,10 @@ def apply_theme(window, theme, *, persist=True):
     if light:
         sheet += 'QLabel#modelBadge, QLabel#buildActivity { color: #216442; } QLabel#brandLogo { background: #FFFFFF; }'
     app.setStyleSheet(sheet)
-    window.theme_button.setText('Matrix' if light else 'Light')
-    window.theme_button.setAccessibleName('Switch to Matrix theme' if light else 'Switch to Light theme')
-    window.theme_button.setToolTip('Current theme: ' + theme)
+    window.theme_selector.blockSignals(True)
+    window.theme_selector.setCurrentIndex(window.theme_selector.findData(theme))
+    window.theme_selector.blockSignals(False)
+    window.theme_selector.setToolTip('Current theme: ' + window.theme_selector.currentText())
     from .widgets import ChatBubble
     for bubble in window.findChildren(ChatBubble):
         bubble.apply_theme()

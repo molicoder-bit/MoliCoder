@@ -45,16 +45,30 @@ def build_workspace(w):
     w.sidebar.setMaximumWidth(500)
     row.addWidget(w.chat_nav_button); row.addWidget(w.build_nav_button)
     row.addStretch()
-    w.theme_button = button('Light', lambda: toggle_theme(w))
-    row.addWidget(w.theme_button)
+    row.addWidget(QLabel('Theme'))
+    w.theme_selector = QComboBox()
+    w.theme_selector.setAccessibleName('Theme')
+    w.theme_selector.addItem('Matrix', 'matrix')
+    w.theme_selector.addItem('Light', 'light')
+    w.theme_selector.currentIndexChanged.connect(lambda: select_theme(w))
+    row.addWidget(w.theme_selector)
     row.addWidget(button('History', lambda: show_history(w)))
     row.addWidget(button('Settings', lambda: show_settings(w)))
     layout.addWidget(bar)
     strip = QFrame(); strip.setObjectName('usageStrip')
     strip_row = QHBoxLayout(strip); strip_row.setContentsMargins(22, 8, 22, 8)
-    w.connection_label = QLabel('Ollama · checking'); strip_row.addWidget(w.connection_label)
+    w.route_identity = QLabel()
+    w.route_identity.setObjectName('routeIdentity')
+    w.route_identity.setAccessibleName('Provider and model')
+    w.route_identity.setWordWrap(True)
+    w.route_identity.setTextInteractionFlags(Qt.TextSelectableByMouse)
+    w.route_identity.setStyleSheet('font-weight: 650;')
+    w.route_identity.setContentsMargins(22, 8, 22, 0)
+    layout.addWidget(w.route_identity)
+    w.connection_label = QLabel('Local runtime: Ollama · checking')
     w.center = w._build_center()
     w.inspector = w._build_inspector()
+    w.inspector.layout().insertWidget(1, w.connection_label)
     strip_row.addWidget(w.context_progress)
     w.context_progress.setMaximumWidth(110)
     strip_row.addWidget(w.context_label, 1)
@@ -92,6 +106,8 @@ def build_workspace(w):
         action.triggered.connect(lambda _checked=False, name=target: w._set_view(name)); w.addAction(action)
     w._workspace_timer = __import__('PySide6.QtCore', fromlist=['QTimer']).QTimer(w)
     w._workspace_timer.timeout.connect(lambda: refresh_workspace(w)); w._workspace_timer.start(1500)
+    from .route_identity import refresh_route_identity
+    refresh_route_identity(w)
 
 
 def QScroll(widget):
@@ -161,6 +177,8 @@ def show_settings(w):
 
 
 def refresh_workspace(w):
+    from .route_identity import refresh_route_identity
+    refresh_route_identity(w)
     sync_projects(w)
     w.project_switch.setEnabled(w.orchestration_worker is None)
     w.project_list.setEnabled(w.orchestration_worker is None)
@@ -216,8 +234,6 @@ def show_run(w, run_id):
 
 
 
-def toggle_theme(w):
+def select_theme(w):
     from .theme import apply_theme
-    from PySide6.QtWidgets import QApplication
-    current = QApplication.instance().property('molicoderTheme')
-    apply_theme(w, 'matrix' if current == 'light' else 'light')
+    apply_theme(w, w.theme_selector.currentData())

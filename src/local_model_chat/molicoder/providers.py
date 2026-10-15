@@ -402,6 +402,7 @@ class CliFrontierProvider:
             "provider": self.name, "purpose": purpose, "status": status,
             "seconds": round(seconds, 3), "input_tokens": input_tokens or None,
             "output_tokens": output_tokens or None, "model": result.model or None,
+            "model_source": "reported" if reported_model else "configured" if self.model else "unknown",
             "error": result.error,
         })
         return result

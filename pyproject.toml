@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-model-chat"
-version = "1.2.1"
+version = "1.2.2"
 description = "Local-first coding chat and Build with visible token and usage controls."
 readme = "README.md"
 requires-python = ">=3.13"

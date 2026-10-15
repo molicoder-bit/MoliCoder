@@ -44,9 +44,13 @@ Context estimates and reserved output stay visible above the workspace. The bott
 
 The screenshot uses a demonstration conversation and makes no inference call. The [UI tracker](docs/plans/ui-redesign-tracker.md) records implementation and verification.
 
+### Provider and model identity
+
+The persistent model banner shows the selected Chat or Build provider and model. Chat names its local Ollama model; Hybrid Build names both its external route and the local model available for eligible steps. During Build, the banner follows provider calls and local handoffs. Model IDs are labeled **configured** or **reported**; CLI defaults and Kandev models remain **not reported** until identity is available. Custom API tests name their provider and model in the banner and result dialog. Ollama connection health lives in **Performance** and does not identify the active external route.
+
 ### Matrix and Light themes
 
-Use the **Light** / **Matrix** button in the header to switch instantly. Matrix uses black surfaces, bright green accents, thin borders and monospace text; Light uses warm white surfaces and dark text. The preference is saved locally and restored on launch. Chat, Build, dialogs, attachments, and detail drawers follow the selected theme. Kandev's embedded web content keeps its own appearance settings.
+Use the **Theme** selector in the header to choose **Matrix** or **Light** instantly. The selector always shows the current theme. Matrix uses black surfaces, bright green accents, thin borders and monospace text; Light uses warm white surfaces and dark text. The preference is saved locally and restored on launch. Chat, Build, dialogs, attachments, and detail drawers follow the selected theme. Kandev's embedded web content keeps its own appearance settings.
 
 [Matrix preview](docs/images/theme-matrix.png) · [Light preview](docs/images/theme-light.png)
 

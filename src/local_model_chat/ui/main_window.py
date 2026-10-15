@@ -228,7 +228,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
 
         model_row = QHBoxLayout()
-        model_row.addWidget(QLabel("Model"))
+        model_row.addWidget(QLabel("Chat model (local)"))
         self.model_combo = QComboBox()
         for preset in MODEL_PRESETS.values():
             self.model_combo.addItem(f"{preset.label}  ·  {preset.role}", preset.name)
@@ -499,6 +499,7 @@ class MainWindow(QMainWindow):
         self.kandev_panel = KandevPanel(self)
         self.build_tabs.addTab(self.kandev_panel, "Kandev board")
         self.build_tabs.currentChanged.connect(lambda index: request_card.setVisible(index == 0))
+        self.build_tabs.currentChanged.connect(lambda: self._refresh_route_identity())
         layout.addWidget(self.build_tabs, 1)
         center.setMinimumHeight(740)
         container = QScrollArea()
@@ -1117,11 +1118,11 @@ class MainWindow(QMainWindow):
                 actor="local-ollama-discovery", reason="model found in local Ollama tags" if present else "local model unavailable",
             )
         if available:
-            self.connection_label.setText("● Ollama connected")
+            self.connection_label.setText("Local runtime: Ollama connected")
             self.connection_label.setProperty("themeTone", "success")
             self.connection_label.setStyleSheet(f"color: {theme_color('success')}; font-weight: 650;")
         else:
-            self.connection_label.setText("● Ollama unavailable")
+            self.connection_label.setText("Local runtime: Ollama unavailable")
             self.connection_label.setProperty("themeTone", "error")
             self.connection_label.setStyleSheet(f"color: {theme_color('error')}; font-weight: 650;")
             QMessageBox.warning(
@@ -1169,6 +1170,12 @@ class MainWindow(QMainWindow):
             button.style().unpolish(button); button.style().polish(button)
         if is_build:
             self._update_build_project(self.registry.selected())
+        from .workspace import refresh_workspace
+        refresh_workspace(self)
+
+    def _refresh_route_identity(self) -> None:
+        from .route_identity import refresh_route_identity
+        refresh_route_identity(self)
 
     def _load_project_list(self, *, select_saved: bool = False, select_id: int | None = None) -> None:
         projects = self.registry.list()
@@ -1355,6 +1362,7 @@ class MainWindow(QMainWindow):
         worker.completed.connect(self._build_completed)
         worker.failed.connect(self._build_failed)
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
+        self._active_build_route = ""
         self.orchestration_worker = worker
         self.build_request.setEnabled(False)
         self.build_owner.setEnabled(False)
@@ -1386,6 +1394,7 @@ class MainWindow(QMainWindow):
         worker.completed.connect(self._build_completed)
         worker.failed.connect(self._build_failed)
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
+        self._active_build_route = ""
         self.orchestration_worker = worker
         self.build_request.setEnabled(False)
         self.build_owner.setEnabled(False)
@@ -1436,6 +1445,7 @@ class MainWindow(QMainWindow):
         self._refresh_recovery_actions(project)
 
     def _build_preferences_changed(self) -> None:
+        self._refresh_route_identity()
         project = self.registry.selected()
         if project is None:
             return
@@ -1863,10 +1873,11 @@ class MainWindow(QMainWindow):
             )
         worker = CustomApiWorker(self.store, project.id, offering.id, prompt)
         self.custom_api_worker = worker
+        self._refresh_route_identity()
         progress = QDialog(self)
         progress.setWindowTitle("Custom API test")
         progress_layout = QVBoxLayout(progress)
-        progress_layout.addWidget(QLabel("Running a capped test request…"))
+        progress_layout.addWidget(QLabel(f"Running a capped test: {selected}…"))
         cancel = QPushButton("Cancel request")
         cancel.clicked.connect(worker.cancel)
         progress.rejected.connect(worker.cancel)
@@ -1874,7 +1885,7 @@ class MainWindow(QMainWindow):
         worker.completed.connect(lambda result: (
             progress.close(),
             QMessageBox.information(
-                self, "Custom API response",
+                self, f"Custom API response · {selected}",
                 f"{result.content}\n\nInput tokens: {result.input_tokens if result.input_tokens is not None else 'unknown'}; "
                 f"output tokens: {result.output_tokens if result.output_tokens is not None else 'unknown'}.",
             ),
@@ -1883,12 +1894,13 @@ class MainWindow(QMainWindow):
             progress.close(), QMessageBox.warning(self, "Custom API test failed", error),
         ))
         worker.finished.connect(lambda: (
-            progress.close(), setattr(self, "custom_api_worker", None), worker.deleteLater(),
+            progress.close(), setattr(self, "custom_api_worker", None), self._refresh_route_identity(), worker.deleteLater(),
         ))
         worker.start()
         progress.show()
 
     def _refresh_build_readiness(self) -> None:
+        self._refresh_route_identity()
         if not hasattr(self, "build_status"):
             return
         kandev_selected = self.build_owner.currentData() == "kandev"
@@ -2034,6 +2046,7 @@ class MainWindow(QMainWindow):
         worker.completed.connect(self._build_completed)
         worker.failed.connect(self._build_failed)
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
+        self._active_build_route = ""
         self.orchestration_worker = worker
         self.build_events.clear()
         self.build_details.clear()
@@ -2141,6 +2154,7 @@ class MainWindow(QMainWindow):
         worker.completed.connect(self._build_completed)
         worker.failed.connect(self._build_failed)
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
+        self._active_build_route = ""
         self.orchestration_worker = worker
         self.build_events.clear()
         self.build_details.clear()
@@ -2171,6 +2185,8 @@ class MainWindow(QMainWindow):
         self._build_activity_frame += 1
 
     def _build_event(self, kind: str, payload: dict) -> None:
+        from .route_identity import observe_build_route
+        observe_build_route(self, kind, payload)
         if hasattr(self, "run_stage"):
             stage = {"recon_completed": "Prepare · repository evidence collected", "plan_created": "Plan · task plan validated",
                 "task_started": "Execute · task in progress", "task_completed": "Check · task verified",
@@ -2731,6 +2747,7 @@ class MainWindow(QMainWindow):
         self.model_badge.setText(f"{preset.context_window:,} context")
         self.model_badge.setObjectName("modelBadge")
         self._refresh_context_meter()
+        self._refresh_route_identity()
 
     def _current_messages(self) -> list[Message]:
         if self.current_conversation_id is None:
@@ -2751,7 +2768,7 @@ class MainWindow(QMainWindow):
         color = theme_color("error") if budget.blocked else theme_color("warning") if budget.warning else theme_color("accent")
         self.context_progress.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: 5px; }}")
         self.context_label.setText(
-            f"{budget.estimated_prompt_tokens:,} estimated prompt + {reserved:,} reserved output\n"
+            f"Chat context: {budget.estimated_prompt_tokens:,} estimated prompt + {reserved:,} reserved output\n"
             f"{budget.remaining:,} safe tokens remaining · {percent}%"
         )
         self.composer_hint.setText(f"~{estimate_tokens(self._pending_content()):,} tokens in pending message")
@@ -2845,6 +2862,7 @@ class MainWindow(QMainWindow):
         self.chat_worker.completed.connect(self._generation_finished)
         self.chat_worker.failed.connect(self._generation_failed)
         self.chat_worker.start()
+        self._refresh_route_identity()
         self.send_button.setVisible(False)
         self.stop_button.setVisible(True)
         self.model_combo.setEnabled(False)
@@ -2936,6 +2954,7 @@ class MainWindow(QMainWindow):
     def _reset_generation_state(self) -> None:
         worker = self.chat_worker
         self.chat_worker = None
+        self._refresh_route_identity()
         self.active_bubble = None
         self.stop_button.setVisible(False)
         self.send_button.setVisible(True)
