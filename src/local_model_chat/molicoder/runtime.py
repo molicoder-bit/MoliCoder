@@ -14,6 +14,8 @@ from ..inference.policy import InferencePolicy
 from ..inference.registry import ProviderRegistry
 from ..inference.router import RouteRequest, choose_route
 from ..kandev.contracts import KandevConnection, KandevMode
+from ..kandev.adapter import KandevTaskAdapter
+from ..kandev.run import KandevRunOrchestrator
 from ..intent import IntentKind
 from ..ollama import OllamaClient
 from ..storage import ChatStore
@@ -165,11 +167,17 @@ def build_orchestrator(
     fallback_authorization_scope: str | None = None,
     on_event: Callable[[str, dict], None] | None = None,
     kandev_connection: KandevConnection | None = None,
-) -> SequentialRunOrchestrator:
+    kandev_adapter: KandevTaskAdapter | None = None,
+) -> SequentialRunOrchestrator | KandevRunOrchestrator:
     connection = kandev_connection or KandevConnection()
     if connection.mode != KandevMode.DISABLED:
-        raise ProviderUnavailable(
-            f"Kandev {connection.mode.value} execution is unavailable until adapter readiness is verified"
+        if (kandev_adapter is None or kandev_adapter.connection != connection
+                or kandev_adapter.probe().health_state != "ready"):
+            raise ProviderUnavailable(
+                f"Kandev {connection.mode.value} execution is unavailable until adapter readiness is verified"
+            )
+        return KandevRunOrchestrator(
+            store=store, project=project, adapter=kandev_adapter, on_event=on_event,
         )
     root = Path(project.path).resolve()
     preset = MODEL_PRESETS["molicoder:latest"]
