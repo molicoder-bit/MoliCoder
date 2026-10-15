@@ -42,6 +42,19 @@ def test_main_window_starts_and_creates_initial_chat(qtbot, tmp_path) -> None:
     assert "reserved output" in window.context_label.text()
 
 
+def test_installed_ollama_models_are_selectable_with_local_policy(qtbot, tmp_path) -> None:
+    window = MainWindow(ChatStore(tmp_path / "other-model.sqlite3"), FakeClient(), start_ollama_check=False)
+    qtbot.addWidget(window)
+    window._ollama_ready(True, [{"name": "molicoder:latest"}, {"name": "qwen2.5-coder:7b"}])
+    index = window.model_combo.findData("qwen2.5-coder:7b")
+    assert index >= 0
+    window.model_combo.setCurrentIndex(index)
+    assert window.preset.name == "qwen2.5-coder:7b"
+    assert window.preset.context_window == 8192
+    from local_model_chat.inference.adapters.ollama import local_offering_id
+    assert window.inference_registry.get_offering(local_offering_id("qwen2.5-coder:7b")).status == "eligible"
+
+
 def test_streaming_response_scrolls_to_updated_bottom(qtbot, tmp_path) -> None:
     window = MainWindow(ChatStore(tmp_path / "scroll.sqlite3"), FakeClient())
     qtbot.addWidget(window)
@@ -829,6 +842,42 @@ def test_managed_install_button_records_exact_in_app_approval(qtbot, tmp_path, m
     assert captured["manifest"].sha256 in captured["detail"]
     approval = store.latest_action_authorization(
         project_id=None, action="setup", scope=captured["plan"].scope,
+    )
+    assert approval["decision"] == "approved" and approval["actor"] == "user"
+    dialog.close()
+
+
+def test_model_install_button_approves_exact_official_manifest(qtbot, tmp_path, monkeypatch) -> None:
+    from local_model_chat.environment.discovery import EnvironmentReport
+    from local_model_chat.environment.models import plan_local_model
+    from local_model_chat.workers import DoctorWorker, ModelInspectWorker, ModelPullWorker
+
+    environment = EnvironmentReport(
+        1, "Windows", "x86_64", 4, 16 * 1024**3, 20 * 1024**3,
+        "unknown", "fixture", (), (),
+    )
+    source = "https://registry.ollama.ai/v2/library/qwen2.5-coder/manifests/7b"
+    plan = plan_local_model(environment, "qwen2.5-coder:7b", 4 * 1024**3, source=source)
+    monkeypatch.setattr(DoctorWorker, "start", lambda _worker: None)
+    monkeypatch.setattr(QInputDialog, "getText", lambda *_args: (plan.model, True))
+    monkeypatch.setattr(ModelInspectWorker, "start", lambda worker: worker.ready.emit(plan))
+    captured = {}
+    monkeypatch.setattr(QMessageBox, "question", lambda _dialog, _title, detail: (
+        captured.update(detail=detail) or QMessageBox.StandardButton.Yes
+    ))
+    monkeypatch.setattr(ModelPullWorker, "start", lambda worker: captured.update(worker=worker))
+    store = ChatStore(tmp_path / "model-install-ui.sqlite3")
+    window = MainWindow(store, FakeClient(), start_ollama_check=False)
+    qtbot.addWidget(window)
+    window._show_environment_doctor()
+    dialog = window.doctor_dialog
+    button = next(item for item in dialog.findChildren(QPushButton)
+                  if item.text() == "Install Ollama library model")
+    button.click()
+    assert captured["worker"].plan == plan
+    assert source in captured["detail"]
+    approval = store.latest_action_authorization(
+        project_id=None, action="pull_local_model", scope=plan.scope,
     )
     assert approval["decision"] == "approved" and approval["actor"] == "user"
     dialog.close()

@@ -36,7 +36,7 @@ Local Ollama chat needs no cloud account. Optional external agents and services 
 
 ## Run from source
 
-Requirements: Python 3.13+, Git, and Ollama on a tested platform. The Chat presets expect Ollama model names `molicoder:latest` and `local-reasoning:latest`; make those aliases available in your Ollama installation. MoliCoder does not download or replace model weights automatically.
+Requirements: Python 3.13+, Git, and Ollama on a tested platform. The Chat presets use Ollama model names `molicoder:latest` and `local-reasoning:latest`; any other installed Ollama model also appears in Chat with conservative default generation settings. Environment readiness can inspect a public Ollama library model's official manifest, show its size and hardware estimate, and download it through Ollama after your exact approval. It does not replace model weights without approval.
 
 ```powershell
 git clone https://github.com/molicoder-bit/MoliCoder.git

@@ -4,6 +4,9 @@ import pytest
 
 from local_model_chat.environment.discovery import EnvironmentReport
 from local_model_chat.environment.models import plan_local_model, pull_approved_local_model
+from local_model_chat.environment.models import official_model_size
+import io
+import json
 from local_model_chat.storage import ChatStore
 
 
@@ -18,6 +21,29 @@ class FakeClient:
 
     def pull_model(self, model):
         self.pulls.append(model)
+
+
+def test_official_model_manifest_size_is_bounded_and_validated() -> None:
+    payload = json.dumps({"layers": [
+        {"size": 400, "digest": "sha256:" + "a" * 64},
+        {"size": 20, "digest": "sha256:" + "b" * 64},
+    ]}).encode()
+    seen = []
+
+    def open_manifest(request, *, timeout):
+        seen.append((request.full_url, timeout))
+        return io.BytesIO(payload)
+
+    assert official_model_size("qwen2.5-coder:7b", opener=open_manifest) == (
+        420, "https://registry.ollama.ai/v2/library/qwen2.5-coder/manifests/7b",
+    )
+    assert seen == [("https://registry.ollama.ai/v2/library/qwen2.5-coder/manifests/7b", 10)]
+    with pytest.raises(ValueError, match="public Ollama library"):
+        official_model_size("example.com/private/model", opener=open_manifest)
+    with pytest.raises(ValueError, match="size limit"):
+        official_model_size("qwen2.5-coder:7b", opener=lambda *_args, **_kwargs: io.BytesIO(b"x" * (256 * 1024 + 1)))
+    with pytest.raises(ValueError, match="invalid layer"):
+        official_model_size("qwen2.5-coder:7b", opener=lambda *_args, **_kwargs: io.BytesIO(b'{"layers":[{"size":-1,"digest":"bad"}]}'))
 
 
 def test_model_plan_shows_ram_vram_disk_and_requires_exact_approval(tmp_path) -> None:

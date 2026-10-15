@@ -107,6 +107,47 @@ class DoctorWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class ModelInspectWorker(QThread):
+    ready = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, model: str) -> None:
+        super().__init__()
+        self.model = model
+
+    def run(self) -> None:
+        try:
+            from .environment.discovery import discover_environment
+            from .environment.models import official_model_size, plan_local_model
+
+            size, source = official_model_size(self.model)
+            self.ready.emit(plan_local_model(discover_environment(), self.model, size, source=source))
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class ModelPullWorker(QThread):
+    completed = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, store, client, plan) -> None:
+        super().__init__()
+        self.store = store
+        self.client = client
+        self.plan = plan
+
+    def run(self) -> None:
+        try:
+            from .environment.models import pull_approved_local_model
+
+            pull_approved_local_model(self.store, self.client, self.plan)
+            if self.plan.model not in {str(item.get("name", "")) for item in self.client.tags()}:
+                raise RuntimeError("model pull returned without an installed model")
+            self.completed.emit(self.plan.model)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class ManagedInstallWorker(QThread):
     completed = Signal(object)
     failed = Signal(str)

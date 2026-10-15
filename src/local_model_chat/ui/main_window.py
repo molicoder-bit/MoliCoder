@@ -4,6 +4,7 @@ import json
 import hashlib
 import subprocess
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -44,7 +45,7 @@ from ..storage import ChatStore
 from ..telemetry import format_bytes, read_nvidia_telemetry
 from ..workers import (
     ChatWorker, CustomApiWorker, DoctorWorker, ManagedInstallWorker,
-    ManagedRepairWorker, OrchestrationWorker, StartupWorker,
+    ManagedRepairWorker, ModelInspectWorker, ModelPullWorker, OrchestrationWorker, StartupWorker,
 )
 from .knowledge_dialog import KnowledgeReviewDialog
 from .widgets import AttachmentChip, ChatBubble, MessageComposer, MetricCard
@@ -75,6 +76,8 @@ class MainWindow(QMainWindow):
         self.current_attachments: list[Attachment] = []
         self.managed_install_worker: ManagedInstallWorker | None = None
         self.managed_repair_worker: ManagedRepairWorker | None = None
+        self.model_inspect_worker: ModelInspectWorker | None = None
+        self.model_pull_worker: ModelPullWorker | None = None
         self.custom_api_worker: CustomApiWorker | None = None
         self.chat_worker: ChatWorker | None = None
         self.startup_worker: StartupWorker | None = None
@@ -89,6 +92,7 @@ class MainWindow(QMainWindow):
         self.recoverable_run_id: int | None = None
         self.last_run_id: int | None = None
         self._installed_model_names: set[str] = set()
+        self._installed_model_presets: dict[str, ModelPreset] = {}
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setSingleShot(True)
         self._scroll_timer.timeout.connect(self._perform_scroll_to_bottom)
@@ -115,7 +119,8 @@ class MainWindow(QMainWindow):
 
     @property
     def preset(self) -> ModelPreset:
-        return MODEL_PRESETS[self.model_combo.currentData()]
+        name = self.model_combo.currentData()
+        return MODEL_PRESETS.get(name) or self._installed_model_presets[name]
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -493,6 +498,8 @@ class MainWindow(QMainWindow):
         managed_repair = QPushButton("Repair receipt-backed managed tool")
         managed_repair.setEnabled(False)
         layout.addWidget(managed_repair)
+        pull_model = QPushButton("Install Ollama library model")
+        layout.addWidget(pull_model)
         self.doctor_dialog = dialog
         latest_report = None
 
@@ -700,6 +707,73 @@ class MainWindow(QMainWindow):
             worker.start()
 
         managed_repair.clicked.connect(begin_managed_repair)
+        def begin_model_pull() -> None:
+            if self.model_inspect_worker is not None or self.model_pull_worker is not None:
+                return
+            model, accepted = QInputDialog.getText(
+                dialog, "Install Ollama model", "Official Ollama library model and tag (for example qwen2.5-coder:7b):",
+            )
+            if not accepted or not model.strip():
+                return
+            model = model.strip()
+            pull_model.setEnabled(False)
+            progress.setText(f"Checking official manifest for {model}…")
+            worker = ModelInspectWorker(model)
+            self.model_inspect_worker = worker
+
+            def approve_model(plan) -> None:
+                if not plan.suitable:
+                    QMessageBox.warning(dialog, "Model suitability", plan.reason)
+                    progress.setText("Model download was not started.")
+                    return
+                answer = QMessageBox.question(
+                    dialog, "Approve model download",
+                    f"Pull {plan.model} into your Ollama model store?\n\n"
+                    f"Official manifest: {plan.source}\n"
+                    f"Manifest layer size: {plan.size_bytes / 1_000_000_000:.2f} GB\n"
+                    f"Conservative RAM: {plan.ram_needed_bytes / 1_000_000_000:.2f} GB\n"
+                    f"Preferred VRAM: {plan.vram_preferred_bytes / 1_000_000_000:.2f} GB\n"
+                    f"Conservative free disk: {plan.disk_needed_bytes / 1_000_000_000:.2f} GB\n\n"
+                    "Ollama downloads the model after approval. Its model store is managed by Ollama, not MoliCoder.",
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    progress.setText("Model download was not approved.")
+                    return
+                self.store.record_action_authorization(
+                    project_id=None, action="pull_local_model", scope=plan.scope,
+                    risk="mutation", decision="approved", actor="user",
+                    expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+                    reason="approved exact model and manifest in Environment readiness",
+                )
+                pull_worker = ModelPullWorker(self.store, self.client, plan)
+                self.model_pull_worker = pull_worker
+                progress.setText(f"Downloading {plan.model} through Ollama…")
+                pull_worker.completed.connect(lambda name: (
+                    QMessageBox.information(dialog, "Model installed", f"{name} is ready in Ollama."),
+                    self._start_ollama_check(), check_again(),
+                ))
+                pull_worker.failed.connect(lambda error: (
+                    QMessageBox.warning(dialog, "Model download failed", error),
+                    progress.setText("Model download failed; Ollama may retain partial layers."),
+                ))
+                pull_worker.finished.connect(lambda: (
+                    setattr(self, "model_pull_worker", None), pull_model.setEnabled(True),
+                    pull_worker.deleteLater(),
+                ))
+                pull_worker.start()
+
+            worker.ready.connect(approve_model)
+            worker.failed.connect(lambda error: (
+                QMessageBox.warning(dialog, "Model manifest check failed", error),
+                progress.setText("Model manifest could not be verified."),
+            ))
+            worker.finished.connect(lambda: (
+                setattr(self, "model_inspect_worker", None),
+                pull_model.setEnabled(self.model_pull_worker is None), worker.deleteLater(),
+            ))
+            worker.start()
+
+        pull_model.clicked.connect(begin_model_pull)
         dialog.finished.connect(lambda: setattr(self, "doctor_dialog", None))
         check_again()
         dialog.show()
@@ -906,7 +980,36 @@ class MainWindow(QMainWindow):
 
     def _ollama_ready(self, available: bool, models: list[dict]) -> None:
         self._installed_model_names = {str(model.get("name", "")) for model in models}
-        for preset in MODEL_PRESETS.values():
+        self._installed_model_presets = {
+            name: replace(
+                MODEL_PRESETS["molicoder:latest"], name=name, label=name,
+                role="Installed Ollama model", context_window=8192,
+                max_output_tokens=2048, show_thinking=False,
+            )
+            for name in self._installed_model_names if name and name not in MODEL_PRESETS
+        }
+        for preset in self._installed_model_presets.values():
+            ensure_local_offering(
+                self.inference_registry, preset.name,
+                context_window=preset.context_window,
+                max_output_tokens=preset.max_output_tokens,
+            )
+        selected = self.model_combo.currentData()
+        if self.current_conversation_id is not None:
+            conversation = self.store.get_conversation(self.current_conversation_id)
+            if conversation and conversation.model in self._installed_model_presets:
+                selected = conversation.model
+        self.model_combo.blockSignals(True)
+        for index in range(self.model_combo.count() - 1, -1, -1):
+            if self.model_combo.itemData(index) not in MODEL_PRESETS:
+                self.model_combo.removeItem(index)
+        for name in sorted(self._installed_model_presets):
+            self.model_combo.addItem(f"{name}  ·  Installed Ollama model", name)
+        index = self.model_combo.findData(selected)
+        self.model_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.model_combo.blockSignals(False)
+        self._apply_preset_controls()
+        for preset in (*MODEL_PRESETS.values(), *self._installed_model_presets.values()):
             present = available and preset.name in self._installed_model_names
             self.inference_registry.set_offering_state(
                 local_offering_id(preset.name),
