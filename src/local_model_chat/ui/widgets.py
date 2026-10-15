@@ -24,7 +24,7 @@ class ChatBubble(QFrame):
         outer.setSpacing(8)
 
         header = QHBoxLayout()
-        author = QLabel("You" if role == "user" else "Local model")
+        author = QLabel("You" if role == "user" else "MoliCoder")
         author.setStyleSheet("font-weight: 700; color: #E2E8F0;")
         header.addWidget(author)
         header.addStretch()
@@ -70,7 +70,7 @@ class ChatBubble(QFrame):
         self.set_thinking(thinking)
 
     def _resize_body(self, size) -> None:
-        self.body.setFixedHeight(max(28, min(1000, int(size.height()) + 8)))
+        self.body.setFixedHeight(max(28, int(size.height()) + 8))
 
     def _toggle_reasoning(self, checked: bool) -> None:
         self.reasoning_view.setVisible(checked)
@@ -85,7 +85,7 @@ class ChatBubble(QFrame):
 
     def set_thinking(self, thinking: str) -> None:
         self.thinking = thinking
-        self.reasoning_frame.setVisible(bool(thinking) or self.role == "assistant")
+        self.reasoning_frame.setVisible(bool(thinking))
         self.reasoning_view.setPlainText(thinking)
         if thinking:
             self.reasoning_toggle.setText("Reasoning · streaming" if not self.content else "Reasoning")

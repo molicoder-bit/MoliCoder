@@ -23,6 +23,9 @@ def main() -> int:
     if sys.platform == "win32":
         app.setFont(QFont("Segoe UI Variable", 10))
     app.setStyleSheet(APP_STYLESHEET)
+    if "--package-board-smoke-check" in sys.argv:
+        from .ui.browser_smoke import browser_smoke
+        return browser_smoke(app)
     if smoke_check:
         from .environment.discovery import discover_environment
         from .environment.doctor import doctor_report

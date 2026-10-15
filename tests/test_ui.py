@@ -176,9 +176,10 @@ def test_open_kandev_board_uses_local_web_origin(qtbot, tmp_path, monkeypatch) -
     qtbot.addWidget(window)
     monkeypatch.setenv("KANDEV_ENDPOINT", "http://127.0.0.1:38429/mcp")
     opened = []
-    monkeypatch.setattr("local_model_chat.ui.main_window.QDesktopServices.openUrl", lambda url: opened.append(url.toString()) or True)
+    monkeypatch.setattr(window.kandev_panel, "connect_board", lambda: opened.append("embedded"))
     window.kandev_board_button.click()
-    assert opened == ["http://127.0.0.1:38429/"]
+    assert window.build_tabs.currentWidget() is window.kandev_panel
+    assert opened == ["embedded"]
 
 
 def test_implement_request_creates_reviewable_build_proposal(qtbot, tmp_path, monkeypatch) -> None:
@@ -317,7 +318,7 @@ def test_kandev_build_selection_authorizes_exact_remote_task_and_never_uses_inte
         api=SimpleNamespace(config=SimpleNamespace(workspace_id="workspace-1", agent_profile_id="agent-1")),
     )
     captured = {}
-    monkeypatch.setattr("local_model_chat.ui.main_window.configured_kandev_adapter", lambda _store: adapter)
+    monkeypatch.setattr("local_model_chat.ui.main_window.configured_kandev_adapter", lambda _store, **_kwargs: adapter)
     monkeypatch.setattr(window, "_refresh_build_readiness", lambda: window.build_run_button.setEnabled(True))
     monkeypatch.setattr(QMessageBox, "question", lambda *_args: QMessageBox.StandardButton.Yes)
     monkeypatch.setattr(
@@ -358,7 +359,7 @@ def test_pending_kandev_run_reconciles_by_owner_without_internal_resume(qtbot, t
     assert not window.build_discard_button.isEnabled()
     adapter = SimpleNamespace(connection=SimpleNamespace(endpoint="http://127.0.0.1:38429/mcp"))
     captured = {}
-    monkeypatch.setattr("local_model_chat.ui.main_window.configured_kandev_adapter", lambda _store: adapter)
+    monkeypatch.setattr("local_model_chat.ui.main_window.configured_kandev_adapter", lambda _store, **_kwargs: adapter)
     monkeypatch.setattr(
         "local_model_chat.ui.main_window.build_orchestrator",
         lambda **kwargs: (captured.update(kwargs) or SimpleNamespace(on_event=None)),
@@ -424,7 +425,7 @@ def test_kandev_apply_button_uses_fenced_backend_operation(qtbot, tmp_path, monk
             )
 
     monkeypatch.setattr(QMessageBox, "question", lambda *_args: QMessageBox.StandardButton.Yes)
-    monkeypatch.setattr("local_model_chat.ui.main_window.configured_kandev_adapter", lambda _store: adapter)
+    monkeypatch.setattr("local_model_chat.ui.main_window.configured_kandev_adapter", lambda _store, **_kwargs: adapter)
     monkeypatch.setattr("local_model_chat.ui.main_window.build_orchestrator", lambda **_kwargs: FakeOrchestrator())
 
     window._merge_last_build()

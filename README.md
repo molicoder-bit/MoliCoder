@@ -34,6 +34,16 @@ For example, a question such as “What task are we on?” can be answered from 
 
 Local Ollama chat needs no cloud account. Optional external agents and services have their own installation, authentication, quota, and data-sharing rules.
 
+## Desktop workspace
+
+The supplied MoliCode logo anchors a charcoal workspace with mint Chat and copper Build controls. Projects are selected in the header; **History** contains projects, conversations, and Build runs. **Settings** brings together connections, installation, budgets, trust, and Kandev.
+
+Context estimates and reserved output stay visible above the workspace. The bottom drawer opens Activity, Changes, Validation, Usage, Knowledge, or Performance without permanent side panels. Build controls are grouped and its content scrolls vertically on smaller windows. Project switching is locked while a Build owns a worktree; Chat/Build switching preserves drafts.
+
+![Chat workspace](docs/images/workspace-chat.png)
+
+The screenshot uses a demonstration conversation and makes no inference call. The [UI tracker](docs/plans/ui-redesign-tracker.md) records implementation and verification.
+
 ## Run from source
 
 Requirements: Python 3.13+, Git, and Ollama on a tested platform. On Windows, Linux x64, and macOS Intel or Apple Silicon, Environment readiness can install a pinned official Ollama runtime after showing its source, checksum, disk estimate, user-scope destination, and rollback path for your approval. The Chat presets use Ollama model names `molicoder:latest` and `local-reasoning:latest`; any other installed Ollama model also appears in Chat with conservative default generation settings. Environment readiness can inspect a public Ollama library model's official manifest, show its size and hardware estimate, and download it through Ollama after your exact approval. It does not replace model weights without approval.
@@ -98,7 +108,11 @@ KANDEV_REPOSITORY_ID=...
 KANDEV_AGENT_PROFILE_ID=...
 ```
 
-The endpoint must be loopback HTTP. In Build, choose **Task owner → Internal Build** or **Task owner → Kandev** for each new request. **Open Kandev board** opens Kandev's own browser UI at the configured endpoint's web origin. The board can open without task ownership settings, but Kandev must be running; the button uses `KANDEV_ENDPOINT`, then `KANDEV_BACKEND_PORT` or `KANDEV_PORT`, then Kandev's default port `38429`. Kandev task ownership still requires all the settings above and a separate launch confirmation. MoliCoder records ownership before dispatch, requires exact create and launch authorizations, shows pending state, and reconciles by the saved external ID. A [live Windows readiness check](docs/plans/kandev-live-readiness.md) verified an isolated worktree, local acceptance and apply, and restart recovery with Kandev 0.97.0. Its ordinary Windows launcher failed during supervisor socket setup on that host; the check used the verified executable's direct backend entry point.
+Kandev can now be installed, started, configured, and viewed inside **Build → Kandev board**. Use **Install** for the pinned package, **Start managed** for a loopback service, and **Connect / reload** to display its real board. Starting the service does not launch an agent. Managed data lives under MoliCoder's `kandev-managed` folder and the service remains running until explicitly stopped. Stop refuses an attached service, a changed process identity, or active/unverified agent sessions. **Configure** discovers workspaces, repositories, workflows, steps, and agent profiles; create missing resources in Kandev's board and refresh. Saved project profiles replace the need to set environment variables; the variables above remain a compatibility fallback.
+
+![Embedded Kandev board](docs/images/workspace-kandev.png)
+
+The endpoint must be loopback HTTP. In Build, choose **Task owner → Internal Build** or **Task owner → Kandev** for each new request. **Open Kandev board** opens the embedded view; **Open in browser** is available as a fallback. The board can open without task ownership settings, but Kandev must be running; the button uses `KANDEV_ENDPOINT`, then `KANDEV_BACKEND_PORT` or `KANDEV_PORT`, then Kandev's default port `38429`. Kandev task ownership still requires all the settings above and a separate launch confirmation. MoliCoder records ownership before dispatch, requires exact create and launch authorizations, shows pending state, and reconciles by the saved external ID. A [live Windows readiness check](docs/plans/kandev-live-readiness.md) verified an isolated worktree, local acceptance and apply, and restart recovery with Kandev 0.97.0. Its ordinary Windows launcher failed during supervisor socket setup on that host; the check used the verified executable's direct backend entry point.
 
 Chat and Build recognize an explicit request to create one local folder, including the phrasing `create a folder in C:/Dev called "Example"`. The app shows the exact resolved destination and creates it only after confirmation. This action works outside a Git project and does not launch a coding agent.
 
@@ -134,3 +148,5 @@ $env:QT_QPA_PLATFORM = "offscreen"
 ```
 
 The no-cost suite uses fixtures for provider and Kandev behavior. Live Ollama and CLI tests are opt-in; an isolated Kandev readiness check is documented separately. The [platform transformation tracker](docs/plans/platform-transformation-tracker.md) shows completed work and remaining tasks, including measured routing economics and optional remote workers. Issues and feedback are welcome; include reproduction steps and avoid posting credentials or private run logs.
+
+The embedded browser adds Qt WebEngine helper processes and resources to packaged builds. A separate package smoke check renders a harmless local page and checks JavaScript completion without contacting an inference provider.

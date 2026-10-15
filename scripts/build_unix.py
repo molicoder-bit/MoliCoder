@@ -26,6 +26,8 @@ def main() -> int:
         shutil.copy2(root / name, distribution / name)
     subprocess.run([str(executable), "--package-smoke-check"], cwd=root,
                    check=True, timeout=15)
+    subprocess.run([str(executable), "--package-board-smoke-check"], cwd=root,
+                   check=True, timeout=30)
     if not (distribution / "_internal" / "local_model_chat" / "environment"
             / "manifests" / "releases.json").is_file():
         raise FileNotFoundError("packaged doctor manifest is missing")

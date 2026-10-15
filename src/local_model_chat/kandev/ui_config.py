@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from typing import Mapping
 from urllib.parse import urlparse
 
@@ -25,14 +26,20 @@ def kandev_board_url(environ: Mapping[str, str] | None = None) -> str:
     except ValueError as exc:
         raise ValueError("Kandev board port is invalid") from exc
     if (parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "::1"}
-            or parsed_port is None or parsed.path.rstrip("/") not in {"", "/mcp"}
+            or not parsed_port or parsed.path.rstrip("/") not in {"", "/mcp"}
             or parsed.username or parsed.password or parsed.query or parsed.fragment):
         raise ValueError("Kandev board requires a loopback HTTP endpoint")
     return f"http://{parsed.netloc}/"
 
 
-def configured_kandev_adapter(store: ChatStore, environ: Mapping[str, str] | None = None) -> KandevTaskAdapter:
+def configured_kandev_adapter(store: ChatStore, environ: Mapping[str, str] | None = None, *, project_id: int | None = None) -> KandevTaskAdapter:
     """Build an opt-in loopback adapter from explicit, versioned local settings."""
+    saved = store.get_setting(f"kandev.project.{project_id}", "") if project_id is not None else ""
+    if saved:
+        config = KandevRestConfig(**json.loads(saved))
+        connection = KandevConnection(mode=KandevMode.ATTACHED, endpoint=config.endpoint,
+            version=config.version, owner="user_selected")
+        return KandevTaskAdapter(connection, KandevRestTaskApi(config, store=store), store=store)
     values = os.environ if environ is None else environ
     names = {
         "endpoint": "KANDEV_ENDPOINT",

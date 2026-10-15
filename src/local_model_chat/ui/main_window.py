@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
     QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMainWindow,
     QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSpinBox,
-    QSplitter, QStackedWidget, QTextBrowser, QVBoxLayout, QWidget,
+    QSplitter, QStackedWidget, QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from ..attachments import MAX_MESSAGE_BYTES, AttachmentError, load_attachment, render_attachments
@@ -72,6 +72,8 @@ class MainWindow(QMainWindow):
             )
         self.registry = ProjectRegistry(self.store)
         self.client = client or OllamaClient()
+        from .state import UiWorkspaceState
+        self.workspace_state = UiWorkspaceState()
         self.current_project_id: int | None = None
         self.pending_build_request: tuple[int | None, str] | None = None
         self.current_conversation_id: int | None = None
@@ -106,8 +108,15 @@ class MainWindow(QMainWindow):
         self._build_activity_timer.timeout.connect(self._update_build_activity)
 
         self.setWindowTitle(APP_NAME)
-        self.resize(1420, 880)
+        self.resize(1440, 900)
         self.setMinimumSize(1020, 680)
+        saved_size = self.store.get_setting("ui.window_size", "")
+        if saved_size:
+            try:
+                width, height = json.loads(saved_size)
+                self.resize(max(1020, min(int(width), 2560)), max(680, min(int(height), 1600)))
+            except (ValueError, TypeError):
+                pass
         self._build_ui()
         self._build_menu()
         self._load_project_list(select_saved=True)
@@ -126,38 +135,8 @@ class MainWindow(QMainWindow):
         return MODEL_PRESETS.get(name) or self._installed_model_presets[name]
 
     def _build_ui(self) -> None:
-        root = QWidget()
-        self.setCentralWidget(root)
-        root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-
-        topbar = QFrame()
-        topbar.setObjectName("topbar")
-        top_layout = QHBoxLayout(topbar)
-        top_layout.setContentsMargins(18, 10, 18, 10)
-        title = QLabel(APP_NAME)
-        title.setObjectName("appTitle")
-        top_layout.addWidget(title)
-        top_layout.addStretch()
-        self.connection_label = QLabel("● Checking Ollama…")
-        self.connection_label.setStyleSheet("color: #F59E0B; font-weight: 650;")
-        top_layout.addWidget(self.connection_label)
-        self.inspector_button = QPushButton("Context && performance")
-        self.inspector_button.clicked.connect(self._toggle_inspector)
-        top_layout.addWidget(self.inspector_button)
-        root_layout.addWidget(topbar)
-
-        self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.splitter.setChildrenCollapsible(False)
-        self.sidebar = self._build_sidebar()
-        self.center = self._build_center()
-        self.inspector = self._build_inspector()
-        self.splitter.addWidget(self.sidebar)
-        self.splitter.addWidget(self.center)
-        self.splitter.addWidget(self.inspector)
-        self.splitter.setSizes([245, 855, 320])
-        root_layout.addWidget(self.splitter, 1)
+        from .workspace import build_workspace
+        build_workspace(self)
 
     def _build_sidebar(self) -> QWidget:
         sidebar = QFrame()
@@ -276,6 +255,10 @@ class MainWindow(QMainWindow):
         self.transcript_layout = QVBoxLayout(self.transcript)
         self.transcript_layout.setContentsMargins(6, 8, 6, 8)
         self.transcript_layout.setSpacing(12)
+        self.chat_welcome = QLabel("A clearer path from question to working code.\n\nChat with your local model, inspect project facts, or take a request into Build.")
+        self.chat_welcome.setWordWrap(True)
+        self.chat_welcome.setStyleSheet("font-size: 22px; color: #A2B2A6; padding: 36px;")
+        self.transcript_layout.addWidget(self.chat_welcome)
         self.transcript_layout.addStretch()
         self.scroll.setWidget(self.transcript)
         layout.addWidget(self.scroll, 1)
@@ -348,7 +331,7 @@ class MainWindow(QMainWindow):
         self.build_project_title = QLabel("No project selected")
         self.build_project_title.setStyleSheet("font-size: 24px; font-weight: 750; color: #F8FAFC;")
         layout.addWidget(self.build_project_title)
-        self.build_project_meta = QLabel("Add a local project from the sidebar to begin.")
+        self.build_project_meta = QLabel("Choose a project above, or add one through History.")
         self.build_project_meta.setObjectName("muted")
         self.build_project_meta.setWordWrap(True)
         layout.addWidget(self.build_project_meta)
@@ -361,7 +344,8 @@ class MainWindow(QMainWindow):
         self.build_request.setPlaceholderText(
             "Describe a small, explicit, mechanically verifiable task for this project…"
         )
-        self.build_request.setMinimumHeight(120)
+        self.build_request.setMinimumHeight(76)
+        self.build_request.setMaximumHeight(115)
         self.build_request.textChanged.connect(self._refresh_build_readiness)
         self.build_request.send_requested.connect(self._run_build)
         request_layout.addWidget(self.build_request)
@@ -430,10 +414,27 @@ class MainWindow(QMainWindow):
         self.build_cancel_button.setEnabled(False)
         self.build_cancel_button.clicked.connect(self._cancel_build)
         controls.addWidget(self.build_cancel_button)
-        request_layout.addLayout(controls)
+        routing = QHBoxLayout()
+        for label, widget in (("Task owner", self.build_owner), ("Strategy", self.build_strategy), ("Provider", self.build_provider)):
+            routing.addWidget(QLabel(label)); routing.addWidget(widget)
+        routing.addStretch(); routing.addWidget(self.kandev_board_button)
+        request_layout.addLayout(routing)
+        advanced = QHBoxLayout()
+        advanced.addWidget(QLabel("Fallback on provider failure")); advanced.addWidget(self.build_fallback_provider)
+        advanced.addStretch()
+        for widget in (self.build_run_button, self.build_pause_button, self.build_cancel_button): advanced.addWidget(widget)
+        request_layout.addLayout(advanced)
+        # Settings and diagnostics have dedicated destinations in the workspace.
+        for index in range(controls.count()):
+            widget = controls.itemAt(index).widget()
+            if widget and widget not in (self.build_owner, self.build_provider, self.build_strategy,
+                    self.kandev_board_button, self.build_fallback_provider, self.build_run_button,
+                    self.build_pause_button, self.build_cancel_button):
+                widget.setParent(center); widget.hide()
         self.build_agent_info = QLabel()
         self.build_agent_info.setObjectName("muted")
         self.build_agent_info.setWordWrap(True)
+        self.build_agent_info.setMaximumHeight(48)
         request_layout.addWidget(self.build_agent_info)
         layout.addWidget(request_card)
 
@@ -453,12 +454,12 @@ class MainWindow(QMainWindow):
         self.build_activity.setStyleSheet("color: #22D3EE; font-weight: 650;")
         status_layout.addWidget(self.build_activity)
         self.build_events = QListWidget()
-        self.build_events.setMinimumHeight(180)
+        self.build_events.setMinimumHeight(80)
         self.build_events.currentItemChanged.connect(self._build_event_selected)
         status_layout.addWidget(self.build_events)
         self.build_details = QTextBrowser()
         self.build_details.setPlaceholderText("Integrated diff and frontier review details appear here.")
-        self.build_details.setMinimumHeight(150)
+        self.build_details.setMinimumHeight(80)
         status_layout.addWidget(self.build_details)
         self.build_log_button = QPushButton("Open run log")
         self.build_log_button.setEnabled(False)
@@ -483,8 +484,25 @@ class MainWindow(QMainWindow):
         self.build_merge_button.setEnabled(False)
         self.build_merge_button.clicked.connect(self._merge_last_build)
         status_layout.addWidget(self.build_merge_button)
-        layout.addWidget(status_card, 1)
-        return center
+        self.run_stage = QLabel("Prepare / Plan / Execute / Check / Apply")
+        self.run_stage.setObjectName("sectionTitle")
+        status_layout.insertWidget(0, self.run_stage)
+        self.task_list = QListWidget()
+        self.task_list.setMinimumHeight(80)
+        self.task_list.itemClicked.connect(self._workspace_task_selected)
+        status_layout.addWidget(self.task_list, 1)
+        from .kandev_panel import KandevPanel
+        self.build_tabs = QTabWidget()
+        self.build_tabs.addTab(status_card, "Run")
+        self.kandev_panel = KandevPanel(self)
+        self.build_tabs.addTab(self.kandev_panel, "Kandev board")
+        self.build_tabs.currentChanged.connect(lambda index: request_card.setVisible(index == 0))
+        layout.addWidget(self.build_tabs, 1)
+        center.setMinimumHeight(740)
+        container = QScrollArea()
+        container.setWidgetResizable(True)
+        container.setWidget(center)
+        return container
 
     def _show_environment_doctor(self) -> None:
         if self.doctor_dialog is not None:
@@ -1136,10 +1154,15 @@ class MainWindow(QMainWindow):
             self.model_card.set_value(f"{self.preset.label}\n8,192 tokens")
 
     def _set_view(self, view: str) -> None:
+        self.workspace_state.mode = view
         is_build = view == "build"
         self.view_stack.setCurrentWidget(self.build_view if is_build else self.chat_view)
         self.chat_nav_button.setChecked(not is_build)
         self.build_nav_button.setChecked(is_build)
+        self.chat_nav_button.setObjectName("primary" if not is_build else "")
+        self.build_nav_button.setObjectName("buildPrimary" if is_build else "")
+        for button in (self.chat_nav_button, self.build_nav_button):
+            button.style().unpolish(button); button.style().polish(button)
         if is_build:
             self._update_build_project(self.registry.selected())
 
@@ -1178,6 +1201,15 @@ class MainWindow(QMainWindow):
         if current is None:
             return
         project_id = int(current.data(Qt.ItemDataRole.UserRole))
+        if self.orchestration_worker is not None and project_id != self.current_project_id:
+            self._load_project_list(select_id=self.current_project_id)
+            return
+        previous_id = self.current_project_id
+        self.workspace_state.drafts[previous_id] = (self.composer.toPlainText(), self.build_request.toPlainText(), list(self.current_attachments))
+        if previous_id != project_id:
+            chat, build, attachments = self.workspace_state.drafts.get(project_id, ("", "", []))
+            self.composer.setPlainText(chat); self.build_request.setPlainText(build)
+            self.current_attachments = list(attachments); self._render_attachment_chips()
         try:
             project = self.registry.select(project_id)
         except ValueError:
@@ -1192,7 +1224,7 @@ class MainWindow(QMainWindow):
     def _update_build_project(self, project: Project | None) -> None:
         if project is None:
             self.build_project_title.setText("No project selected")
-            self.build_project_meta.setText("Add a local project from the sidebar to begin.")
+            self.build_project_meta.setText("Choose a project above, or add one through History.")
             self.build_request.setEnabled(False)
             self._refresh_recovery_actions(None)
             self._refresh_build_readiness()
@@ -1334,7 +1366,7 @@ class MainWindow(QMainWindow):
 
     def _reconcile_kandev_run(self, project: Project, run: dict) -> None:
         try:
-            adapter = configured_kandev_adapter(self.store)
+            adapter = configured_kandev_adapter(self.store, project_id=self.current_project_id)
             orchestrator = build_orchestrator(
                 store=self.store, project=project, client=self.client,
                 kandev_connection=adapter.connection, kandev_adapter=adapter,
@@ -1897,7 +1929,7 @@ class MainWindow(QMainWindow):
                 status = "Ready for a request on this protected project branch."
             elif kandev_selected:
                 try:
-                    configured_kandev_adapter(self.store)
+                    configured_kandev_adapter(self.store, project_id=self.current_project_id)
                 except ValueError as exc:
                     status = str(exc)
                 else:
@@ -2019,13 +2051,21 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _open_kandev_board(self) -> None:
-        try:
-            url = kandev_board_url()
-        except ValueError as exc:
-            QMessageBox.warning(self, "Kandev board", str(exc))
-            return
-        if not QDesktopServices.openUrl(QUrl(url)):
-            QMessageBox.warning(self, "Kandev board", f"Could not open {url}. Check that Kandev is running.")
+        self.build_tabs.setCurrentWidget(self.kandev_panel)
+        self.kandev_panel.connect_board()
+
+    def _workspace_task_selected(self, item) -> None:
+        from .workspace import open_drawer
+        from ..molicoder.evidence_view import render_task_evidence
+        status = self.store.current_project_run_status(self.current_project_id) if self.current_project_id else None
+        if status and status.run_id:
+            task = next((task for task in self.store.list_run_tasks(status.run_id) if task.id == item.data(Qt.UserRole)), None)
+            if task:
+                from dataclasses import asdict
+                evidence = self.store.get_task_completion(task.id)
+                details = {"task": asdict(task), "completion": asdict(evidence) if evidence else "No accepted completion evidence yet"}
+                self.validation_view.setPlainText(json.dumps(details, indent=2, default=str))
+            open_drawer(self, "Validation")
 
     def _confirm_directory_creation(self, folder: Path) -> ControllerResult:
         if folder.exists():
@@ -2058,7 +2098,7 @@ class MainWindow(QMainWindow):
 
     def _run_kandev_build(self, project: Project, request: str) -> None:
         try:
-            adapter = configured_kandev_adapter(self.store)
+            adapter = configured_kandev_adapter(self.store, project_id=self.current_project_id)
         except ValueError as exc:
             QMessageBox.warning(self, "Kandev configuration", str(exc))
             return
@@ -2127,6 +2167,12 @@ class MainWindow(QMainWindow):
         self._build_activity_frame += 1
 
     def _build_event(self, kind: str, payload: dict) -> None:
+        if hasattr(self, "run_stage"):
+            stage = {"recon_completed": "Prepare · repository evidence collected", "plan_created": "Plan · task plan validated",
+                "task_started": "Execute · task in progress", "task_completed": "Check · task verified",
+                "integration_started": "Apply · validating integration", "run_completed": "Complete · verified result",
+                "run_needs_attention": "Needs attention · inspect validation", "run_failed": "Needs attention · inspect activity"}.get(kind)
+            if stage: self.run_stage.setText(stage)
         if kind == "provider_heartbeat":
             elapsed = float(payload.get("elapsed_seconds", 0) or 0)
             self.build_activity.setText(
@@ -2375,6 +2421,8 @@ class MainWindow(QMainWindow):
             check=False, creationflags=creationflags,
         ).stdout
         self.build_details.setPlainText((diff + "\n" + patch)[:100000])
+        if hasattr(self, "changes_view"):
+            self.changes_view.setPlainText((diff + "\n" + patch)[:100000])
 
     def _merge_last_build(self) -> None:
         project = self.registry.selected()
@@ -2388,7 +2436,7 @@ class MainWindow(QMainWindow):
             ) != QMessageBox.StandardButton.Yes:
                 return
             try:
-                adapter = configured_kandev_adapter(self.store)
+                adapter = configured_kandev_adapter(self.store, project_id=self.current_project_id)
                 orchestrator = build_orchestrator(
                     store=self.store, project=project, client=self.client,
                     kandev_connection=adapter.connection, kandev_adapter=adapter,
@@ -2639,7 +2687,12 @@ class MainWindow(QMainWindow):
             item = self.transcript_layout.takeAt(0)
             widget = item.widget()
             if widget:
+                widget.hide()
                 widget.deleteLater()
+        if not messages:
+            welcome = QLabel("A clearer path from question to working code.\n\nAsk a question. Inspect your project. Build with control.")
+            welcome.setWordWrap(True); welcome.setStyleSheet("font-size: 22px; color: #A2B2A6; padding: 36px;")
+            self.transcript_layout.insertWidget(0, welcome)
         for message in messages:
             if message.role in {"user", "assistant"}:
                 self.transcript_layout.insertWidget(
@@ -3042,9 +3095,14 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Export failed", str(exc))
 
     def _toggle_inspector(self) -> None:
-        self.inspector.setVisible(not self.inspector.isVisible())
+        from .workspace import open_drawer
+        open_drawer(self, "Performance")
 
     def closeEvent(self, event) -> None:
+        if hasattr(self, "kandev_panel") and self.kandev_panel.worker is not None:
+            QMessageBox.information(self, "Kandev operation", "Wait for the current service operation to finish.")
+            event.ignore()
+            return
         if self.orchestration_worker and self.orchestration_worker.isRunning():
             QMessageBox.warning(
                 self,
@@ -3058,4 +3116,5 @@ class MainWindow(QMainWindow):
             self.chat_worker.wait(2500)
         if self.startup_worker and self.startup_worker.isRunning():
             self.startup_worker.wait(3000)
+        self.store.set_setting("ui.window_size", json.dumps([self.width(), self.height()]))
         event.accept()

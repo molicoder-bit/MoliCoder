@@ -5,6 +5,7 @@ a = Analysis(
     pathex=["src"],
     binaries=[],
     datas=[
+        ("src/local_model_chat/assets/molicodeLogo.png", "local_model_chat/assets"),
         ("src/local_model_chat/molicoder/planner/plan.schema.json", "local_model_chat/molicoder/planner"),
         ("src/local_model_chat/environment/manifests/releases.json", "local_model_chat/environment/manifests"),
     ],
@@ -12,7 +13,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtQml"],
+    excludes=["PySide6.QtQml"],
     noarchive=False,
     optimize=1,
 )

@@ -42,6 +42,12 @@ jobs:
             throw 'Packaged UI and doctor smoke timed out'
           }
           if ($process.ExitCode -ne 0) { throw "Packaged UI and doctor smoke failed: $($process.ExitCode)" }
+          $board = Start-Process -FilePath (Resolve-Path dist/MoliCoder/MoliCoder.exe) -ArgumentList '--package-board-smoke-check' -WindowStyle Hidden -PassThru
+          if (-not $board.WaitForExit(30000)) {
+            Stop-Process -Id $board.Id -ErrorAction SilentlyContinue
+            throw 'Packaged board renderer timed out'
+          }
+          if ($board.ExitCode -ne 0) { throw 'Packaged board renderer failed' }
       - name: Archive
         shell: pwsh
         run: Compress-Archive -Path dist/MoliCoder/* -DestinationPath MoliCoder-Windows-x64.zip

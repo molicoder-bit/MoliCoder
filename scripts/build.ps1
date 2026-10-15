@@ -28,3 +28,11 @@ if ($healthProcess.ExitCode -ne 0) {
 
 Write-Host "Packaged UI and doctor smoke passed."
 Write-Host "Built: $builtExecutable"
+
+$boardProcess = Start-Process -FilePath $builtExecutable -ArgumentList "--package-board-smoke-check" -WindowStyle Hidden -PassThru
+if (-not $boardProcess.WaitForExit(30000)) {
+    Stop-Process -Id $boardProcess.Id -ErrorAction SilentlyContinue
+    throw "Packaged board renderer timed out."
+}
+if ($boardProcess.ExitCode -ne 0) { throw "Packaged board renderer failed." }
+Write-Host "Packaged board renderer passed."

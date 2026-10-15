@@ -395,3 +395,7 @@ Mark a row only when its end-to-end proof is attached. These are validation gate
 - Whether Kandev adds enough value over the current Build orchestrator to justify installation and maintenance.
 - Whether remote workers are needed at all; the initial milestone has no distributed dependency.
 - Whether a second subscription or capped API reserve improves measured accepted-task cost enough to justify approval.
+
+## UI redesign
+
+The approved Chat/Build redesign is tracked in [UI redesign tracker](ui-redesign-tracker.md), including supplied branding, visible usage, embedded Kandev and lifecycle setup.
