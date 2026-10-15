@@ -73,6 +73,24 @@ class LocalPolicyHttpGateway:
                     self.headers.get("Authorization", ""), f"Bearer {gateway.token}",
                 )
 
+            def _drain_small_unauthorized_body(self) -> None:
+                # On Windows, closing a POST socket with unread request bytes can
+                # reset the connection before the client receives the 401 response.
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    return
+                if not 0 < length <= 8192:
+                    return
+                previous_timeout = self.connection.gettimeout()
+                try:
+                    self.connection.settimeout(0.25)
+                    self.rfile.read(length)
+                except OSError:
+                    pass
+                finally:
+                    self.connection.settimeout(previous_timeout)
+
             def do_GET(self) -> None:
                 if not self._authorized():
                     self._json(401, {"error": {"message": "gateway authentication required"}})
@@ -83,6 +101,7 @@ class LocalPolicyHttpGateway:
 
             def do_POST(self) -> None:
                 if not self._authorized():
+                    self._drain_small_unauthorized_body()
                     self._json(401, {"error": {"message": "gateway authentication required"}})
                     return
                 if self.path != "/v1/chat/completions":

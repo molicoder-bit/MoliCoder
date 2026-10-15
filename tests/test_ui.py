@@ -834,6 +834,56 @@ def test_managed_install_button_records_exact_in_app_approval(qtbot, tmp_path, m
     dialog.close()
 
 
+def test_managed_repair_button_uses_receipt_and_two_exact_approvals(qtbot, tmp_path, monkeypatch) -> None:
+    import json
+
+    from local_model_chat.environment.discovery import DiscoveredTool, EnvironmentReport
+    from local_model_chat.environment.doctor import doctor_report
+    from local_model_chat.environment.manifests import load_manifests
+    from local_model_chat.workers import DoctorWorker, ManagedRepairWorker
+
+    manifest = next(item for item in load_manifests()
+                    if item.tool_id == "kandev" and item.system == "Windows")
+    data_root = tmp_path / "data"
+    destination = data_root / "tools" / f"kandev-{manifest.version}"
+    executable = destination / "kandev.exe"
+    destination.mkdir(parents=True)
+    executable.write_bytes(b"fixture")
+    (destination / "install-receipt.json").write_text(json.dumps({
+        "tool_id": manifest.tool_id, "version": manifest.version,
+        "sha256": manifest.sha256, "destination": str(destination.resolve()),
+        "executable": str(executable.resolve()), "installed_at": "2026-10-15T00:00:00+00:00",
+    }), encoding="utf-8")
+    monkeypatch.setattr("local_model_chat.ui.main_window.data_dir", lambda: data_root)
+    environment = EnvironmentReport(
+        1, "Windows", "x86_64", 4, 8 * 1024**3, 10 * 1024**3, "unknown", "fixture",
+        (DiscoveredTool("kandev", None, None, "missing"),), (),
+    )
+    monkeypatch.setattr(
+        DoctorWorker, "run",
+        lambda worker: worker.ready.emit(doctor_report(environment, load_manifests())),
+    )
+    monkeypatch.setattr(QInputDialog, "getItem", lambda *_args: ("kandev 0.97.0", True))
+    monkeypatch.setattr(QMessageBox, "question", lambda *_args: QMessageBox.StandardButton.Yes)
+    captured = {}
+    monkeypatch.setattr(ManagedRepairWorker, "start", lambda worker: captured.update(worker=worker))
+    store = ChatStore(tmp_path / "repair-ui.sqlite3")
+    window = MainWindow(store, FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: window.startup_worker is None)
+    window._show_environment_doctor()
+    dialog = window.doctor_dialog
+    button = next(item for item in dialog.findChildren(QPushButton)
+                  if item.text() == "Repair receipt-backed managed tool")
+    qtbot.waitUntil(button.isEnabled)
+    button.click()
+    worker = captured["worker"]
+    for action, scope in (("maintenance", worker.plan.scope), ("setup", worker.setup_plan.scope)):
+        approval = store.latest_action_authorization(project_id=None, action=action, scope=scope)
+        assert approval["decision"] == "approved" and approval["actor"] == "user"
+    dialog.close()
+
+
 def test_usage_dialog_shows_source_aware_project_report(qtbot, tmp_path, monkeypatch) -> None:
     from local_model_chat.inference.budget import BudgetManager
     store = ChatStore(tmp_path / "usage-ui.sqlite3")

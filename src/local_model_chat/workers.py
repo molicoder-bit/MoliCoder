@@ -139,6 +139,41 @@ class ManagedInstallWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class ManagedRepairWorker(QThread):
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, store, plan, setup_plan, manifest, managed_root) -> None:
+        super().__init__()
+        self.store = store
+        self.plan = plan
+        self.setup_plan = setup_plan
+        self.manifest = manifest
+        self.managed_root = managed_root
+
+    def run(self) -> None:
+        try:
+            import subprocess
+
+            from .environment.install import _download
+            from .environment.maintenance import perform_maintenance
+
+            receipt = perform_maintenance(
+                self.store, self.managed_root, self.plan,
+                manifest=self.manifest, setup_plan=self.setup_plan, downloader=_download,
+            )
+            result = subprocess.run(
+                [receipt.executable, "--version"], capture_output=True, text=True,
+                timeout=10, check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if result.returncode != 0 or self.manifest.version not in (result.stdout + result.stderr):
+                raise RuntimeError("repaired executable failed its version check; backup retained")
+            self.completed.emit(receipt)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class CustomApiWorker(QThread):
     completed = Signal(object)
     failed = Signal(str)

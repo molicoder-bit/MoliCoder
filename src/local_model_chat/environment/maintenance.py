@@ -61,6 +61,26 @@ def plan_maintenance(
     return MaintenancePlan(action, tool_id, version, receipt.sha256, scope, risk)
 
 
+def repair_setup_plan(store: ChatStore, manifest: InstallManifest) -> SetupPlan:
+    """Describe the exact pinned download needed to repair a managed receipt."""
+    if manifest.install_kind != "archive":
+        raise ValueError("repair supports managed archives only")
+    scope = (
+        f"install_managed:{manifest.tool_id}@{manifest.version}:"
+        f"{manifest.system}:{manifest.architecture}:{manifest.sha256}"
+    )
+    risk = ActionRisk.PRIVILEGED if manifest.privilege == "administrator" else ActionRisk.MUTATION
+    approval = AuthorizationPolicy(store).check(ActionRequest(None, "setup", scope, risk))
+    return SetupPlan(
+        manifest.tool_id, manifest.version, "install_managed", scope,
+        manifest.source_url, manifest.sha256, manifest.size_bytes,
+        manifest.size_bytes * 2, manifest.privilege, approval.allowed,
+        approval.reason, None,
+        ("Verify the pinned official asset and replace only the receipt-backed managed version.",
+         "Keep the previous managed version in a repair backup for rollback."),
+    )
+
+
 def _require_current_plan(store: ChatStore, root: Path, plan: MaintenancePlan) -> tuple[Path, InstallReceipt]:
     expected = plan_maintenance(store, root, plan.action, plan.tool_id, plan.version)
     if plan != expected:

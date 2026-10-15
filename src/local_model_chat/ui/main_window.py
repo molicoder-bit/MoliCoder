@@ -42,7 +42,10 @@ from ..molicoder.providers import AGENT_PROFILES, ProviderUnavailable, agent_pro
 from ..ollama import OllamaClient
 from ..storage import ChatStore
 from ..telemetry import format_bytes, read_nvidia_telemetry
-from ..workers import ChatWorker, CustomApiWorker, DoctorWorker, ManagedInstallWorker, OrchestrationWorker, StartupWorker
+from ..workers import (
+    ChatWorker, CustomApiWorker, DoctorWorker, ManagedInstallWorker,
+    ManagedRepairWorker, OrchestrationWorker, StartupWorker,
+)
 from .knowledge_dialog import KnowledgeReviewDialog
 from .widgets import AttachmentChip, ChatBubble, MessageComposer, MetricCard
 
@@ -71,6 +74,7 @@ class MainWindow(QMainWindow):
         self.current_conversation_id: int | None = None
         self.current_attachments: list[Attachment] = []
         self.managed_install_worker: ManagedInstallWorker | None = None
+        self.managed_repair_worker: ManagedRepairWorker | None = None
         self.custom_api_worker: CustomApiWorker | None = None
         self.chat_worker: ChatWorker | None = None
         self.startup_worker: StartupWorker | None = None
@@ -486,6 +490,9 @@ class MainWindow(QMainWindow):
         managed_install = QPushButton("Install supported managed tool")
         managed_install.setEnabled(False)
         layout.addWidget(managed_install)
+        managed_repair = QPushButton("Repair receipt-backed managed tool")
+        managed_repair.setEnabled(False)
+        layout.addWidget(managed_repair)
         self.doctor_dialog = dialog
         latest_report = None
 
@@ -493,6 +500,7 @@ class MainWindow(QMainWindow):
             nonlocal latest_report
             from ..environment.doctor import render_human
             from ..environment.manifests import load_manifests
+            from ..environment.maintenance import plan_maintenance
             from ..environment.readiness import readiness_dashboard
 
             latest_report = report
@@ -504,6 +512,16 @@ class MainWindow(QMainWindow):
                 and manifest.source_url.endswith((".tar.gz", ".zip"))
             )
             managed_install.setEnabled(bool(installable) and self.managed_install_worker is None)
+            repairable = False
+            for manifest in installable:
+                try:
+                    plan = plan_maintenance(
+                        self.store, data_dir() / "tools", "repair", manifest.tool_id, manifest.version,
+                    )
+                    repairable = repairable or plan.sha256 == manifest.sha256
+                except (OSError, ValueError, KeyError):
+                    continue
+            managed_repair.setEnabled(repairable and self.managed_repair_worker is None)
             dashboard = readiness_dashboard(report)
             summary = (
                 f"Chat shell ready · local generation: {'ready' if dashboard.local_chat_ready else 'limited'} · "
@@ -608,6 +626,80 @@ class MainWindow(QMainWindow):
             worker.start()
 
         managed_install.clicked.connect(begin_managed_install)
+        def begin_managed_repair() -> None:
+            from ..environment.manifests import load_manifests
+            from ..environment.maintenance import plan_maintenance, repair_setup_plan
+
+            if latest_report is None or self.managed_repair_worker is not None:
+                return
+            candidates = []
+            for manifest in load_manifests():
+                if (manifest.system != latest_report.environment.system
+                        or manifest.architecture != latest_report.environment.architecture
+                        or manifest.install_kind != "archive"
+                        or not manifest.source_url.endswith((".tar.gz", ".zip"))):
+                    continue
+                try:
+                    plan = plan_maintenance(
+                        self.store, data_dir() / "tools", "repair", manifest.tool_id, manifest.version,
+                    )
+                except (OSError, ValueError, KeyError):
+                    continue
+                if plan.sha256 == manifest.sha256:
+                    candidates.append((manifest, plan))
+            if not candidates:
+                return
+            choices = [f"{manifest.tool_id} {manifest.version}" for manifest, _plan in candidates]
+            selected, accepted = QInputDialog.getItem(
+                dialog, "Managed repair", "Receipt-backed tool", choices, 0, False,
+            )
+            if not accepted:
+                return
+            manifest, plan = candidates[choices.index(selected)]
+            setup_plan = repair_setup_plan(self.store, manifest)
+            answer = QMessageBox.question(
+                dialog, "Approve managed repair",
+                f"Repair {manifest.tool_id} {manifest.version} under {data_dir() / 'tools'}?\n\n"
+                f"Download: {manifest.size_bytes / 1_000_000:.1f} MB from {manifest.source_url}\n"
+                f"SHA-256: {manifest.sha256}\n\n"
+                "The current receipt-backed version will be kept as a repair backup. "
+                "The replacement executable will be version checked.",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+            for action, scope, risk in (
+                ("maintenance", plan.scope, plan.risk.value),
+                ("setup", setup_plan.scope, "mutation"),
+            ):
+                self.store.record_action_authorization(
+                    project_id=None, action=action, scope=scope, risk=risk,
+                    decision="approved", actor="user", expires_at=expires,
+                    reason="approved exact managed repair in Environment readiness",
+                )
+            worker = ManagedRepairWorker(
+                self.store, plan, repair_setup_plan(self.store, manifest),
+                manifest, data_dir() / "tools",
+            )
+            self.managed_repair_worker = worker
+            managed_repair.setEnabled(False)
+            progress.setText(f"Repairing {manifest.tool_id} {manifest.version}…")
+            worker.completed.connect(lambda receipt: (
+                QMessageBox.information(dialog, "Managed repair", f"Verified repaired tool: {receipt.executable}"),
+                check_again(),
+            ))
+            worker.failed.connect(lambda error: (
+                QMessageBox.warning(dialog, "Managed repair failed", error),
+                progress.setText("Managed repair failed; original backup was retained or restored."),
+            ))
+            worker.finished.connect(lambda: (
+                setattr(self, "managed_repair_worker", None),
+                managed_repair.setEnabled(True),
+                worker.deleteLater(),
+            ))
+            worker.start()
+
+        managed_repair.clicked.connect(begin_managed_repair)
         dialog.finished.connect(lambda: setattr(self, "doctor_dialog", None))
         check_again()
         dialog.show()
