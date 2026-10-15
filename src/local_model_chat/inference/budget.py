@@ -65,6 +65,7 @@ class BudgetManager:
     def reserve(
         self, request_id: str, project_id: int, amount_usd: float, *,
         task_scope: str = "", tier: str = "standard", allow_exception: bool = False,
+        reuse_active: bool = False,
     ) -> str:
         if not request_id or not 0 < amount_usd < float("inf"):
             raise ValueError("request ID and finite positive worst-case cost are required")
@@ -74,6 +75,18 @@ class BudgetManager:
         month = now[:7]
         with closing(self.store._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
+            if reuse_active:
+                existing = connection.execute(
+                    "SELECT id, project_id, task_scope, tier, amount_usd, status "
+                    "FROM budget_reservations WHERE request_id = ? ORDER BY created_at LIMIT 1",
+                    (request_id,),
+                ).fetchone()
+                if existing is not None:
+                    if (existing["status"] != "active" or existing["project_id"] != project_id
+                            or existing["task_scope"] != task_scope or existing["tier"] != tier
+                            or abs(existing["amount_usd"] - amount_usd) > 1e-10):
+                        raise BudgetDenied("request reservation differs or is no longer active")
+                    return str(existing["id"])
             limit = connection.execute(
                 "SELECT limit_usd, premium_reserve_usd FROM project_budget_limits WHERE project_id = ?", (project_id,),
             ).fetchone()

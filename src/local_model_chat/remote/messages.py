@@ -23,7 +23,7 @@ from .leases import LeaseConflict
 
 MAX_ENVELOPE_BYTES = 64 * 1024
 MAX_CLOCK_SKEW = timedelta(minutes=5)
-CONTROL_KINDS = frozenset({"lease_accept", "heartbeat", "reconcile"})
+CONTROL_KINDS = frozenset({"lease_accept", "heartbeat", "reconcile", "request_inference"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +142,8 @@ class RemoteMessageStore:
                 raise LeaseConflict("lease cannot be accepted")
             if kind == "heartbeat" and (expired or lease["state"] != "active"):
                 raise LeaseConflict("heartbeat requires an active unexpired lease")
+            if kind == "request_inference" and (expired or lease["state"] != "active"):
+                raise LeaseConflict("inference requires an active unexpired lease")
             if kind == "reconcile" and lease["state"] not in {"active", "reconciling"}:
                 raise LeaseConflict("lease is not ready for reconciliation")
             state = "active" if kind == "lease_accept" else "reconciling" if kind == "reconcile" else lease["state"]

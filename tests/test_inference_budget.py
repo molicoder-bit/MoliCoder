@@ -32,6 +32,31 @@ def test_atomic_reservation_prevents_two_workers_exceeding_project_limit(tmp_pat
     assert budget.reserve("replacement", project.id, 0.007)
 
 
+def test_remote_retry_reuses_one_active_request_reservation(tmp_path) -> None:
+    store = ChatStore(tmp_path / "remote-budget.sqlite3")
+    project = store.upsert_project("Remote", str(tmp_path), "python")
+    budget = BudgetManager(store)
+    budget.set_project_limit(project.id, 0.007, actor="user")
+    barrier = Barrier(2)
+
+    def reserve(_index):
+        barrier.wait()
+        return budget.reserve("remote-request-1", project.id, 0.006,
+                              task_scope="task:1", reuse_active=True)
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        results = list(workers.map(reserve, (1, 2)))
+    assert results[0] == results[1]
+    with store._connect() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM budget_reservations WHERE request_id = 'remote-request-1'"
+        ).fetchone()[0] == 1
+    budget.settle(results[0])
+    with pytest.raises(BudgetDenied, match="no longer active"):
+        budget.reserve("remote-request-1", project.id, 0.006,
+                       task_scope="task:1", reuse_active=True)
+
+
 def test_settled_cost_counts_against_limit_and_unknown_cost_uses_reserved_amount(tmp_path) -> None:
     store = ChatStore(tmp_path / "budget.sqlite3")
     project = store.upsert_project("Example", str(tmp_path), "python")
