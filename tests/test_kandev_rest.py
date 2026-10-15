@@ -65,13 +65,13 @@ def test_pinned_rest_create_lookup_and_read_use_exact_endpoint_and_identity(tmp_
     assert read.full_url.endswith("/tasks/task-1")
 
 
-def test_rest_transport_cannot_claim_full_lifecycle_capabilities() -> None:
+def test_rest_transport_requires_authorization_before_lifecycle_create() -> None:
     api = KandevRestTaskApi(_config())
     adapter = KandevTaskAdapter(
         KandevConnection(KandevMode.ATTACHED, "http://127.0.0.1:38429/mcp", "0.97.0"), api,
     )
-    assert adapter.probe().health_state == "limited"
-    with pytest.raises(RuntimeError, match="capabilities are incomplete"):
+    assert adapter.probe().health_state == "ready"
+    with pytest.raises(PermissionError, match="authorization"):
         adapter.create_task(KandevTaskRef(1, 2, "run:1"), "Build parser")
 
 
@@ -103,7 +103,7 @@ def test_rest_create_needs_exact_external_authorization(tmp_path) -> None:
     api = KandevRestTaskApi(_config(), store=store)
     with pytest.raises(PermissionError, match="approval"):
         api.create("run:1", "Build parser")
-    assert KandevRestTaskApi(_config()).capabilities() == ("create", "read", "lookup_external_id", "events", "cancel")
+    assert KandevRestTaskApi(_config()).capabilities() == ("create", "read", "lookup_external_id", "events", "cancel", "launch")
     with pytest.raises(PermissionError, match="authorization"):
         KandevRestTaskApi(_config()).create("run:1", "Build parser")
 

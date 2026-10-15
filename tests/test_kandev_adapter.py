@@ -1,5 +1,8 @@
+import pytest
+
 from local_model_chat.kandev.adapter import KandevTaskAdapter
 from local_model_chat.kandev.contracts import KandevConnection, KandevMode, KandevTaskRef
+from local_model_chat.kandev.rest import KandevTransportError
 from local_model_chat.storage import ChatStore
 
 
@@ -21,6 +24,9 @@ class FakeApi:
                 "creation_complete": True,
             }
         return self.tasks[external_id]
+
+    def create_and_launch(self, external_id, objective):
+        return self.create(external_id, objective)
 
     def read(self, remote_task_id):
         return next((task for task in self.tasks.values() if task["id"] == remote_task_id), None)
@@ -57,6 +63,31 @@ def test_create_deduplicates_and_reconciles_by_external_id() -> None:
     assert first.state == "running"
     assert adapter.reconcile(ref).ref.remote_task_id == "remote-7"
     assert first.session_id == "session-1" and first.worktree == "/work/remote-7"
+
+
+def test_lost_create_response_reconciles_without_another_launch() -> None:
+    class LostResponseApi(FakeApi):
+        def create_and_launch(self, external_id, objective):
+            self.create(external_id, objective)
+            raise KandevTransportError("response lost")
+
+    api = LostResponseApi()
+    snapshot = _adapter(api=api).create_task(
+        KandevTaskRef(7, 12, "molicoder-run-7-task-12"), "Implement parser",
+    )
+    assert snapshot.ref.remote_task_id == "remote-7"
+    assert api.created == 1
+
+
+def test_lost_create_response_without_remote_identity_stays_unresolved() -> None:
+    class LostResponseApi(FakeApi):
+        def create_and_launch(self, external_id, objective):
+            raise KandevTransportError("response lost")
+
+    with pytest.raises(KandevTransportError, match="response lost"):
+        _adapter(api=LostResponseApi()).create_task(
+            KandevTaskRef(7, 12, "molicoder-run-7-task-12"), "Implement parser",
+        )
 
 
 def test_unsettled_unknown_and_missing_remote_states_require_reconciliation() -> None:

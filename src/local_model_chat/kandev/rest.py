@@ -62,7 +62,7 @@ class KandevRestTaskApi:
         self._opener = build_opener(ProxyHandler({}), _NoRedirects)
 
     def capabilities(self) -> tuple[str, ...]:
-        return ("create", "read", "lookup_external_id", "events", "cancel")
+        return ("create", "read", "lookup_external_id", "events", "cancel", "launch")
 
     def _request(self, method: str, path: str, body: Mapping[str, object] | None = None) -> Mapping[str, object] | None:
         headers = {"Accept": "application/json"}

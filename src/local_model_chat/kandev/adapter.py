@@ -7,6 +7,7 @@ from typing import Callable, Mapping, Protocol
 
 from ..storage import ChatStore
 from .contracts import KandevConnection, KandevEvent, KandevMode, KandevTaskRef, KandevTaskSnapshot
+from .rest import KandevTransportError
 
 
 class KandevTaskApi(Protocol):
@@ -14,6 +15,7 @@ class KandevTaskApi(Protocol):
 
     def capabilities(self) -> tuple[str, ...]: ...
     def create(self, external_id: str, objective: str) -> Mapping[str, object]: ...
+    def create_and_launch(self, external_id: str, objective: str) -> Mapping[str, object]: ...
     def read(self, remote_task_id: str) -> Mapping[str, object] | None: ...
     def find_by_external_id(self, external_id: str) -> Mapping[str, object] | None: ...
     def events(self, remote_task_id: str, after_cursor: str) -> tuple[Mapping[str, object], ...]: ...
@@ -72,7 +74,16 @@ class KandevTaskAdapter:
     def create_task(self, ref: KandevTaskRef, objective: str) -> KandevTaskSnapshot:
         if self.probe().health_state != "ready":
             raise RuntimeError("Kandev task capabilities are incomplete")
-        return self._snapshot(ref, self.api.create(ref.external_id, objective))
+        try:
+            raw = self.api.create_and_launch(ref.external_id, objective)
+        except KandevTransportError:
+            # A transport failure may happen after Kandev accepted the create.
+            # The stable external ID is the only safe recovery key; never retry
+            # launch or silently hand the task to the internal Build engine.
+            raw = self.api.find_by_external_id(ref.external_id)
+            if raw is None:
+                raise
+        return self._snapshot(ref, raw)
 
     def get_task(self, ref: KandevTaskRef) -> KandevTaskSnapshot:
         raw = self.api.read(ref.remote_task_id) if ref.remote_task_id else self.api.find_by_external_id(ref.external_id)
