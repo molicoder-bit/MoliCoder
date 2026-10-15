@@ -44,6 +44,8 @@ def build_workspace(w):
     history_layout.addWidget(w.history_tabs)
     w.sidebar.setMaximumWidth(500)
     row.addWidget(w.chat_nav_button); row.addWidget(w.build_nav_button)
+    w.new_chat_button = button('New chat', lambda: w._open_new_chat())
+    row.addWidget(w.new_chat_button)
     row.addStretch()
     row.addWidget(QLabel('Theme'))
     w.theme_selector = QComboBox()
@@ -130,6 +132,7 @@ def select_project(w):
         if w.orchestration_worker is not None: return
         w.workspace_state.drafts[w.current_project_id] = (w.composer.toPlainText(), w.build_request.toPlainText(), list(w.current_attachments))
         w.current_project_id = None
+        w.registry.clear_selection()
         chat, build, attachments = w.workspace_state.drafts.get(None, ('', '', []))
         w.composer.setPlainText(chat); w.build_request.setPlainText(build)
         w.current_attachments = list(attachments); w._render_attachment_chips()
@@ -147,7 +150,7 @@ def sync_projects(w):
     if signature == getattr(w, '_project_signature', None): return
     w._project_signature = signature
     w.project_switch.blockSignals(True); w.project_switch.clear()
-    w.project_switch.addItem('Personal workspace', None)
+    w.project_switch.addItem('No project', None)
     for project in w.registry.list():
         w.project_switch.addItem(project.name, project.id)
     w.project_switch.setCurrentIndex(max(0, w.project_switch.findData(w.current_project_id)))

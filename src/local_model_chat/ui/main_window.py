@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from PySide6.QtCore import QDir, QFile, Qt, QTimer, QUrl
-from PySide6.QtGui import QAction, QColor, QDesktopServices
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
     QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMainWindow,
@@ -35,7 +35,7 @@ from ..inference.policy import InferencePolicy
 from ..inference.pacing import project_pacing
 from ..inference.registry import ProviderRegistry
 from ..kandev.ui_config import configured_kandev_adapter, kandev_board_url
-from ..local_actions import requested_folder
+from ..local_actions import requested_folder, folder_intent
 from ..molicoder.projectstate import read_git_state
 from ..molicoder.registry import ProjectRegistry
 from ..molicoder.runtime import build_orchestrator
@@ -121,8 +121,15 @@ class MainWindow(QMainWindow):
         self._build_ui()
         apply_theme(self, self.store.get_setting("ui.theme", "matrix"), persist=False)
         self._build_menu()
-        self._load_project_list(select_saved=True)
-        self._load_conversation_list(select_first=True)
+        new_chat_action = QAction('New chat', self)
+        new_chat_action.setShortcut(QKeySequence.StandardKey.New)
+        new_chat_action.triggered.connect(self._open_new_chat)
+        self.addAction(new_chat_action)
+        remember = self.store.get_setting("ui.remember_workspace", "false") == "true"
+        if not remember:
+            self.registry.clear_selection()
+        self._load_project_list(select_saved=remember)
+        self._new_chat()
         if start_ollama_check:
             self._start_ollama_check()
 
@@ -337,6 +344,15 @@ class MainWindow(QMainWindow):
         self.build_project_meta.setObjectName("muted")
         self.build_project_meta.setWordWrap(True)
         layout.addWidget(self.build_project_meta)
+        self.project_actions = QWidget()
+        project_actions_layout = QHBoxLayout(self.project_actions)
+        project_actions_layout.setContentsMargins(0, 0, 0, 0)
+        for label, callback in [('Open folder', self._add_project), ('Create project', self._create_project)]:
+            action = QPushButton(label)
+            action.clicked.connect(callback)
+            project_actions_layout.addWidget(action)
+        project_actions_layout.addStretch()
+        layout.addWidget(self.project_actions)
 
         request_card = QFrame()
         request_card.setObjectName("metricCard")
@@ -1181,8 +1197,6 @@ class MainWindow(QMainWindow):
         projects = self.registry.list()
         selected = self.registry.selected() if select_saved else None
         target_id = select_id or (selected.id if selected else None)
-        if target_id is None and projects:
-            target_id = projects[0].id
         self.project_list.blockSignals(True)
         self.project_list.clear()
         selected_item = None
@@ -1233,10 +1247,11 @@ class MainWindow(QMainWindow):
             self._update_pending_build_card()
 
     def _update_build_project(self, project: Project | None) -> None:
+        self.project_actions.setVisible(project is None)
         if project is None:
             self.build_project_title.setText("No project selected")
-            self.build_project_meta.setText("Choose a project above, or add one through History.")
-            self.build_request.setEnabled(False)
+            self.build_project_meta.setText("Choose a project for repository work, or enter an explicit local folder action.")
+            self.build_request.setEnabled(True)
             self._refresh_recovery_actions(None)
             self._refresh_build_readiness()
             return
@@ -1926,7 +1941,7 @@ class MainWindow(QMainWindow):
         ready = False
         if self.orchestration_worker is not None:
             status = "Build is running locally. Follow the event timeline below."
-        elif request and requested_folder(request) is not None:
+        elif request and folder_intent(request) is not None:
             ready = True
             status = "Ready to confirm a local folder action. No coding agent will run."
         elif project is None:
@@ -1964,10 +1979,17 @@ class MainWindow(QMainWindow):
     def _run_build(self) -> None:
         if self.orchestration_worker is not None:
             return
-        folder = requested_folder(self.build_request.toPlainText())
+        intent = folder_intent(self.build_request.toPlainText())
+        if intent and intent.error:
+            self._build_failed(intent.error)
+            return
+        folder = intent.target if intent else None
         if folder is not None:
             result = self._confirm_directory_creation(folder)
             self.build_status.setText(result.content)
+            self._request_failure = ""
+            self.work_feedback.setText(result.content + " · No AI model used")
+            self.work_feedback.show()
             return
         self._refresh_build_readiness()
         if not self.build_run_button.isEnabled():
@@ -2086,6 +2108,8 @@ class MainWindow(QMainWindow):
 
     def _confirm_directory_creation(self, folder: Path) -> ControllerResult:
         if folder.exists():
+            if not folder.is_dir():
+                return ControllerResult("directory_creation", f"A file already exists at {folder}", evidence=str(folder), action_state="failed")
             return ControllerResult("directory_creation", f"Folder already exists: {folder}", evidence=str(folder))
         if QMessageBox.question(
             self, "Create folder", f"Create this folder on your computer?\n\n{folder}",
@@ -2111,6 +2135,8 @@ class MainWindow(QMainWindow):
                 "directory_creation", f"Could not create folder {folder}: {exc}",
                 evidence=str(folder), action_state="failed",
             )
+        if not folder.is_dir():
+            return ControllerResult("directory_creation", f"Folder creation was not verified: {folder}", action_state="failed")
         return ControllerResult("directory_creation", f"Created folder: {folder}", evidence=str(folder))
 
     def _run_kandev_build(self, project: Project, request: str) -> None:
@@ -2408,7 +2434,7 @@ class MainWindow(QMainWindow):
         if self.orchestration_worker is not worker:
             return
         self.orchestration_worker = None
-        self.build_request.setEnabled(self.registry.selected() is not None)
+        self.build_request.setEnabled(True)
         self.build_owner.setEnabled(True)
         self.build_mode.setEnabled(True)
         self.build_provider.setEnabled(True)
@@ -2678,9 +2704,29 @@ class MainWindow(QMainWindow):
         elif not self.chat_list.count():
             self._new_chat()
 
+    def _open_new_chat(self) -> None:
+        self._new_chat()
+        self._set_view("chat")
+        self.history_dialog.hide()
+        self.composer.setFocus()
+
     def _new_chat(self, model: str | None = None) -> None:
+        if not hasattr(self, "_conversation_drafts"):
+            self._conversation_drafts = {}
+        if self.current_conversation_id is not None:
+            self._conversation_drafts[self.current_conversation_id] = (self.composer.toPlainText(), list(self.current_attachments))
         if self.chat_worker:
-            self._stop_generation()
+            worker = self.chat_worker
+            worker.cancel()
+            if not hasattr(self, "_retired_chat_workers"):
+                self._retired_chat_workers = []
+            self._retired_chat_workers.append(worker)
+            worker.finished.connect(lambda owner=worker: (self._retired_chat_workers.remove(owner), owner.deleteLater()))
+            self.chat_worker = None
+            self.active_bubble = None
+            self.stop_button.hide()
+            self.send_button.show()
+            self.model_combo.setEnabled(True)
         model = model or self.model_combo.currentData()
         conversation = self.store.create_conversation(model)
         if self.current_project_id is not None:
@@ -2695,6 +2741,15 @@ class MainWindow(QMainWindow):
         conversation = self.store.get_conversation(conversation_id)
         if not conversation:
             return
+        if not hasattr(self, "_conversation_drafts"):
+            self._conversation_drafts = {}
+        if self.current_conversation_id != conversation.id:
+            if self.current_conversation_id is not None:
+                self._conversation_drafts[self.current_conversation_id] = (self.composer.toPlainText(), list(self.current_attachments))
+            draft, attachments = self._conversation_drafts.get(conversation.id, ("", []))
+            self.composer.setPlainText(draft)
+            self.current_attachments = list(attachments)
+            self._render_attachment_chips()
         self.current_conversation_id = conversation.id
         linked_project_id = self.store.get_conversation_project_id(conversation.id)
         if linked_project_id is not None and linked_project_id != self.current_project_id:
@@ -2863,10 +2918,10 @@ class MainWindow(QMainWindow):
             self.client, self.preset.name, api_messages, options,
             self.inference_policy, self.current_project_id,
         )
-        self.chat_worker.content_delta.connect(self._append_content)
-        self.chat_worker.thinking_delta.connect(self._append_thinking)
-        self.chat_worker.completed.connect(self._generation_finished)
-        self.chat_worker.failed.connect(self._generation_failed)
+        self.chat_worker.content_delta.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._append_content(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
+        self.chat_worker.thinking_delta.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._append_thinking(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
+        self.chat_worker.completed.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._generation_finished(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
+        self.chat_worker.failed.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._generation_failed(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
         self.chat_worker.start()
         self._refresh_route_identity()
         self.send_button.setVisible(False)
@@ -3128,6 +3183,10 @@ class MainWindow(QMainWindow):
         open_drawer(self, "Performance")
 
     def closeEvent(self, event) -> None:
+        if any(worker.isRunning() for worker in getattr(self, '_retired_chat_workers', [])):
+            QMessageBox.information(self, 'Stopping previous reply', 'The previous reply is stopping. Try closing again in a moment.')
+            event.ignore()
+            return
         if hasattr(self, "kandev_panel") and self.kandev_panel.worker is not None:
             QMessageBox.information(self, "Kandev operation", "Wait for the current service operation to finish.")
             event.ignore()

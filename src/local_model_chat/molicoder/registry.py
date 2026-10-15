@@ -52,6 +52,9 @@ class ProjectRegistry:
             return None
         return self.store.get_project(project_id)
 
+    def clear_selection(self) -> None:
+        self.store.set_setting(_SELECTED_PROJECT_SETTING, '')
+
     def remove(self, project_id: int) -> None:
         selected = self.selected()
         self.store.archive_project(project_id)

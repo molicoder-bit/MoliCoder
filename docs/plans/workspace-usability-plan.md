@@ -135,54 +135,54 @@ Evidence (partial): 24 focused state/sequential/workspace tests passed; 42 UI/st
 
 Prerequisite: UX02. Primary files: local actions, controller, Build dispatch, plan validation.
 
-- [ ] UX03-01 Capture a sanitized fixture for the exact reported folder sentence and currently accepted alternatives. **Done when:** the failing route can be reproduced without calling a real model or creating the user's folder.
-- [ ] UX03-02 Separate local-action recognition from validation of its target. **Done when:** a recognized request with a missing parent or invalid name produces an actionable problem instead of silently becoming a coding request.
-- [ ] UX03-03 Support explicit full-path and parent-plus-name folder requests, including paths with spaces and ordinary Windows separators. **Done when:** each accepted form resolves to one exact target; ambiguous forms remain unresolved.
-- [ ] UX03-04 Add inline clarification for an ambiguous destination. **Done when:** a name-only request asks where to create it, instead of assuming the selected project or sending it to a coding agent.
-- [ ] UX03-05 Share the action decision between Chat and Build submission. **Done when:** the same explicit simple request follows the same local-action route in both modes.
-- [ ] UX03-06 Present the exact resolved target and action before the existing confirmation. **Done when:** a folder outside the project is clearly described as an explicit local filesystem action and is never disguised as a worktree edit.
+- [x] UX03-01 Capture a sanitized fixture for the exact reported folder sentence and currently accepted alternatives. **Done when:** the failing route can be reproduced without calling a real model or creating the user's folder.
+- [x] UX03-02 Separate local-action recognition from validation of its target. **Done when:** a recognized request with a missing parent or invalid name produces an actionable problem instead of silently becoming a coding request.
+- [x] UX03-03 Support explicit full-path and parent-plus-name folder requests, including paths with spaces and ordinary Windows separators. **Done when:** each accepted form resolves to one exact target; ambiguous forms remain unresolved.
+- [x] UX03-04 Add inline clarification for an ambiguous destination. **Done when:** a name-only request asks where to create it, instead of assuming the selected project or sending it to a coding agent.
+- [x] UX03-05 Share the action decision between Chat and Build submission. **Done when:** the same explicit simple request follows the same local-action route in both modes.
+- [x] UX03-06 Present the exact resolved target and action before the existing confirmation. **Done when:** a folder outside the project is clearly described as an explicit local filesystem action and is never disguised as a worktree edit.
 - [ ] UX03-07 Record and render local-action outcomes. **Done when:** created, already exists, conflicting file, denied, cancelled, and failed are distinct results; all say no AI model was used.
 - [ ] UX03-08 Verify folder existence/type before reporting success. **Done when:** a fixture with a permission error cannot generate a success message, and an existing directory's contents remain intact.
-- [ ] UX03-09 Validate planner expected paths before marking any task running or creating its worktree. **Done when:** an absolute path outside project scope receives a clear route/scope rejection before task execution starts.
-- [ ] UX03-10 Handle an absolute path that genuinely refers inside the chosen repository through validated path resolution. **Done when:** only proven contained paths can become repository-relative; outside paths, traversal, and link escapes remain rejected.
-- [ ] UX03-11 Preserve the worktree safety boundary. **Done when:** the implementation does not fix this report by allowing arbitrary absolute paths, silently changing targets, or interpreting model output as filesystem authorization.
+- [x] UX03-09 Validate planner expected paths before marking any task running or creating its worktree. **Done when:** an absolute path outside project scope receives a clear route/scope rejection before task execution starts.
+- [x] UX03-10 Handle an absolute path that genuinely refers inside the chosen repository through validated path resolution. **Done when:** only proven contained paths can become repository-relative; outside paths, traversal, and link escapes remain rejected.
+- [x] UX03-11 Preserve the worktree safety boundary. **Done when:** the implementation does not fix this report by allowing arbitrary absolute paths, silently changing targets, or interpreting model output as filesystem authorization.
 - [ ] UX03-12 Test folder actions in a temporary directory, including non-Git locations. **Done when:** an explicit local folder action works without a Build project, uses zero model calls, and has a visible verified result. Empty directories must not be misreported as committed Git changes.
 
-Evidence: pending.
+Evidence (partial): 29 action/scope/controller/sequential tests passed. Explicit reported wording, paths with spaces, missing parents, invalid destinations and cross-platform outside-path rejection are covered. The boundary check remains enforced before workspace allocation.
 
 ## UX04 — Make project and folder scope explicit
 
 Prerequisite: UX01–UX03. Primary files: registry, workspace selector, project/conversation loading.
 
-- [ ] UX04-01 Remove the automatic first-project fallback on fresh/default startup. **Done when:** a database with registered projects but no explicit restoration preference opens with No project.
+- [x] UX04-01 Remove the automatic first-project fallback on fresh/default startup. **Done when:** a database with registered projects but no explicit restoration preference opens with No project.
 - [ ] UX04-02 Add an optional Remember last workspace preference, off by default. **Done when:** restoring a project requires this preference, and a restored selection is visibly identified with its folder.
-- [ ] UX04-03 Add a registry-level clear-selection operation. **Done when:** choosing No project clears both current UI scope and the saved selected-project setting.
+- [x] UX04-03 Add a registry-level clear-selection operation. **Done when:** choosing No project clears both current UI scope and the saved selected-project setting.
 - [ ] UX04-04 Unify selection consumers around the chosen scope. **Done when:** readiness, route identity, usage, knowledge, and execution cannot independently recover a stale saved project.
-- [ ] UX04-05 Add a Build empty state with Open folder, Create project, and recent-project choices. **Done when:** these actions are visible without entering History, and neworld appears only as a real recent/selected project.
+- [x] UX04-05 Add a Build empty state with Open folder, Create project, and recent-project choices. **Done when:** these actions are visible without entering History, and neworld appears only as a real recent/selected project.
 - [ ] UX04-06 Make folder identity readable before execution. **Done when:** Build shows the project's name and resolved path near the request, with a direct Change action.
-- [ ] UX04-07 Allow drafting before project selection. **Done when:** the Build composer remains usable with no project; a repository operation explains the missing target while a valid local action can use its explicit path.
+- [x] UX04-07 Allow drafting before project selection. **Done when:** the Build composer remains usable with no project; a repository operation explains the missing target while a valid local action can use its explicit path.
 - [ ] UX04-08 Keep conversation association explicit. **Done when:** opening an old project chat displays that association, while opening a general chat clears unrelated project context.
 - [ ] UX04-09 Preserve per-scope Chat/Build drafts and attachments. **Done when:** moving between No project and two different projects restores the matching draft without relinking existing messages silently.
 - [ ] UX04-10 Keep active Build ownership fixed while making the reason visible. **Done when:** a disabled Change project action explains that the current run owns the target; Chat/New chat navigation remains available.
 - [ ] UX04-11 Handle moved, missing, and archived folders with an explicit recovery state. **Done when:** the app never silently selects a different project as a substitute.
 - [ ] UX04-12 Verify startup, restart, deselection, history reopening, and two-project switching. **Done when:** no operation reads or writes neworld unless that scope was explicitly chosen or visibly restored under the preference.
 
-Evidence: pending.
+Evidence (partial): 56 existing UI/workspace/route/action regressions passed, plus 11 new-chat/scope/action/failure tests. Default startup and persisted deselection are explicitly verified. Remember-workspace storage is available; its Settings control is still pending.
 
 ## UX05 — Start a chat in one click
 
 Prerequisite: UX01 and UX04. Primary files: header, chat lifecycle, draft state.
 
-- [ ] UX05-01 Add a labeled New chat button to the main header. **Done when:** it is visible at the supported minimum window width in both Chat and Build.
-- [ ] UX05-02 Wire the action to create and open a new conversation. **Done when:** one click opens an empty Chat composer and places keyboard focus there.
-- [ ] UX05-03 Add a keyboard shortcut with the same behavior. **Done when:** Ctrl+N on Windows/Linux and the platform-equivalent shortcut on macOS invoke the shared action without conflicting with existing navigation.
-- [ ] UX05-04 Preserve an unsent draft when New chat is used. **Done when:** returning to the previous conversation restores its text and attachments; a normal idle action requires no confirmation dialog.
+- [x] UX05-01 Add a labeled New chat button to the main header. **Done when:** it is visible at the supported minimum window width in both Chat and Build.
+- [x] UX05-02 Wire the action to create and open a new conversation. **Done when:** one click opens an empty Chat composer and places keyboard focus there.
+- [x] UX05-03 Add a keyboard shortcut with the same behavior. **Done when:** Ctrl+N on Windows/Linux and the platform-equivalent shortcut on macOS invoke the shared action without conflicting with existing navigation.
+- [x] UX05-04 Preserve an unsent draft when New chat is used. **Done when:** returning to the previous conversation restores its text and attachments; a normal idle action requires no confirmation dialog.
 - [ ] UX05-05 Handle New chat during an active reply. **Done when:** the old request is cancelled or safely completes against its original conversation, and late tokens cannot appear in the new one.
 - [ ] UX05-06 Leave an active Build attached to its existing run while navigating to a new chat. **Done when:** work is neither restarted nor abandoned, and a persistent Build status affordance returns to it.
 - [ ] UX05-07 Apply the explicit current scope and selected next-reply model to the new chat. **Done when:** the empty state names both and never implies that a reply has already used a model.
 - [ ] UX05-08 Verify the one-click journey from initial launch, history, a completed chat, and Build. **Done when:** no History/Settings detour is required and all previous work remains recoverable.
 
-Evidence: pending.
+Evidence (partial): Header button, platform New shortcut, focused empty composer and preserved conversation draft implemented. The new scope/chat tests verify one-click navigation from Build. Live streaming cancellation and the background Build affordance remain under verification/pending.
 
 ## UX06 — Show the model/provider actually associated with the work
 
@@ -342,7 +342,7 @@ These are release acceptance criteria, not claims that implementation is complet
 
 ## Scope boundaries and decisions for later implementation
 
-- This request is planning only. No production UI changes, failed-run repairs, folder creation, package installation, or provider calls are part of this planning pass.
+- Implementation was authorized after this plan was written. Development uses fixtures; live user-record repair and package delivery require the verified behavior and UX13 checks.
 - The worktree boundary rejection is valid. The plan addresses intent routing and error finalization; it does not broaden filesystem permissions for coding agents.
 - Keep the existing supported routes. Adding cloud models to the main Chat execution path is a separate feature; Settings must label present capabilities honestly.
 - The exact base model behind an alias or opaque CLI may be unavailable. Display available evidence and retain an explicit unknown rather than substituting a guessed model name.

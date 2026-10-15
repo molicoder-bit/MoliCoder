@@ -852,7 +852,8 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             self._event(run_id, "recon_completed", packet.to_dict())
             self._event(run_id, "run_stage", {"stage": "planning", "message": f"{self.provider.name.title()} is creating the plan"})
             self.store.update_run_state(run_id, "planning")
-            plan = self.planner.plan(packet)
+            from .plan_scope import validate_plan_scope
+            plan = validate_plan_scope(self.planner.plan(packet), self.root)
             if len(plan.tasks) > 5:
                 raise ValueError("plan exceeds the five-task run limit")
             self.store.save_plan(run_id, "generated", _planner_provider_name(self.planner), plan.to_dict())
