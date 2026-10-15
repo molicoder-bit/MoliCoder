@@ -84,9 +84,10 @@ def create_loopback_server(store: ChatStore, certificate: Path, private_key: Pat
                 "sequence": receipt.sequence,
                 "received_at": receipt.received_at,
                 "cancel_requested": (
-                    envelope["kind"] == "heartbeat" and
+                    envelope["kind"] in {"heartbeat", "status_poll"} and
                     RemoteLeaseStore(store).cancel_requested(receipt.task_id, receipt.epoch)
                 ),
+                "lease_state": RemoteLeaseStore(store).get(receipt.task_id).state,
             })
 
     class LoopbackServer(ThreadingHTTPServer):

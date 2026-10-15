@@ -235,3 +235,17 @@ def test_cancel_ack_waits_for_uncertain_paid_dispatch(tmp_path) -> None:
     InferenceLedger(store).append(UsageEvent(pending.request_id, "failed"))
     messages.receive(ack, _signature(private, ack), now=now)
     assert leases.get(lease.task_id).state == "cancelled"
+
+
+def test_offered_worker_can_poll_and_ack_cancellation_without_accepting(tmp_path) -> None:
+    store, leases, private, lease, now = _fixture(tmp_path)
+    leases.request_cancel(lease.task_id, reason="Cancel before the worker starts")
+    poll = _envelope(lease, now, kind="status_poll")
+    RemoteMessageStore(store).receive(poll, _signature(private, poll), now=now)
+    assert leases.get(lease.task_id).state == "offered"
+    assert leases.cancel_requested(lease.task_id, lease.epoch)
+    ack = _envelope(lease, now, sequence=2, kind="cancel_ack",
+                    nonce="f" * 32, message_id="message-00000006")
+    ack["body"] = {"stopped": True}
+    RemoteMessageStore(store).receive(ack, _signature(private, ack), now=now)
+    assert leases.get(lease.task_id).state == "cancelled"

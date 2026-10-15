@@ -78,6 +78,7 @@ def test_loopback_tls_accepts_exact_signed_message_and_rejects_pin_mismatch(tmp_
         assert leases.get(task_id).last_sequence == 0
         receipt = post_signed_message(port, envelope, worker_key, certificate, fingerprint)
         assert receipt["message_id"] == envelope["message_id"]
+        assert receipt["lease_state"] == "active"
         assert post_signed_message(port, envelope, worker_key, certificate, fingerprint) == receipt
         assert leases.get(task_id).state == "active"
         with pytest.raises(LeaseConflict, match="rejected"):

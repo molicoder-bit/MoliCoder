@@ -24,7 +24,8 @@ from .leases import LeaseConflict
 MAX_ENVELOPE_BYTES = 64 * 1024
 MAX_CLOCK_SKEW = timedelta(minutes=5)
 CONTROL_KINDS = frozenset({
-    "lease_accept", "heartbeat", "reconcile", "request_inference", "artifact_manifest", "cancel_ack",
+    "lease_accept", "heartbeat", "status_poll", "reconcile", "request_inference",
+    "artifact_manifest", "cancel_ack",
 })
 
 
@@ -140,7 +141,7 @@ class RemoteMessageStore:
             cancel_pending = cancel_intent is not None and cancel_intent["acknowledged_at"] is None
             if cancel_pending and kind in {"lease_accept", "request_inference", "artifact_manifest"}:
                 raise LeaseConflict("remote cancellation blocks new dispatches")
-            if expired and kind not in {"reconcile", "cancel_ack"} and lease["state"] in {"offered", "active"}:
+            if expired and kind not in {"reconcile", "cancel_ack", "status_poll"} and lease["state"] in {"offered", "active"}:
                 connection.execute(
                     "UPDATE remote_leases SET state = 'reconciling', updated_at = ? WHERE task_id = ?",
                     (current.astimezone(timezone.utc).isoformat(), envelope["task_id"]),
@@ -151,6 +152,8 @@ class RemoteMessageStore:
                 raise LeaseConflict("lease cannot be accepted")
             if kind == "heartbeat" and (expired or lease["state"] != "active"):
                 raise LeaseConflict("heartbeat requires an active unexpired lease")
+            if kind == "status_poll" and lease["state"] not in {"offered", "active", "reconciling"}:
+                raise LeaseConflict("status poll requires an unresolved lease")
             if kind == "request_inference" and (expired or lease["state"] != "active"):
                 raise LeaseConflict("inference requires an active unexpired lease")
             if kind == "artifact_manifest" and (expired or lease["state"] != "active"):
@@ -172,6 +175,7 @@ class RemoteMessageStore:
             state = (
                 "active" if kind == "lease_accept" else
                 "reconciling" if kind == "reconcile" else
+                "reconciling" if kind == "status_poll" and expired else
                 "cancelled" if kind == "cancel_ack" else lease["state"]
             )
             received_at = current.astimezone(timezone.utc).isoformat()
