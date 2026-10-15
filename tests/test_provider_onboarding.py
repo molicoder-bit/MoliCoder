@@ -5,7 +5,8 @@ import urllib.error
 import pytest
 
 from local_model_chat.inference.onboarding import (
-    CustomRoute, check_custom_connection, register_custom_route,
+    CustomRoute, CustomRouteFacts, attest_custom_route_facts,
+    check_custom_connection, register_custom_route,
 )
 from local_model_chat.inference.registry import ProviderRegistry
 from local_model_chat.storage import ChatStore
@@ -109,3 +110,29 @@ def test_connection_check_rejects_tampered_endpoint_before_network(tmp_path) -> 
         connection.commit()
     with pytest.raises(ValueError, match="unsafe"):
         check_custom_connection(store, offering_id, opener=lambda *_args, **_kwargs: pytest.fail("network called"))
+
+
+def test_user_attested_paid_facts_keep_route_inactive_and_preserve_source(tmp_path) -> None:
+    store = ChatStore(tmp_path / "catalog.sqlite3")
+    offering_id = register_custom_route(store, CustomRoute(
+        "remote-api", "Remote API", "https://api.example.test/v1", "model-a",
+    ))
+    facts = CustomRouteFacts(
+        offering_id, "https://api.example.test/pricing", "https://api.example.test/terms",
+        "public", 8192, 1024, 1.5, 6.0, True,
+    )
+    attest_custom_route_facts(store, facts)
+    registry = ProviderRegistry(store)
+    offering = registry.get_offering(offering_id)
+    assert offering.status == "discovered"
+    assert offering.input_usd_per_million == 1.5
+    assert offering.output_usd_per_million == 6.0
+    assert offering.capabilities["context_window"] == 8192
+    assert offering.terms_checked_at and offering.price_checked_at
+    assert registry.list_events(offering_id)[-1]["actor"] == "user"
+    with pytest.raises(ValueError, match="HTTPS"):
+        attest_custom_route_facts(store, CustomRouteFacts(
+            offering_id, "http://api.example.test/pricing", facts.terms_url,
+            "public", 8192, 1024, 1.5, 6.0, True,
+        ))
+    assert registry.get_offering(offering_id).source_url == facts.source_url

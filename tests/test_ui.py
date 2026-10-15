@@ -671,6 +671,7 @@ def test_custom_provider_connection_check_is_available_in_settings(qtbot, tmp_pa
     def inspect_dialog(dialog):
         buttons = [button.text() for button in dialog.findChildren(QPushButton)]
         assert "Check custom provider connection" in buttons
+        assert "Configure custom provider facts" in buttons
         return QDialog.DialogCode.Rejected
 
     monkeypatch.setattr(QDialog, "exec", inspect_dialog)

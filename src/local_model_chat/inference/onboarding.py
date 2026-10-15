@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import urllib.error
 import urllib.request
@@ -14,6 +15,7 @@ from urllib.parse import urlsplit
 
 from ..environment.auth import CredentialUnavailable, ProtectedCredentialStore
 from ..storage import ChatStore
+from .catalog import CatalogRecord, import_catalog_record
 from .registry import ProviderRegistry
 
 
@@ -29,6 +31,19 @@ class CustomRoute:
 class ConnectionCheck:
     status: str
     detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class CustomRouteFacts:
+    offering_id: str
+    source_url: str
+    terms_url: str
+    privacy_class: str
+    context_window: int
+    max_output_tokens: int
+    input_usd_per_million: float | None
+    output_usd_per_million: float | None
+    automation_allowed: bool
 
 
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -112,6 +127,39 @@ def register_custom_route(store: ChatStore, route: CustomRoute) -> str:
         )
         connection.commit()
     return offering_id
+
+
+def attest_custom_route_facts(store: ChatStore, facts: CustomRouteFacts) -> int:
+    """Record user-reviewed facts, with provenance, without enabling the route."""
+    offering = ProviderRegistry(store).get_offering(facts.offering_id)
+    if offering is None or not offering.id.startswith("custom:"):
+        raise ValueError("custom offering is unavailable")
+    paid = offering.offering_class in {"metered", "trial"}
+    if paid and not facts.terms_url:
+        raise ValueError("paid routes need an official terms link")
+    for url in (facts.source_url, facts.terms_url) if facts.terms_url else (facts.source_url,):
+        parsed = urlsplit(url)
+        if (parsed.scheme != "https" or not parsed.hostname or parsed.username
+                or parsed.password or parsed.fragment or any(ch.isspace() for ch in url)):
+            raise ValueError("official price and terms links must use exact HTTPS URLs")
+    if facts.privacy_class not in {"public", "private", "restricted"}:
+        raise ValueError("select the documented data privacy class")
+    if (not 1 <= facts.max_output_tokens <= facts.context_window <= 10_000_000):
+        raise ValueError("model token limits are invalid")
+    if paid and (facts.input_usd_per_million is None or facts.output_usd_per_million is None):
+        raise ValueError("paid routes need both current token prices")
+    for price in (facts.input_usd_per_million, facts.output_usd_per_million):
+        if price is not None and (not math.isfinite(price) or price <= 0 or price > 1_000_000):
+            raise ValueError("token prices must be finite and positive")
+    checked_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return import_catalog_record(store, CatalogRecord(
+        facts.offering_id, facts.source_url, checked_at, facts.terms_url,
+        {"chat": True, "stream": False, "context_window": facts.context_window,
+         "max_output_tokens": facts.max_output_tokens},
+        facts.privacy_class, facts.automation_allowed,
+        facts.input_usd_per_million, facts.output_usd_per_million, {},
+    ), actor="user", manual_override=True,
+       reason="User reviewed the linked current price, terms, privacy and model limits.")
 
 
 def check_custom_connection(

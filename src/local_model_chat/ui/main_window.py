@@ -25,7 +25,10 @@ from ..environment.security import platform_security
 from ..context import calculate_budget, estimate_tokens
 from ..domain import Attachment, GenerationMetrics, Message, Project
 from ..inference.adapters.ollama import ensure_local_offering, local_offering_id
-from ..inference.onboarding import CustomRoute, check_custom_connection, register_custom_route
+from ..inference.onboarding import (
+    CustomRoute, CustomRouteFacts, attest_custom_route_facts,
+    check_custom_connection, register_custom_route,
+)
 from ..inference.policy import InferencePolicy
 from ..inference.pacing import project_pacing
 from ..inference.registry import ProviderRegistry
@@ -1232,6 +1235,9 @@ class MainWindow(QMainWindow):
             check_button = QPushButton("Check custom provider connection")
             check_button.clicked.connect(lambda: self._check_custom_provider_connection(custom_offerings))
             layout.addWidget(check_button)
+            facts_button = QPushButton("Configure custom provider facts")
+            facts_button.clicked.connect(lambda: self._configure_custom_provider_facts(custom_offerings))
+            layout.addWidget(facts_button)
         offerings = self.inference_registry.list_offerings()
         offering_controls: list[tuple[str, QCheckBox, str]] = []
         layout.addWidget(QLabel("Registered inference offerings"))
@@ -1381,6 +1387,76 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self, "Provider connection",
             f"{result.detail}\nThe route stays inactive until its price, terms, and capabilities are configured.",
+        )
+
+    def _configure_custom_provider_facts(self, offerings) -> None:
+        choices = [f"{item.provider_id} / {item.model_id}" for item in offerings]
+        selected, accepted = QInputDialog.getItem(
+            self, "Custom provider facts", "Registered model", choices, 0, False,
+        )
+        if not accepted:
+            return
+        offering = offerings[choices.index(selected)]
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Review custom provider facts")
+        form = QFormLayout(dialog)
+        source = QLineEdit(dialog)
+        source.setPlaceholderText("https://provider.example/pricing")
+        terms = QLineEdit(dialog)
+        terms.setPlaceholderText("https://provider.example/terms")
+        privacy = QComboBox(dialog)
+        for value in ("public", "private", "restricted"):
+            privacy.addItem(value.title(), value)
+        context = QSpinBox(dialog)
+        context.setRange(1, 10_000_000)
+        context.setValue(8192)
+        output = QSpinBox(dialog)
+        output.setRange(1, 10_000_000)
+        output.setValue(1024)
+        input_price = QDoubleSpinBox(dialog)
+        output_price = QDoubleSpinBox(dialog)
+        for control in (input_price, output_price):
+            control.setDecimals(4)
+            control.setRange(0, 1_000_000)
+            control.setSingleStep(0.1)
+            control.setEnabled(offering.offering_class != "local")
+        automation = QCheckBox("Official terms permit automated API use", dialog)
+        attested = QCheckBox("I reviewed the linked current prices, terms, privacy rules, and model limits", dialog)
+        form.addRow("Official price/model source", source)
+        form.addRow("Official terms", terms)
+        form.addRow("Allowed data class", privacy)
+        form.addRow("Context tokens", context)
+        form.addRow("Maximum output tokens", output)
+        form.addRow("Input USD / million tokens", input_price)
+        form.addRow("Output USD / million tokens", output_price)
+        form.addRow(automation)
+        form.addRow(attested)
+        note = QLabel("These are user-attested facts. The route stays inactive until its connection and exact project approval pass.")
+        note.setWordWrap(True)
+        form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        if not attested.isChecked():
+            QMessageBox.warning(self, "Custom provider facts", "Review and attest the linked facts before saving.")
+            return
+        try:
+            attest_custom_route_facts(self.store, CustomRouteFacts(
+                offering.id, source.text().strip(), terms.text().strip(),
+                str(privacy.currentData()), context.value(), output.value(),
+                None if offering.offering_class == "local" else input_price.value(),
+                None if offering.offering_class == "local" else output_price.value(),
+                automation.isChecked(),
+            ))
+        except ValueError as exc:
+            QMessageBox.warning(self, "Custom provider facts", str(exc))
+            return
+        QMessageBox.information(
+            self, "Custom provider facts",
+            "Facts saved with user-attested provenance. Reopen Provider settings to review and enable this route.",
         )
 
     def _refresh_build_readiness(self) -> None:
