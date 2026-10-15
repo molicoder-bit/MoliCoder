@@ -1358,9 +1358,9 @@ class MainWindow(QMainWindow):
             resume_run_id=int(run["id"]),
         )
         orchestrator.on_event = worker.relay_event
-        worker.event.connect(self._build_event)
-        worker.completed.connect(self._build_completed)
-        worker.failed.connect(self._build_failed)
+        worker.event.connect(lambda kind, payload, owner=worker: self._build_event(kind, payload) if self.orchestration_worker is owner else None)
+        worker.completed.connect(lambda result, owner=worker: self._build_completed(result) if self.orchestration_worker is owner else None)
+        worker.failed.connect(lambda error, owner=worker: self._build_failed(error) if self.orchestration_worker is owner else None)
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
         self._active_build_route = ""
         self.orchestration_worker = worker
@@ -1390,9 +1390,9 @@ class MainWindow(QMainWindow):
             orchestrator, str(run["request"]), str(run["mode"]), resume_run_id=int(run["id"]),
         )
         orchestrator.on_event = worker.relay_event
-        worker.event.connect(self._build_event)
-        worker.completed.connect(self._build_completed)
-        worker.failed.connect(self._build_failed)
+        worker.event.connect(lambda kind, payload, owner=worker: self._build_event(kind, payload) if self.orchestration_worker is owner else None)
+        worker.completed.connect(lambda result, owner=worker: self._build_completed(result) if self.orchestration_worker is owner else None)
+        worker.failed.connect(lambda error, owner=worker: self._build_failed(error) if self.orchestration_worker is owner else None)
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
         self._active_build_route = ""
         self.orchestration_worker = worker
@@ -2042,9 +2042,9 @@ class MainWindow(QMainWindow):
             return
         worker = OrchestrationWorker(orchestrator, request, mode)
         orchestrator.on_event = worker.relay_event
-        worker.event.connect(self._build_event)
-        worker.completed.connect(self._build_completed)
-        worker.failed.connect(self._build_failed)
+        worker.event.connect(lambda kind, payload, owner=worker: self._build_event(kind, payload) if self.orchestration_worker is owner else None)
+        worker.completed.connect(lambda result, owner=worker: self._build_completed(result) if self.orchestration_worker is owner else None)
+        worker.failed.connect(lambda error, owner=worker: self._build_failed(error) if self.orchestration_worker is owner else None)
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
         self._active_build_route = ""
         self.orchestration_worker = worker
@@ -2150,9 +2150,9 @@ class MainWindow(QMainWindow):
             return
         worker = OrchestrationWorker(orchestrator, request, str(self.build_strategy.currentData() or "HYBRID"))
         orchestrator.on_event = worker.relay_event
-        worker.event.connect(self._build_event)
-        worker.completed.connect(self._build_completed)
-        worker.failed.connect(self._build_failed)
+        worker.event.connect(lambda kind, payload, owner=worker: self._build_event(kind, payload) if self.orchestration_worker is owner else None)
+        worker.completed.connect(lambda result, owner=worker: self._build_completed(result) if self.orchestration_worker is owner else None)
+        worker.failed.connect(lambda error, owner=worker: self._build_failed(error) if self.orchestration_worker is owner else None)
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
         self._active_build_route = ""
         self.orchestration_worker = worker
@@ -2185,6 +2185,8 @@ class MainWindow(QMainWindow):
         self._build_activity_frame += 1
 
     def _build_event(self, kind: str, payload: dict) -> None:
+        if kind == "run_started":
+            self._request_failure = ""
         from .route_identity import observe_build_route
         observe_build_route(self, kind, payload)
         if hasattr(self, "run_stage"):
@@ -2397,11 +2399,15 @@ class MainWindow(QMainWindow):
     def _build_failed(self, error: str) -> None:
         self.build_status.setText(f"Build worker failed: {error}")
         self.build_events.addItem(f"Worker failure · {error}")
+        self._request_failure = error
+        self.work_feedback.setText(f'Build failed · {error}\nNo successful result was verified. Open Activity for details.')
+        self.work_feedback.show()
 
     def _orchestration_worker_finished(self, worker: OrchestrationWorker) -> None:
         worker.deleteLater()
-        if self.orchestration_worker is worker:
-            self.orchestration_worker = None
+        if self.orchestration_worker is not worker:
+            return
+        self.orchestration_worker = None
         self.build_request.setEnabled(self.registry.selected() is not None)
         self.build_owner.setEnabled(True)
         self.build_mode.setEnabled(True)
@@ -2411,7 +2417,7 @@ class MainWindow(QMainWindow):
         self.build_pause_button.setText("Pause after step")
         self.build_cancel_button.setEnabled(False)
         self._build_activity_timer.stop()
-        self.build_activity.setText("Idle")
+        self.build_activity.setText("Stopped · check run outcome")
         self._refresh_recovery_actions(self.registry.selected())
         terminal_status = self.build_status.text()
         self._refresh_build_readiness()

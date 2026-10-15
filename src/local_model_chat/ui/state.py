@@ -4,3 +4,4 @@ from dataclasses import dataclass, field
 class UiWorkspaceState:
     mode: str = 'chat'
     drafts: dict = field(default_factory=dict)
+    work: object | None = None

@@ -342,4 +342,11 @@ class OrchestrationWorker(QThread):
                 result = self.orchestrator.run(self.request, mode=self.mode)
             self.completed.emit(result)
         except Exception as exc:  # worker boundary: surface failures to the UI
+            finalizer = getattr(self.orchestrator, "fail_unexpected", None)
+            if finalizer is not None and getattr(self.orchestrator, "_active_run_id", None) is not None:
+                try:
+                    self.completed.emit(finalizer(str(exc)))
+                    return
+                except Exception:
+                    pass  # The original error remains visible even if diagnostic writing fails.
             self.failed.emit(str(exc))

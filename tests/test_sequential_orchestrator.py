@@ -563,3 +563,24 @@ def test_ten_consecutive_fake_provider_runs_have_one_task_start_each(tmp_path) -
 
     assert sum(kind == "task_started" for kind, _payload in events) == 10
     assert all((root / f"run-{number}.txt").is_file() for number in range(1, 11))
+
+
+def test_unexpected_handoff_error_finalizes_run_tasks_and_log(tmp_path, monkeypatch):
+    root, store, project = _project(tmp_path)
+    executor = Executor()
+    orchestrator = SequentialRunOrchestrator(
+        store=store, project=project, planner=Planner(), provider=executor,
+        validate=lambda _: "validation passed", worktree_base=tmp_path / "trees",
+    )
+    def fail_handoff(*args, **kwargs):
+        raise ValueError("handoff expected path escapes the worktree")
+    monkeypatch.setattr(orchestrator, "_task_prompt", fail_handoff)
+    result = orchestrator.run("Fixture request", mode="FRONTIER_ONLY")
+    assert result.status == "needs_attention"
+    assert [t.status for t in store.list_run_tasks(result.run_id)] == ["failed", "blocked"]
+    assert store.get_run(result.run_id)["ended_at"]
+    assert "handoff" in store.get_run(result.run_id)["recovery_reason"]
+    assert not executor.paths
+    events = [json.loads(line) for line in (root / ".molicoder/logs" / f"run-{result.run_id}.jsonl").read_text().splitlines()]
+    assert events[-1]["kind"] == "run_needs_attention"
+    assert "handoff" in events[-1]["payload"]["error"]

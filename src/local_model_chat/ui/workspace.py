@@ -65,6 +65,12 @@ def build_workspace(w):
     w.route_identity.setStyleSheet('font-weight: 650;')
     w.route_identity.setContentsMargins(22, 8, 22, 0)
     layout.addWidget(w.route_identity)
+    w.work_feedback = QLabel()
+    w.work_feedback.setWordWrap(True)
+    w.work_feedback.setContentsMargins(22, 8, 22, 8)
+    w.work_feedback.setTextFormat(Qt.PlainText)
+    w.work_feedback.hide()
+    layout.addWidget(w.work_feedback)
     w.connection_label = QLabel('Local runtime: Ollama · checking')
     w.center = w._build_center()
     w.inspector = w._build_inspector()
@@ -191,6 +197,14 @@ def refresh_workspace(w):
             w.usage_summary.setText('Build route · provider cost unknown')
         if status and status.run_id:
             run = w.store.get_run(status.run_id)
+            from ..work_state import WorkSnapshot
+            w.workspace_state.work = WorkSnapshot.from_run(w.store, status.run_id)
+            snapshot = w.workspace_state.work
+            failed = snapshot.outcome in {'failed', 'needs_attention', 'interrupted'}
+            w.work_feedback.setVisible(failed)
+            if failed:
+                w.work_feedback.setText(f'Build needs attention · {snapshot.reason or "Open Activity for details."}\n'
+                                        'Work stopped. Review the target and failure details before retrying.')
             from contextlib import closing
             with closing(w.store._connect()) as connection:
                 usage = connection.execute("SELECT COUNT(*), COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0) FROM external_calls WHERE run_id=?", (status.run_id,)).fetchone()
@@ -206,6 +220,7 @@ def refresh_workspace(w):
             if run and w.orchestration_worker is None:
                 w.run_stage.setText(' / '.join(('Prepare', 'Plan', 'Execute', 'Check', 'Apply')) + f'    ·    {run["status"]}')
     else:
+        w.work_feedback.hide()
         w.usage_summary.setText(f'Last response: {w.last_metrics.prompt_tokens:,} input / {w.last_metrics.output_tokens:,} output · local route')
 
     if w.current_project_id:
@@ -213,6 +228,9 @@ def refresh_workspace(w):
         limit = BudgetManager(w.store).project_limit(w.current_project_id)
         if limit is not None:
             w.usage_summary.setText(w.usage_summary.text() + f" · API limit ${limit:.2f} all time")
+    if getattr(w, '_request_failure', ''):
+        w.work_feedback.setText(f'Build failed · {w._request_failure}\nOpen Activity for details. Correct the request before retrying.')
+        w.work_feedback.show()
 
 
 def show_history(w):

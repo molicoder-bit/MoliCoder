@@ -801,7 +801,31 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             result.input_tokens, result.output_tokens, result.seconds, result.status, task_id,
         )
 
+    def fail_unexpected(self, error: str) -> OrchestrationResult:
+        run_id = self._active_run_id
+        if run_id is None:
+            raise RuntimeError(error)
+        changed = self.store.fail_active_run(run_id, error)
+        tasks = self.store.list_run_tasks(run_id)
+        if changed:
+            self._event(run_id, "run_needs_attention", {
+                "status": "needs_attention", "error": error,
+                "completed_tasks": sum(t.status == "completed" for t in tasks),
+                "total_tasks": len(tasks),
+            }, self._active_task_id)
+        run = self.store.get_run(run_id)
+        return OrchestrationResult(run_id, run["status"], sum(t.status == "completed" for t in tasks), len(tasks), error,
+                                   Path(run["worktree"]) if run.get("worktree") else None)
+
     def run(self, request: str, *, mode: str = "HYBRID") -> OrchestrationResult:
+        try:
+            return self._run(request, mode=mode)
+        except Exception as exc:
+            if self._active_run_id is None:
+                raise
+            return self.fail_unexpected(str(exc))
+
+    def _run(self, request: str, *, mode: str = "HYBRID") -> OrchestrationResult:
         strategy = self.normalize_strategy(mode)
         run_id = self.store.create_run(
             self.project.id, request, strategy,

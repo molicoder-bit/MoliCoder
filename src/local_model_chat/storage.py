@@ -1080,20 +1080,43 @@ class ChatStore:
             connection.execute(f"UPDATE runs SET {', '.join(assignments)} WHERE id = ?", parameters)
             connection.commit()
 
+    def fail_active_run(self, run_id: int, reason: str) -> bool:
+        """Atomically finalize an unexpected local failure; repeated callbacks are harmless."""
+        now = datetime.now().isoformat(timespec="microseconds")
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run = connection.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
+            if run is None or run["status"] in {"completed", "failed", "needs_attention", "cancelled", "ready_to_apply"}:
+                return False
+            connection.execute("UPDATE runs SET status='needs_attention', ended_at=?, recovery_reason=? WHERE id=?",
+                               (now, reason, run_id))
+            tasks = connection.execute("SELECT id,status,attempts FROM tasks WHERE run_id=?", (run_id,)).fetchall()
+            for task in tasks:
+                target = "failed" if task["status"] in {"running", "verifying", "retrying"} else "blocked"
+                if task["status"] not in {"pending", "proposed", "ready", "running", "verifying", "retrying"}:
+                    continue
+                connection.execute("UPDATE tasks SET status=?,updated_at=? WHERE id=?", (target, now, task["id"]))
+                revision = connection.execute("SELECT COUNT(*) FROM events WHERE task_id=? AND kind='task_state_changed'", (task["id"],)).fetchone()[0] + 1
+                connection.execute("INSERT INTO events(run_id,task_id,kind,payload_json,created_at) VALUES(?,?,?,?,?)",
+                                   (run_id, task["id"], "task_state_changed", json.dumps({"from": task["status"], "to": target,
+                                    "attempts": task["attempts"], "actor": "worker", "reason": reason, "revision": revision}), now))
+            connection.commit()
+        return True
+
     def recover_interrupted_runs(self) -> tuple[int, ...]:
         now = datetime.now().isoformat(timespec="microseconds")
         with closing(self._connect()) as connection:
             active = ("running", "preflight", "planning", "validating", "repairing", "applying")
             placeholders = ",".join("?" for _ in active)
             rows = connection.execute(
-                f"SELECT id FROM runs WHERE status IN ({placeholders}) ORDER BY id", active
+                f"SELECT id FROM runs WHERE status IN ({placeholders}) AND provider != 'kandev' ORDER BY id", active
             ).fetchall()
             ids = tuple(int(row[0]) for row in rows)
             if ids:
                 connection.execute(
                     f"""UPDATE runs SET status = 'needs_attention', ended_at = ?,
                            recovery_reason = CASE WHEN recovery_reason = '' THEN 'application closed during run' ELSE recovery_reason END
-                       WHERE status IN ({placeholders})""",
+                       WHERE status IN ({placeholders}) AND provider != 'kandev'""",
                     (now, *active),
                 )
                 task_rows = connection.execute(

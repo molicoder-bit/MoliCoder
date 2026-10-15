@@ -2,7 +2,7 @@
 
 Date: 2026-10-15
 
-**Status: planning complete; implementation has not started.** This document responds to the two supplied screenshots and the requested usability changes. It does not authorize implementation, execute the failed folder request, or change the installed app or its saved records.
+**Status: implementation in progress.** This document responds to the two supplied screenshots and the requested usability changes. The user authorized implementation after planning. Development checks use isolated records; delivery remains tracked in UX13.
 
 Tracker totals at creation: **4 completed planning tasks; 129 unchecked implementation tasks across 13 phases.**
 
@@ -101,35 +101,35 @@ An implementation phase is complete only when every task in that phase is checke
 
 Prerequisite: planning complete. Primary files: UI state, storage, workers, orchestrator.
 
-- [ ] UX01-01 Define the shared work snapshot fields: mode, project, conversation/run/task IDs, phase, outcome, active call, last completed call, and last event time. **Done when:** each displayed field has a named authoritative source.
+- [x] UX01-01 Define the shared work snapshot fields: mode, project, conversation/run/task IDs, phase, outcome, active call, last completed call, and last event time. **Done when:** each displayed field has a named authoritative source.
 - [ ] UX01-02 Specify the lifecycle transitions for idle, preparing, planning, executing, validating, applying, waiting, cancellation requested, cancelled, succeeded, failed, and interrupted. **Done when:** waiting or terminal states cannot be rendered as active execution.
-- [ ] UX01-03 Define which component owns each transition for internal Build, local actions, Chat, and Kandev. **Done when:** worker cleanup cannot independently overwrite a terminal outcome with Idle.
+- [x] UX01-03 Define which component owns each transition for internal Build, local actions, Chat, and Kandev. **Done when:** worker cleanup cannot independently overwrite a terminal outcome with Idle.
 - [ ] UX01-04 Add a stable operation identity to callbacks and UI snapshots. **Done when:** an event from an older request cannot update a newly selected conversation or run.
-- [ ] UX01-05 Define backward-compatible storage changes for outcome reasons, route provenance, and context receipts where existing records are insufficient. **Done when:** existing histories load with explicit unknowns and database backup/migration behavior is documented.
+- [x] UX01-05 Define backward-compatible storage changes for outcome reasons, route provenance, and context receipts where existing records are insufficient. **Done when:** existing histories load with explicit unknowns and database backup/migration behavior is documented.
 - [ ] UX01-06 Implement snapshot loading for the selected conversation/run rather than using global last-metric fields. **Done when:** switching history entries shows their own state and cannot reuse another entry's counters.
-- [ ] UX01-07 Define stale-run reconciliation rules for startup and reopen. **Done when:** local process exit is distinguishable from an active external Kandev session; elapsed time alone is insufficient to mark external work failed.
+- [x] UX01-07 Define stale-run reconciliation rules for startup and reopen. **Done when:** local process exit is distinguishable from an active external Kandev session; elapsed time alone is insufficient to mark external work failed.
 - [ ] UX01-08 Add focused transition regressions for completion, exception, cancellation, and late callbacks. **Done when:** all UI consumers agree on the same operation's terminal state.
 
-Evidence: pending.
+Evidence (partial): `work-state-contract.md` records field sources, ownership and compatibility. `tests/test_work_failure.py` verifies terminal snapshots, request isolation, idempotent finalization, and external recovery exclusion. Remaining phase tasks stay unchecked.
 
 ## UX02 — Make failures durable and visible
 
 Prerequisite: UX01. Primary files: orchestrator, workers, storage, Build callbacks.
 
-- [ ] UX02-01 Enclose handoff construction in a lifecycle error boundary with run/task identity. **Done when:** an invalid expected path reaches failure finalization rather than leaving the task running.
-- [ ] UX02-02 Finalize the active task on an unexpected exception. **Done when:** it stores the terminal state, reason, and relevant worktree evidence exactly once.
-- [ ] UX02-03 Finalize the parent run on that same exception. **Done when:** its outcome and end timestamp agree with the task's outcome.
-- [ ] UX02-04 Mark dependent work that was never attempted as blocked or skipped with the cause. **Done when:** untouched tasks are not falsely described as failed executions or completed work.
-- [ ] UX02-05 Write a structured terminal event to the run log and emit it to the UI. **Done when:** a reopened history entry explains the same failure as the live screen.
-- [ ] UX02-06 Handle exceptions before a run ID is allocated. **Done when:** a visible request-level failure appears without inventing a run or leaving an indefinite busy state.
-- [ ] UX02-07 Add a persistent failure panel above Build's scrolling content. **Done when:** it states what failed, the effect on the requested action, and an appropriate next step without requiring Activity to be opened.
+- [x] UX02-01 Enclose handoff construction in a lifecycle error boundary with run/task identity. **Done when:** an invalid expected path reaches failure finalization rather than leaving the task running.
+- [x] UX02-02 Finalize the active task on an unexpected exception. **Done when:** it stores the terminal state, reason, and relevant worktree evidence exactly once.
+- [x] UX02-03 Finalize the parent run on that same exception. **Done when:** its outcome and end timestamp agree with the task's outcome.
+- [x] UX02-04 Mark dependent work that was never attempted as blocked or skipped with the cause. **Done when:** untouched tasks are not falsely described as failed executions or completed work.
+- [x] UX02-05 Write a structured terminal event to the run log and emit it to the UI. **Done when:** a reopened history entry explains the same failure as the live screen.
+- [x] UX02-06 Handle exceptions before a run ID is allocated. **Done when:** a visible request-level failure appears without inventing a run or leaving an indefinite busy state.
+- [x] UX02-07 Add a persistent failure panel above Build's scrolling content. **Done when:** it states what failed, the effect on the requested action, and an appropriate next step without requiring Activity to be opened.
 - [ ] UX02-08 Map common failure categories to plain-language explanations. **Done when:** invalid target, unavailable provider, sign-in required, quota, permission denial, validation failure, and unexpected worker error have distinct useful copy; technical details remain accessible.
 - [ ] UX02-09 Keep failure summaries visible across refresh, worker cleanup, and history reopening. **Done when:** periodic refresh cannot replace a failed run with Running, Idle, or a generic readiness message.
 - [ ] UX02-10 Add contextual recovery actions. **Done when:** correcting a target, opening Settings, viewing details, or retrying is offered only when valid for that failure, and retry preserves the request without silently re-executing it.
 - [ ] UX02-11 Reconcile orphaned local running records using UX01's ownership rules. **Done when:** a fixture matching run 4 becomes Interrupted/Needs attention with an explanation, while an active verified external session stays active.
 - [ ] UX02-12 Reproduce the screenshot sequence with a sanitized invalid-path fixture. **Done when:** task, run, summary, animation, log, and reopened history all show the terminal failure; no original user record is silently deleted.
 
-Evidence: pending.
+Evidence (partial): 24 focused state/sequential/workspace tests passed; 42 UI/state/handoff regressions passed; final 5 failure/snapshot regressions passed. The injected handoff exception verifies a terminal JSONL event, failed active task, blocked untouched task, preserved worktree, and ended run. No provider calls or user-database repairs were performed.
 
 ## UX03 — Route simple folder requests correctly
 
