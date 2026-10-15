@@ -42,7 +42,10 @@ from .widgets import AttachmentChip, ChatBubble, MessageComposer, MetricCard
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, store: ChatStore | None = None, client: OllamaClient | None = None) -> None:
+    def __init__(
+        self, store: ChatStore | None = None, client: OllamaClient | None = None,
+        *, start_ollama_check: bool = True,
+    ) -> None:
         super().__init__()
         self.store = store or ChatStore()
         self.store.recover_interrupted_runs()
@@ -90,7 +93,8 @@ class MainWindow(QMainWindow):
         self._build_menu()
         self._load_project_list(select_saved=True)
         self._load_conversation_list(select_first=True)
-        self._start_ollama_check()
+        if start_ollama_check:
+            self._start_ollama_check()
 
         self.telemetry_timer = QTimer(self)
         self.telemetry_timer.timeout.connect(self._refresh_telemetry)

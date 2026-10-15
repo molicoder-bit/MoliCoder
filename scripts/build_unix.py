@@ -24,12 +24,12 @@ def main() -> int:
         raise FileNotFoundError("PyInstaller did not produce the MoliCoder executable")
     for name in ("LICENSE", "NOTICE"):
         shutil.copy2(root / name, distribution / name)
-    subprocess.run([str(executable), "--package-health-check"], cwd=root,
+    subprocess.run([str(executable), "--package-smoke-check"], cwd=root,
                    check=True, timeout=15)
     if not (distribution / "_internal" / "local_model_chat" / "environment"
             / "manifests" / "releases.json").is_file():
         raise FileNotFoundError("packaged doctor manifest is missing")
-    print(f"Packaged health check passed: {executable}")
+    print(f"Packaged UI and doctor smoke passed: {executable}")
     return 0
 
 

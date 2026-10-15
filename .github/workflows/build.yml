@@ -34,7 +34,7 @@ jobs:
         run: |
           Copy-Item LICENSE dist/MoliCoder/LICENSE
           Copy-Item NOTICE dist/MoliCoder/NOTICE
-          $process = Start-Process -FilePath (Resolve-Path dist/MoliCoder/MoliCoder.exe) -ArgumentList '--package-health-check' -WindowStyle Hidden -PassThru
+          $process = Start-Process -FilePath (Resolve-Path dist/MoliCoder/MoliCoder.exe) -ArgumentList '--package-smoke-check' -WindowStyle Hidden -PassThru
           if (-not $process.WaitForExit(15000)) {
             Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
             throw 'Packaged health check timed out'
