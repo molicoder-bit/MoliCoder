@@ -40,6 +40,8 @@ def build_workspace(w):
     history_layout = QVBoxLayout(w.history_dialog)
     w.history_tabs = QTabWidget(); w.history_tabs.addTab(w.sidebar, 'Projects / conversations')
     w.history_runs = QListWidget(); w.history_tabs.addTab(w.history_runs, 'Build runs')
+    w.history_actions = QListWidget(); w.history_tabs.addTab(w.history_actions, 'Local actions')
+    w.history_actions.itemClicked.connect(lambda item: (w.build_details.setPlainText(item.data(Qt.UserRole)), w.history_dialog.hide(), open_drawer(w, 'Activity')))
     w.history_runs.itemClicked.connect(lambda item: show_run(w, item.data(Qt.UserRole)))
     history_layout.addWidget(w.history_tabs)
     w.sidebar.setMaximumWidth(500)
@@ -74,6 +76,9 @@ def build_workspace(w):
     w.work_feedback.setTextFormat(Qt.PlainText)
     w.work_feedback.hide()
     layout.addWidget(w.work_feedback)
+    w.failure_recovery = button('Review failure', lambda: recover_failure(w))
+    w.failure_recovery.hide()
+    layout.addWidget(w.failure_recovery)
     from .activity_indicator import ActivityIndicator
     activity_row = QFrame()
     activity_layout = QHBoxLayout(activity_row)
@@ -233,6 +238,7 @@ def refresh_workspace(w):
     refresh_route_identity(w)
     sync_projects(w)
     w.project_switch.setEnabled(w.orchestration_worker is None)
+    w.project_switch.setToolTip('The active Build owns its target until it stops.' if w.orchestration_worker is not None else 'Choose an explicit project, or No project for general Chat.')
     w.project_list.setEnabled(w.orchestration_worker is None)
     build = w.view_stack.currentWidget() == w.build_view
     w.build_nav_button.setProperty('mode', 'build' if build else '')
@@ -247,15 +253,22 @@ def refresh_workspace(w):
             from ..work_state import WorkSnapshot
             w.workspace_state.work = WorkSnapshot.from_run(w.store, status.run_id)
             snapshot = w.workspace_state.work
+            verified = sum(task.status == 'completed' for task in status.tasks)
+            w.context_summary.setText(f'Run #{status.run_id} · {verified}/{len(status.tasks)} tasks verified · {snapshot.phase} · {project.name}')
             failed = snapshot.outcome in {'failed', 'needs_attention', 'interrupted'}
             w.work_feedback.setVisible(failed)
             if failed:
-                w.work_feedback.setText(f'Build needs attention · {snapshot.reason or "Open Activity for details."}\n'
-                                        'Work stopped. Review the target and failure details before retrying.')
+                present_failure(w, snapshot.reason or 'Open Activity for details.')
+            else:
+                w.failure_recovery.hide()
             from contextlib import closing
             with closing(w.store._connect()) as connection:
                 usage = connection.execute("SELECT COUNT(*), COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0) FROM external_calls WHERE run_id=?", (status.run_id,)).fetchone()
-            w.usage_summary.setText(f'Run #{status.run_id} · {usage[0]} CLI calls · {usage[1]:,} input / {usage[2]:,} output reported · cost unknown')
+            import json
+            calls = [json.loads(event.payload_json) for event in w.store.list_events(status.run_id) if event.kind == 'provider_finished']
+            inputs = [call['input_tokens'] for call in calls if call.get('input_tokens') is not None]
+            outputs = [call['output_tokens'] for call in calls if call.get('output_tokens') is not None]
+            w.usage_summary.setText(f"{usage[0]} CLI calls · reported input {sum(inputs) if inputs else 'unknown'} / output {sum(outputs) if outputs else 'unknown'} · cost unknown")
             signature = tuple((task.id, task.status, task.title) for task in status.tasks)
             changed = signature != getattr(w, '_task_signature', None)
             if changed: w.task_list.clear()
@@ -268,6 +281,7 @@ def refresh_workspace(w):
                 w.run_stage.setText(' / '.join(('Prepare', 'Plan', 'Execute', 'Check', 'Apply')) + f'    ·    {run["status"]}')
     else:
         w.work_feedback.hide()
+        w.failure_recovery.hide()
         receipt = last_receipt(w)
         if receipt and receipt.get('model_source') == 'no_inference':
             w.context_summary.setText('Local records/action · No AI model used')
@@ -275,7 +289,7 @@ def refresh_workspace(w):
         elif receipt:
             w.context_summary.setText(f"Last reply included: {len(receipt.get('turn_ids', []))} conversation turns · {len(receipt.get('attachments', []))} attachments")
             metrics = receipt.get('metrics', {})
-            w.usage_summary.setText(f"Last reply: {metrics.get('prompt_tokens', 'unknown')} input / {metrics.get('output_tokens', 'unknown')} output tokens")
+            w.usage_summary.setText(f"Last reply: {metrics.get('prompt_tokens') or 'unknown'} input / {metrics.get('output_tokens') or 'unknown'} output tokens")
         else:
             w.context_summary.setText('No recorded request context yet')
             w.usage_summary.setText('Usage available after a measured reply')
@@ -286,8 +300,34 @@ def refresh_workspace(w):
         if limit is not None:
             w.usage_summary.setText(w.usage_summary.text() + f" · API limit ${limit:.2f} all time")
     if getattr(w, '_request_failure', ''):
-        w.work_feedback.setText(f'Build failed · {w._request_failure}\nOpen Activity for details. Correct the request before retrying.')
+        present_failure(w, w._request_failure)
+    action = getattr(w, '_last_local_action', None)
+    if build and action and w.orchestration_worker is None:
+        w.context_summary.setText(f"Local action target: {action['target']}")
+        w.usage_summary.setText('No AI model used')
+        w.work_feedback.setText(action['detail'])
         w.work_feedback.show()
+        w.route_identity.setText(f"Local action · No AI model used · {action['outcome']}")
+
+
+def present_failure(w, reason):
+    from .failure_feedback import failure_feedback
+    title, summary, destination = failure_feedback(reason)
+    w._failure_destination = destination
+    w.work_feedback.setText(f'{title} · {summary}\nDetails: {reason[:1200]}')
+    w.work_feedback.show()
+    w.failure_recovery.setText(destination)
+    w.failure_recovery.show()
+
+
+def recover_failure(w):
+    destination = getattr(w, '_failure_destination', 'Activity')
+    if destination == 'Edit request':
+        w._set_view('build'); w.build_request.setFocus()
+    elif destination in {'Models & providers', 'Usage & limits'}:
+        show_settings(w, destination)
+    else:
+        open_drawer(w, destination)
 
 
 def refresh_activity(w):
@@ -295,7 +335,8 @@ def refresh_activity(w):
     if not hasattr(w, 'busy_indicator'):
         return
     active = w.orchestration_worker is not None and not getattr(w, '_build_terminal', False)
-    waiting = bool(active and getattr(w.orchestration_worker, 'paused', False))
+    pause_state = getattr(w.orchestration_worker, 'pause_state', 'running')
+    waiting = active and pause_state == 'paused'
     reduced = w.store.get_setting('ui.reduce_motion', 'false') == 'true'
     w.busy_indicator.set_busy(active and not waiting, reduced)
     w.activity_row.setVisible(active)
@@ -304,6 +345,8 @@ def refresh_activity(w):
         elapsed = max(0, int(time.monotonic() - w._build_started_at))
         since = max(0, int(time.monotonic() - getattr(w, '_last_build_event_at', w._build_started_at)))
         stage = 'Paused' if waiting else getattr(w, '_active_stage_label', 'Preparing request')
+        if pause_state == 'pause_requested': stage = 'Pause requested · finishing the current step'
+        if pause_state == 'cancelling': stage = 'Cancelling · waiting for the worker to stop'
         suffix = ' · Waiting for provider; no recent update' if since >= 30 else ''
         w.current_activity.setText(f'{stage} · {elapsed}s elapsed · Last activity {since}s ago{suffix}')
 
@@ -311,6 +354,11 @@ def refresh_activity(w):
 def show_history(w):
     from PySide6.QtWidgets import QListWidgetItem
     w.history_runs.clear()
+    w.history_actions.clear()
+    for action in w.store.list_local_actions():
+        item = QListWidgetItem(f"#{action['id']} · {action['outcome']} · {action['target']}")
+        item.setData(Qt.UserRole, action['detail'] + '\nNo AI model used · ' + action['created_at'])
+        w.history_actions.addItem(item)
     if w.current_project_id:
         for run in w.store.list_project_runs(w.current_project_id):
             item = QListWidgetItem(f"#{run['id']} · {run['status']} · {run['request'][:60]}")

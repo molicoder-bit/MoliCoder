@@ -122,7 +122,7 @@ def test_v12_upgrade_preserves_lease_and_adds_message_receipts(tmp_path) -> None
         connection.execute("PRAGMA user_version = 12")
     upgraded = ChatStore(store.path)
     assert RemoteLeaseStore(upgraded).get(lease.task_id) == lease
-    assert len(list(tmp_path.glob("messages.sqlite3.pre-v14-*.bak"))) == 1
+    assert len(list(tmp_path.glob("messages.sqlite3.pre-v15-*.bak"))) == 1
     envelope = _envelope(lease, now)
     assert RemoteMessageStore(upgraded).receive(
         envelope, _signature(private, envelope), now=now,

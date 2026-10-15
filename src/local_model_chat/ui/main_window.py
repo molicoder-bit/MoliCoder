@@ -137,6 +137,8 @@ class MainWindow(QMainWindow):
         self.telemetry_timer.timeout.connect(self._refresh_telemetry)
         self.telemetry_timer.start(3000)
         self._refresh_context_meter()
+        from .workspace import refresh_workspace
+        refresh_workspace(self)
 
     @property
     def preset(self) -> ModelPreset:
@@ -1097,6 +1099,7 @@ class MainWindow(QMainWindow):
         self.startup_worker.start()
 
     def _ollama_ready(self, available: bool, models: list[dict]) -> None:
+        self._model_facts = {item.get('name'): item.get('details', {}) for item in models if isinstance(item.get('details', {}), dict)}
         self._installed_model_names = {str(model.get("name", "")) for model in models}
         self._installed_model_presets = {
             name: replace(
@@ -1667,6 +1670,11 @@ class MainWindow(QMainWindow):
         form.addRow("Name", name)
         form.addRow("API base URL", endpoint)
         form.addRow("Model ID", model)
+        advanced = QCheckBox("Advanced: choose an internal connection ID")
+        form.addRow(advanced)
+        provider_id.hide(); form.labelForField(provider_id).hide()
+        advanced.toggled.connect(provider_id.setVisible)
+        advanced.toggled.connect(form.labelForField(provider_id).setVisible)
         note = QLabel(
             "Registration makes no network request. The route stays inactive until its key, "
             "capabilities, price, terms, and connection have been verified."
@@ -1674,19 +1682,28 @@ class MainWindow(QMainWindow):
         note.setWordWrap(True)
         form.addRow(note)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dialog.accept)
+        error = QLabel(""); error.setWordWrap(True); form.addRow(error)
+        registered = {}
+        def save_connection():
+            if registered:
+                return
+            import re
+            identifier = provider_id.text().strip() or re.sub(r"[^a-z0-9-]+", "-", name.text().lower()).strip("-")
+            if not name.text().strip() or not endpoint.text().strip() or not model.text().strip():
+                error.setText("Enter a name, API address, and model ID before saving."); return
+            try:
+                registered["offering"] = register_custom_route(self.store, CustomRoute(
+                    identifier, name.text().strip(), endpoint.text().strip(), model.text().strip(),
+                ))
+            except ValueError as exc:
+                error.setText(str(exc)); return
+            dialog.accept()
+        buttons.accepted.connect(save_connection)
         buttons.rejected.connect(dialog.reject)
         form.addRow(buttons)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        try:
-            offering_id = register_custom_route(self.store, CustomRoute(
-                provider_id.text().strip(), name.text().strip(), endpoint.text().strip(),
-                model.text().strip(),
-            ))
-        except ValueError as exc:
-            QMessageBox.warning(self, "Custom provider", str(exc))
-            return
+        offering_id = registered["offering"]
         QMessageBox.information(
             self, "Provider registered",
             f"{offering_id} is registered and inactive. Open Provider settings again to store its key.",
@@ -2118,10 +2135,18 @@ class MainWindow(QMainWindow):
             open_drawer(self, "Validation")
 
     def _confirm_directory_creation(self, folder: Path) -> ControllerResult:
+        result = self._create_directory_result(folder)
+        self._last_local_action = {
+            'id': self.store.record_local_action('create_directory', folder, result.action_state, result.content),
+            'target': str(folder), 'outcome': result.action_state, 'detail': result.content,
+        }
+        return result
+
+    def _create_directory_result(self, folder: Path) -> ControllerResult:
         if folder.exists():
             if not folder.is_dir():
                 return ControllerResult("directory_creation", f"A file already exists at {folder}", evidence=str(folder), action_state="failed")
-            return ControllerResult("directory_creation", f"Folder already exists: {folder}", evidence=str(folder))
+            return ControllerResult("directory_creation", f"Folder already exists: {folder}", evidence=str(folder), action_state='already_exists')
         if QMessageBox.question(
             self, "Create folder", f"Create this folder on your computer?\n\n{folder}",
         ) != QMessageBox.StandardButton.Yes:
@@ -2148,7 +2173,7 @@ class MainWindow(QMainWindow):
             )
         if not folder.is_dir():
             return ControllerResult("directory_creation", f"Folder creation was not verified: {folder}", action_state="failed")
-        return ControllerResult("directory_creation", f"Created folder: {folder}", evidence=str(folder))
+        return ControllerResult("directory_creation", f"Created folder: {folder}", evidence=str(folder), action_state='created')
 
     def _run_kandev_build(self, project: Project, request: str) -> None:
         try:
@@ -2231,6 +2256,7 @@ class MainWindow(QMainWindow):
         if kind == 'run_stage':
             self._active_stage_label = str(payload.get('message') or payload.get('stage') or 'Working')
         if kind in {"run_started", "run_resumed"}:
+            self._last_local_action = None
             self._request_failure = ""
             self._build_terminal = False
         elif kind in {"run_completed", "run_needs_attention", "run_failed", "run_cancelled"}:
@@ -2453,8 +2479,8 @@ class MainWindow(QMainWindow):
         self._build_terminal = True
         from .workspace import refresh_activity
         refresh_activity(self)
-        self.work_feedback.setText(f'Build failed · {error}\nNo successful result was verified. Open Activity for details.')
-        self.work_feedback.show()
+        from .workspace import present_failure
+        present_failure(self, error)
 
     def _orchestration_worker_finished(self, worker: OrchestrationWorker) -> None:
         worker.deleteLater()
@@ -2781,6 +2807,11 @@ class MainWindow(QMainWindow):
             self._render_attachment_chips()
         self.current_conversation_id = conversation.id
         linked_project_id = self.store.get_conversation_project_id(conversation.id)
+        if linked_project_id is None and self.current_project_id is not None and self.orchestration_worker is None:
+            from .workspace import select_project, sync_projects
+            self.project_switch.setCurrentIndex(self.project_switch.findData(None))
+            if self.registry.selected() is not None:
+                select_project(self)
         if linked_project_id is not None and linked_project_id != self.current_project_id:
             self._load_project_list(select_id=linked_project_id)
         index = self.model_combo.findData(conversation.model)
@@ -2877,7 +2908,7 @@ class MainWindow(QMainWindow):
             f"Chat context: {budget.estimated_prompt_tokens:,} estimated prompt + {reserved:,} reserved output\n"
             f"{budget.remaining:,} safe tokens remaining · {percent}%"
         )
-        self.composer_hint.setText(f"~{estimate_tokens(self._pending_content()):,} tokens in pending message")
+        self.composer_hint.setText(f'{len(self.current_attachments)} attachments' if self.current_attachments else 'Enter to send · Shift+Enter for newline')
         deterministic_question = not self.current_attachments and self.controller.can_handle_locally(
             self.composer.toPlainText()
         )
@@ -2887,9 +2918,11 @@ class MainWindow(QMainWindow):
             can_send = can_send and self.preset.name in self._installed_model_names
         self.send_button.setEnabled(can_send)
         if budget.blocked:
+            self.composer_hint.setText('Context limit reached · Open Usage for details')
             self.context_notice.setText("Safe context limit exceeded. Start a new chat or remove the last exchange; history will not be trimmed silently.")
             self.context_notice.setStyleSheet(f"color: {theme_color('error')}; font-weight: 650;")
         elif budget.warning:
+            self.composer_hint.setText('Context nearly full · Consider a new chat')
             self.context_notice.setText("Context is nearly full. Consider a new chat before sending more large messages.")
             self.context_notice.setStyleSheet(f"color: {theme_color('warning')}; font-weight: 650;")
         else:
@@ -2900,16 +2933,21 @@ class MainWindow(QMainWindow):
         if self.chat_worker or self.current_conversation_id is None:
             return
         linked_project_id = self.store.get_conversation_project_id(self.current_conversation_id)
-        if self.current_project_id is not None and linked_project_id != self.current_project_id:
-            if linked_project_id is not None:
+        if self.orchestration_worker is None and self.current_project_id is not None and linked_project_id != self.current_project_id:
+            if linked_project_id is not None or self.store.list_messages(self.current_conversation_id):
+                draft, attachments = self.composer.toPlainText(), list(self.current_attachments)
                 self._new_chat()
+                self.composer.setPlainText(draft)
+                self.current_attachments = attachments
+                self._render_attachment_chips()
             else:
                 self.store.link_conversation_project(self.current_conversation_id, self.current_project_id)
+        chat_project_id = self.store.get_conversation_project_id(self.current_conversation_id)
         content = self._pending_content()
         if not content.strip():
             return
         if not self.current_attachments:
-            result = self.controller.handle(self.composer.toPlainText(), self.current_project_id)
+            result = self.controller.handle(self.composer.toPlainText(), chat_project_id)
             if result is not None:
                 if result.kind == "directory_creation_proposal" and result.evidence:
                     result = self._confirm_directory_creation(Path(result.evidence))
@@ -2940,6 +2978,7 @@ class MainWindow(QMainWindow):
                 self.transcript_layout.count() - 1, ChatBubble("user", content)
             )
         self._pending_receipt = {"provider": "ollama", "requested_model": self.preset.name, "model_source": "requested",
+                                 "runtime_metadata": getattr(self, '_model_facts', {}).get(self.preset.name, {}),
                                  "attachments": [item.name for item in self.current_attachments],
                                  "turn_ids": [message.id for message in self.store.list_messages(self.current_conversation_id)],
                                  "project_files": [], "decisions": [], "system_prompt": True}
@@ -2965,7 +3004,7 @@ class MainWindow(QMainWindow):
         }
         self.chat_worker = ChatWorker(
             self.client, self.preset.name, api_messages, options,
-            self.inference_policy, self.current_project_id,
+            self.inference_policy, chat_project_id,
         )
         self.chat_worker.content_delta.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._append_content(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
         self.chat_worker.thinking_delta.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._append_thinking(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
@@ -2984,7 +3023,8 @@ class MainWindow(QMainWindow):
             return
         self.store.add_message(Message(None, conversation_id, "user", content))
         message_id = self.store.add_message(Message(None, conversation_id, "assistant", result.content))
-        self.store.set_message_receipt(message_id, {"provider": "none", "model_source": "no_inference", "operation": result.kind})
+        self.store.set_message_receipt(message_id, {"provider": "none", "model_source": "no_inference", "operation": result.kind,
+                                                   "outcome": result.action_state, "evidence": result.evidence})
         if result.kind == "execution_proposal" and result.action_state in {"awaiting_approval", "awaiting_clarification"}:
             self.pending_build_request = (self.current_project_id, content)
             self._update_pending_build_card()
@@ -3234,6 +3274,11 @@ class MainWindow(QMainWindow):
         open_drawer(self, "Performance")
 
     def closeEvent(self, event) -> None:
+        provider_check = getattr(self, '_provider_check_worker', None)
+        if provider_check is not None and provider_check.isRunning():
+            QMessageBox.information(self, 'Checking connections', 'Wait for the connection check to finish before closing.')
+            event.ignore()
+            return
         if any(worker.isRunning() for worker in getattr(self, '_retired_chat_workers', [])):
             QMessageBox.information(self, 'Stopping previous reply', 'The previous reply is stopping. Try closing again in a moment.')
             event.ignore()

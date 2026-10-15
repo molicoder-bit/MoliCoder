@@ -311,20 +311,32 @@ class OrchestrationWorker(QThread):
         self._cancelled = threading.Event()
         self._resume = threading.Event()
         self._resume.set()
+        self.pause_state = 'running'
         self.orchestrator.should_cancel = self._cancelled.is_set
-        self.orchestrator.wait_if_paused = self._resume.wait
+        self.orchestrator.wait_if_paused = self.wait_if_paused
+
+    def wait_if_paused(self):
+        if not self._resume.is_set():
+            self.pause_state = 'paused'
+            self.relay_event('run_waiting', {'state': 'paused'})
+            self._resume.wait()
+            self.pause_state = 'cancelling' if self._cancelled.is_set() else 'running'
+            self.relay_event('run_waiting', {'state': self.pause_state})
 
     def cancel(self) -> None:
         self._cancelled.set()
+        self.pause_state = 'cancelling'
         self._resume.set()
         cancel = getattr(self.orchestrator, "cancel", None)
         if cancel:
             cancel()
 
     def pause(self) -> None:
+        self.pause_state = 'pause_requested'
         self._resume.clear()
 
     def resume(self) -> None:
+        self.pause_state = 'running'
         self._resume.set()
 
     @property

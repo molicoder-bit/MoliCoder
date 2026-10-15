@@ -81,6 +81,14 @@ class ChatStore:
                     message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
                     receipt_json TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS local_action_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kind TEXT NOT NULL,
+                    target TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    detail TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
@@ -616,6 +624,17 @@ class ChatStore:
         with closing(self._connect()) as connection:
             row = connection.execute("SELECT receipt_json FROM message_receipts WHERE message_id=?", (message_id,)).fetchone()
         return json.loads(row[0]) if row else None
+
+    def record_local_action(self, kind, target, outcome, detail):
+        with closing(self._connect()) as connection:
+            row = connection.execute('INSERT INTO local_action_results(kind,target,outcome,detail,created_at) VALUES(?,?,?,?,?)',
+                                     (kind, str(target), outcome, detail, datetime.now().isoformat(timespec='microseconds')))
+            connection.commit()
+            return row.lastrowid
+
+    def list_local_actions(self):
+        with closing(self._connect()) as connection:
+            return [dict(row) for row in connection.execute('SELECT * FROM local_action_results ORDER BY id DESC LIMIT 100')]
 
     def delete_last_exchange(self, conversation_id: int) -> None:
         with closing(self._connect()) as connection:

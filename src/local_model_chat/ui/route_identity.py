@@ -37,6 +37,9 @@ def refresh_route_identity(w):
     elif w.view_stack.currentWidget() == w.chat_view:
         model = getattr(w.chat_worker, 'model', w.preset.name)
         text = f'Chat {"running" if w.chat_worker is not None else "selected"} · Ollama (local) · {model}'
+        facts = getattr(w, '_model_facts', {}).get(model, {})
+        if facts.get('family'):
+            text += f" · runtime family: {facts['family']} {facts.get('parameter_size', '')}"
         if w.chat_worker is None:
             from .workspace import last_receipt
             receipt = last_receipt(w)
@@ -51,6 +54,15 @@ def refresh_route_identity(w):
         text = f'Build running · {route}'
     else:
         text = f'Build selected · {_build_selection(w)}'
+        if w.current_project_id:
+            status = w.store.current_project_run_status(w.current_project_id)
+            if status and status.run_id:
+                from ..work_state import WorkSnapshot
+                snapshot = WorkSnapshot.from_run(w.store, status.run_id)
+                call = snapshot.last_completed_call
+                if call:
+                    identity = f"{str(call.get('provider', 'Unknown')).title()} · {_model_label(call.get('model'), call.get('model_source', 'reported/configured'))}"
+                    text = f'Last call: {identity}\nNext Build: {_build_selection(w)}'
     w.route_identity.setText(text)
     w.route_identity.setToolTip(text + '\nSelected/configured models are requests; reported models come from provider results. '
                                'Runtime health is in Performance. Subscription CLI usage can include internal model routing.')
@@ -67,6 +79,11 @@ def observe_build_route(w, kind, payload):
             w._active_build_route = f'Ollama (local) · {LOCAL_BUILD_MODEL}'
     elif kind == 'local_attempt_started':
         w._active_build_route = f'Ollama (local) · {LOCAL_BUILD_MODEL}'
+    elif kind == 'provider_output' and isinstance(payload.get('event'), dict):
+        from ..molicoder.providers import _usage_from_events
+        _, _, model = _usage_from_events([payload['event']])
+        if model:
+            w._active_build_route = f"Calling: {str(payload.get('provider', 'Unknown')).title()} · {_model_label(model, 'reported')}"
     elif kind in {'provider_started', 'provider_attempt_started', 'provider_takeover', 'provider_finished'}:
         if getattr(w, '_build_route_local', False):
             w._active_build_route = f'Ollama (local) · {LOCAL_BUILD_MODEL}'

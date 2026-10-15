@@ -708,7 +708,9 @@ def test_custom_provider_can_be_registered_from_ui_without_activation(qtbot, tmp
         edits["Provider display name"].setText("Custom API")
         edits["https://provider.example/v1"].setText("https://api.example.test/v1")
         edits["provider-model-id"].setText("sample-model")
-        return QDialog.DialogCode.Accepted
+        from PySide6.QtWidgets import QDialogButtonBox
+        dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Save).click()
+        return dialog.result()
     monkeypatch.setattr(QDialog, "exec", fill_dialog)
     monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
     window._add_custom_provider()

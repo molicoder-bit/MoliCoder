@@ -54,4 +54,4 @@ def test_version_four_database_upgrades_with_catalog_backup(tmp_path) -> None:
     reopened = ChatStore(db)
 
     assert reopened.get_conversation(conversation.id) is not None
-    assert len(list(tmp_path.glob("v4.sqlite3.pre-v14-*.bak"))) == 1
+    assert len(list(tmp_path.glob("v4.sqlite3.pre-v15-*.bak"))) == 1

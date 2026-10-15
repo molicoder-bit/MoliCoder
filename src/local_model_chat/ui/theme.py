@@ -39,6 +39,11 @@ def apply_theme(window, theme, *, persist=True):
         palette.setColor(role, QColor(color))
     app.setPalette(palette)
     sheet = stylesheet_for_theme(theme)
+    try:
+        text_size = max(12, min(20, int(window.store.get_setting('ui.text_size', '14'))))
+    except ValueError:
+        text_size = 14
+    sheet += f'QWidget {{ font-size: {text_size}px; }} QFrame#topbar QWidget {{ font-size: 14px; }}'
     if light:
         sheet += 'QLabel#modelBadge, QLabel#buildActivity { color: #216442; } QLabel#brandLogo { background: #FFFFFF; }'
     app.setStyleSheet(sheet)

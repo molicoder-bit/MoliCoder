@@ -58,3 +58,21 @@ def test_activity_is_visible_across_modes_and_stops_at_failure(qtbot,tmp_path):
     assert not w.busy_indicator.timer.isActive()
     assert not w.work_feedback.isHidden()
     w.orchestration_worker=None
+
+
+def test_provider_cards_report_readiness_without_sending_inference(qtbot,tmp_path,monkeypatch):
+    from PySide6.QtWidgets import QPushButton, QLabel
+    from local_model_chat.molicoder.providers import ProviderStatus
+    monkeypatch.setattr('local_model_chat.molicoder.providers.probe_all_providers',lambda: (
+        ProviderStatus('codex',True,True,auth_verified=True),
+        ProviderStatus('claude',True,False,auth_verified=True),
+        ProviderStatus('copilot',False,False),
+    ))
+    w=MainWindow(ChatStore(tmp_path/'providers.db'),start_ollama_check=False);qtbot.addWidget(w)
+    show_settings(w,'Models & providers')
+    check=next(b for b in w._settings_dialog.findChildren(QPushButton) if b.text().startswith('Check agent connections'))
+    check.click()
+    qtbot.waitUntil(lambda:getattr(w,'_provider_check_worker',None) is None)
+    text='\n'.join(label.text() for label in w._settings_dialog.findChildren(QLabel))
+    assert 'Sign-in required' in text and 'Not installed' in text and 'Ready' in text
+    w._settings_dialog.close()

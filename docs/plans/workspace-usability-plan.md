@@ -102,11 +102,11 @@ An implementation phase is complete only when every task in that phase is checke
 Prerequisite: planning complete. Primary files: UI state, storage, workers, orchestrator.
 
 - [x] UX01-01 Define the shared work snapshot fields: mode, project, conversation/run/task IDs, phase, outcome, active call, last completed call, and last event time. **Done when:** each displayed field has a named authoritative source.
-- [ ] UX01-02 Specify the lifecycle transitions for idle, preparing, planning, executing, validating, applying, waiting, cancellation requested, cancelled, succeeded, failed, and interrupted. **Done when:** waiting or terminal states cannot be rendered as active execution.
+- [x] UX01-02 Specify the lifecycle transitions for idle, preparing, planning, executing, validating, applying, waiting, cancellation requested, cancelled, succeeded, failed, and interrupted. **Done when:** waiting or terminal states cannot be rendered as active execution.
 - [x] UX01-03 Define which component owns each transition for internal Build, local actions, Chat, and Kandev. **Done when:** worker cleanup cannot independently overwrite a terminal outcome with Idle.
-- [ ] UX01-04 Add a stable operation identity to callbacks and UI snapshots. **Done when:** an event from an older request cannot update a newly selected conversation or run.
+- [x] UX01-04 Add a stable operation identity to callbacks and UI snapshots. **Done when:** an event from an older request cannot update a newly selected conversation or run.
 - [x] UX01-05 Define backward-compatible storage changes for outcome reasons, route provenance, and context receipts where existing records are insufficient. **Done when:** existing histories load with explicit unknowns and database backup/migration behavior is documented.
-- [ ] UX01-06 Implement snapshot loading for the selected conversation/run rather than using global last-metric fields. **Done when:** switching history entries shows their own state and cannot reuse another entry's counters.
+- [x] UX01-06 Implement snapshot loading for the selected conversation/run rather than using global last-metric fields. **Done when:** switching history entries shows their own state and cannot reuse another entry's counters.
 - [x] UX01-07 Define stale-run reconciliation rules for startup and reopen. **Done when:** local process exit is distinguishable from an active external Kandev session; elapsed time alone is insufficient to mark external work failed.
 - [ ] UX01-08 Add focused transition regressions for completion, exception, cancellation, and late callbacks. **Done when:** all UI consumers agree on the same operation's terminal state.
 
@@ -123,10 +123,10 @@ Prerequisite: UX01. Primary files: orchestrator, workers, storage, Build callbac
 - [x] UX02-05 Write a structured terminal event to the run log and emit it to the UI. **Done when:** a reopened history entry explains the same failure as the live screen.
 - [x] UX02-06 Handle exceptions before a run ID is allocated. **Done when:** a visible request-level failure appears without inventing a run or leaving an indefinite busy state.
 - [x] UX02-07 Add a persistent failure panel above Build's scrolling content. **Done when:** it states what failed, the effect on the requested action, and an appropriate next step without requiring Activity to be opened.
-- [ ] UX02-08 Map common failure categories to plain-language explanations. **Done when:** invalid target, unavailable provider, sign-in required, quota, permission denial, validation failure, and unexpected worker error have distinct useful copy; technical details remain accessible.
+- [x] UX02-08 Map common failure categories to plain-language explanations. **Done when:** invalid target, unavailable provider, sign-in required, quota, permission denial, validation failure, and unexpected worker error have distinct useful copy; technical details remain accessible.
 - [ ] UX02-09 Keep failure summaries visible across refresh, worker cleanup, and history reopening. **Done when:** periodic refresh cannot replace a failed run with Running, Idle, or a generic readiness message.
-- [ ] UX02-10 Add contextual recovery actions. **Done when:** correcting a target, opening Settings, viewing details, or retrying is offered only when valid for that failure, and retry preserves the request without silently re-executing it.
-- [ ] UX02-11 Reconcile orphaned local running records using UX01's ownership rules. **Done when:** a fixture matching run 4 becomes Interrupted/Needs attention with an explanation, while an active verified external session stays active.
+- [x] UX02-10 Add contextual recovery actions. **Done when:** correcting a target, opening Settings, viewing details, or retrying is offered only when valid for that failure, and retry preserves the request without silently re-executing it.
+- [x] UX02-11 Reconcile orphaned local running records using UX01's ownership rules. **Done when:** a fixture matching run 4 becomes Interrupted/Needs attention with an explanation, while an active verified external session stays active.
 - [ ] UX02-12 Reproduce the screenshot sequence with a sanitized invalid-path fixture. **Done when:** task, run, summary, animation, log, and reopened history all show the terminal failure; no original user record is silently deleted.
 
 Evidence (partial): 24 focused state/sequential/workspace tests passed; 42 UI/state/handoff regressions passed; final 5 failure/snapshot regressions passed. The injected handoff exception verifies a terminal JSONL event, failed active task, blocked untouched task, preserved worktree, and ended run. No provider calls or user-database repairs were performed.
@@ -141,12 +141,12 @@ Prerequisite: UX02. Primary files: local actions, controller, Build dispatch, pl
 - [x] UX03-04 Add inline clarification for an ambiguous destination. **Done when:** a name-only request asks where to create it, instead of assuming the selected project or sending it to a coding agent.
 - [x] UX03-05 Share the action decision between Chat and Build submission. **Done when:** the same explicit simple request follows the same local-action route in both modes.
 - [x] UX03-06 Present the exact resolved target and action before the existing confirmation. **Done when:** a folder outside the project is clearly described as an explicit local filesystem action and is never disguised as a worktree edit.
-- [ ] UX03-07 Record and render local-action outcomes. **Done when:** created, already exists, conflicting file, denied, cancelled, and failed are distinct results; all say no AI model was used.
-- [ ] UX03-08 Verify folder existence/type before reporting success. **Done when:** a fixture with a permission error cannot generate a success message, and an existing directory's contents remain intact.
+- [x] UX03-07 Record and render local-action outcomes. **Done when:** created, already exists, conflicting file, denied, cancelled, and failed are distinct results; all say no AI model was used.
+- [x] UX03-08 Verify folder existence/type before reporting success. **Done when:** a fixture with a permission error cannot generate a success message, and an existing directory's contents remain intact.
 - [x] UX03-09 Validate planner expected paths before marking any task running or creating its worktree. **Done when:** an absolute path outside project scope receives a clear route/scope rejection before task execution starts.
 - [x] UX03-10 Handle an absolute path that genuinely refers inside the chosen repository through validated path resolution. **Done when:** only proven contained paths can become repository-relative; outside paths, traversal, and link escapes remain rejected.
 - [x] UX03-11 Preserve the worktree safety boundary. **Done when:** the implementation does not fix this report by allowing arbitrary absolute paths, silently changing targets, or interpreting model output as filesystem authorization.
-- [ ] UX03-12 Test folder actions in a temporary directory, including non-Git locations. **Done when:** an explicit local folder action works without a Build project, uses zero model calls, and has a visible verified result. Empty directories must not be misreported as committed Git changes.
+- [x] UX03-12 Test folder actions in a temporary directory, including non-Git locations. **Done when:** an explicit local folder action works without a Build project, uses zero model calls, and has a visible verified result. Empty directories must not be misreported as committed Git changes.
 
 Evidence (partial): 29 action/scope/controller/sequential tests passed. Explicit reported wording, paths with spaces, missing parents, invalid destinations and cross-platform outside-path rejection are covered. The boundary check remains enforced before workspace allocation.
 
@@ -155,15 +155,15 @@ Evidence (partial): 29 action/scope/controller/sequential tests passed. Explicit
 Prerequisite: UX01–UX03. Primary files: registry, workspace selector, project/conversation loading.
 
 - [x] UX04-01 Remove the automatic first-project fallback on fresh/default startup. **Done when:** a database with registered projects but no explicit restoration preference opens with No project.
-- [ ] UX04-02 Add an optional Remember last workspace preference, off by default. **Done when:** restoring a project requires this preference, and a restored selection is visibly identified with its folder.
+- [x] UX04-02 Add an optional Remember last workspace preference, off by default. **Done when:** restoring a project requires this preference, and a restored selection is visibly identified with its folder.
 - [x] UX04-03 Add a registry-level clear-selection operation. **Done when:** choosing No project clears both current UI scope and the saved selected-project setting.
 - [ ] UX04-04 Unify selection consumers around the chosen scope. **Done when:** readiness, route identity, usage, knowledge, and execution cannot independently recover a stale saved project.
 - [x] UX04-05 Add a Build empty state with Open folder, Create project, and recent-project choices. **Done when:** these actions are visible without entering History, and neworld appears only as a real recent/selected project.
 - [ ] UX04-06 Make folder identity readable before execution. **Done when:** Build shows the project's name and resolved path near the request, with a direct Change action.
 - [x] UX04-07 Allow drafting before project selection. **Done when:** the Build composer remains usable with no project; a repository operation explains the missing target while a valid local action can use its explicit path.
-- [ ] UX04-08 Keep conversation association explicit. **Done when:** opening an old project chat displays that association, while opening a general chat clears unrelated project context.
-- [ ] UX04-09 Preserve per-scope Chat/Build drafts and attachments. **Done when:** moving between No project and two different projects restores the matching draft without relinking existing messages silently.
-- [ ] UX04-10 Keep active Build ownership fixed while making the reason visible. **Done when:** a disabled Change project action explains that the current run owns the target; Chat/New chat navigation remains available.
+- [x] UX04-08 Keep conversation association explicit. **Done when:** opening an old project chat displays that association, while opening a general chat clears unrelated project context.
+- [x] UX04-09 Preserve per-scope Chat/Build drafts and attachments. **Done when:** moving between No project and two different projects restores the matching draft without relinking existing messages silently.
+- [x] UX04-10 Keep active Build ownership fixed while making the reason visible. **Done when:** a disabled Change project action explains that the current run owns the target; Chat/New chat navigation remains available.
 - [ ] UX04-11 Handle moved, missing, and archived folders with an explicit recovery state. **Done when:** the app never silently selects a different project as a substitute.
 - [ ] UX04-12 Verify startup, restart, deselection, history reopening, and two-project switching. **Done when:** no operation reads or writes neworld unless that scope was explicitly chosen or visibly restored under the preference.
 
@@ -177,9 +177,9 @@ Prerequisite: UX01 and UX04. Primary files: header, chat lifecycle, draft state.
 - [x] UX05-02 Wire the action to create and open a new conversation. **Done when:** one click opens an empty Chat composer and places keyboard focus there.
 - [x] UX05-03 Add a keyboard shortcut with the same behavior. **Done when:** Ctrl+N on Windows/Linux and the platform-equivalent shortcut on macOS invoke the shared action without conflicting with existing navigation.
 - [x] UX05-04 Preserve an unsent draft when New chat is used. **Done when:** returning to the previous conversation restores its text and attachments; a normal idle action requires no confirmation dialog.
-- [ ] UX05-05 Handle New chat during an active reply. **Done when:** the old request is cancelled or safely completes against its original conversation, and late tokens cannot appear in the new one.
-- [ ] UX05-06 Leave an active Build attached to its existing run while navigating to a new chat. **Done when:** work is neither restarted nor abandoned, and a persistent Build status affordance returns to it.
-- [ ] UX05-07 Apply the explicit current scope and selected next-reply model to the new chat. **Done when:** the empty state names both and never implies that a reply has already used a model.
+- [x] UX05-05 Handle New chat during an active reply. **Done when:** the old request is cancelled or safely completes against its original conversation, and late tokens cannot appear in the new one.
+- [x] UX05-06 Leave an active Build attached to its existing run while navigating to a new chat. **Done when:** work is neither restarted nor abandoned, and a persistent Build status affordance returns to it.
+- [x] UX05-07 Apply the explicit current scope and selected next-reply model to the new chat. **Done when:** the empty state names both and never implies that a reply has already used a model.
 - [ ] UX05-08 Verify the one-click journey from initial launch, history, a completed chat, and Build. **Done when:** no History/Settings detour is required and all previous work remains recoverable.
 
 Evidence (partial): Header button, platform New shortcut, focused empty composer and preserved conversation draft implemented. The new scope/chat tests verify one-click navigation from Build. Live streaming cancellation and the background Build affordance remain under verification/pending.
@@ -189,16 +189,16 @@ Evidence (partial): Header button, platform New shortcut, focused empty composer
 Prerequisite: UX01, UX04, UX05. Primary files: route identity, provider events, message/run storage, transcript.
 
 - [ ] UX06-01 Define a route identity record containing provider ID/display name, requested model, reported model, alias/display label, evidence source, and call identity. **Done when:** configured and reported values cannot overwrite each other's meaning.
-- [ ] UX06-02 Resolve local model labels from available verified discovery metadata. **Done when:** a known model family can accompany its exact alias, while a user-created alias is never treated as proof of underlying weights.
-- [ ] UX06-03 Capture model reports from supported provider events as soon as they arrive. **Done when:** the active identity updates before completion when evidence exists; unsupported CLI reports remain explicitly unknown.
+- [x] UX06-02 Resolve local model labels from available verified discovery metadata. **Done when:** a known model family can accompany its exact alias, while a user-created alias is never treated as proof of underlying weights.
+- [x] UX06-03 Capture model reports from supported provider events as soon as they arrive. **Done when:** the active identity updates before completion when evidence exists; unsupported CLI reports remain explicitly unknown.
 - [x] UX06-04 Persist route attribution with completed assistant responses. **Done when:** reopening a conversation identifies the route used for each response rather than the model currently selected in Settings.
-- [ ] UX06-05 Persist route attribution for individual Build stages/attempts. **Done when:** planning, local execution, fallback, and review can show different providers/models without mislabeling the entire run as one model.
+- [x] UX06-05 Persist route attribution for individual Build stages/attempts. **Done when:** planning, local execution, fallback, and review can show different providers/models without mislabeling the entire run as one model.
 - [x] UX06-06 Represent deterministic replies and actions explicitly. **Done when:** project-status answers and folder actions say No AI model used and are not attributed to the selected local model.
 - [x] UX06-07 Replace the small legacy banner with a readable identity component beside current work. **Done when:** provider and model can be identified at a glance in both themes and normal display scaling.
 - [x] UX06-08 Separate Next reply/Selected for Build from Working now and Last reply/Last call. **Done when:** changing settings does not relabel prior output, and worker cleanup retains the last actual identity.
 - [x] UX06-09 Add response attribution in the transcript. **Done when:** a reader can determine the origin of a prior response without selecting the original model again; legacy records with missing evidence are labeled unavailable.
-- [ ] UX06-10 Show an active fallback or local handoff immediately. **Done when:** the old provider/model disappears from the active-call field and remains only in historical evidence.
-- [ ] UX06-11 Handle Kandev and custom API tests explicitly. **Done when:** Kandev displays only identities supported by adapter evidence, and API tests show their own provider/model without altering Chat attribution.
+- [x] UX06-10 Show an active fallback or local handoff immediately. **Done when:** the old provider/model disappears from the active-call field and remains only in historical evidence.
+- [x] UX06-11 Handle Kandev and custom API tests explicitly. **Done when:** Kandev displays only identities supported by adapter evidence, and API tests show their own provider/model without altering Chat attribution.
 - [x] UX06-12 Add a compact Change action that opens Settings at the relevant model/route section. **Done when:** the main screen remains free of the legacy dropdown and the current model stays visible while settings are closed.
 - [ ] UX06-13 Verify local alias, explicit external model, unknown CLI default, fallback, deterministic reply, and restarted history scenarios. **Done when:** no case derives the active route from an Ollama health indicator or labels an unknown model as GPT-4.
 
@@ -214,11 +214,11 @@ Prerequisite: UX01, UX02, UX04, UX06. Primary files: workspace, Chat toolbar, re
 - [x] UX07-04 Define a context receipt for each submitted request. **Done when:** it records which conversation turns, attachments, project files, decisions, and tool results were actually included, with IDs and scope.
 - [x] UX07-05 Produce the receipt from request assembly. **Done when:** selected project metadata alone cannot imply that the full repository or all knowledge was sent to a model.
 - [x] UX07-06 Render a short Chat context summary from the receipt. **Done when:** users see relevant included sources and scope, and an empty chat has a useful empty state rather than stale counters.
-- [ ] UX07-07 Render a Build summary from its current task and verified outcomes. **Done when:** current step, target, completed tasks, changed files, and validation appear only when known and relevant.
+- [x] UX07-07 Render a Build summary from its current task and verified outcomes. **Done when:** current step, target, completed tasks, changed files, and validation appear only when known and relevant.
 - [x] UX07-08 Add a Context details action for inspectable source names and omissions. **Done when:** the summary can be checked against actual request evidence without exposing secret values or claiming unsupported retrieval.
-- [ ] UX07-09 Retain useful warnings near submission. **Done when:** context overflow, missing required input, or a real configured spending limit is visible before sending, even with the routine meter moved out of the main screen.
-- [ ] UX07-10 Scope Usage to the selected request/run and label missing measurements. **Done when:** unknown token counts/cost are not displayed as zero and prior conversation metrics cannot leak into a new chat.
-- [ ] UX07-11 Keep current configuration distinct from verified work already done. **Done when:** a failed attempt cannot increase completed/changed/accepted counts without supporting evidence.
+- [x] UX07-09 Retain useful warnings near submission. **Done when:** context overflow, missing required input, or a real configured spending limit is visible before sending, even with the routine meter moved out of the main screen.
+- [x] UX07-10 Scope Usage to the selected request/run and label missing measurements. **Done when:** unknown token counts/cost are not displayed as zero and prior conversation metrics cannot leak into a new chat.
+- [x] UX07-11 Keep current configuration distinct from verified work already done. **Done when:** a failed attempt cannot increase completed/changed/accepted counts without supporting evidence.
 - [ ] UX07-12 Verify every summary against fixture receipts and outcomes. **Done when:** changing project, model, conversation, or run clears irrelevant information and preserves the correct historical record.
 
 Evidence (partial): reply receipts persist in schema v15 with legacy backup and cascading message deletion; 18 receipt/settings/activity/storage tests passed. Existing UI/workspace/identity/theme tests passed (68 tests) before the schema-backup assertions were updated for v15. New tests verify navigable model settings, last-versus-next identity, request context, reduced motion, background Build access and terminal animation stop. Remaining acceptance tasks are unchecked.
@@ -229,8 +229,8 @@ Prerequisite: UX01, UX02, UX06, UX07. Primary files: Build status widgets and li
 
 - [x] UX08-01 Add a graphical busy indicator independent of the status text. **Done when:** animation uses a dedicated Qt widget/timer and cannot be overwritten by a provider heartbeat string.
 - [x] UX08-02 Keep the activity summary above scrollable Build content. **Done when:** the indicator and current stage stay visible when the task list or drawer is scrolled.
-- [ ] UX08-03 Start the indicator when the operation is accepted for work. **Done when:** preflight and planning have immediate feedback before the first provider output arrives.
-- [ ] UX08-04 Derive the stage label from operation events. **Done when:** planning, editing, checking, applying, and reconciling have meaningful names and do not alternate with generic Working text.
+- [x] UX08-03 Start the indicator when the operation is accepted for work. **Done when:** preflight and planning have immediate feedback before the first provider output arrives.
+- [x] UX08-04 Derive the stage label from operation events. **Done when:** planning, editing, checking, applying, and reconciling have meaningful names and do not alternate with generic Working text.
 - [x] UX08-05 Show elapsed time and time since the last genuine event. **Done when:** repaint/animation ticks never reset the last-activity timestamp.
 - [x] UX08-06 Display waiting and possible stalls truthfully. **Done when:** an inactive stream says Waiting for provider/No recent update with elapsed time, without falsely proving progress or declaring failure solely from silence.
 - [ ] UX08-07 Wire pause and cancellation states to the indicator. **Done when:** Pause requested, Paused, Cancelling, and Cancelled are distinct, and cancellation does not report completion before the worker stops.
@@ -248,11 +248,11 @@ Prerequisite: UX04–UX08. Primary files: settings entry point and existing dial
 - [x] UX09-01 Define plain-language settings categories: General, Models & providers, Projects & Build, Usage & limits, Kandev, and Diagnostics. **Done when:** every existing setting/action has a destination and no required capability disappears.
 - [x] UX09-02 Implement one settings window with category navigation and a content pane. **Done when:** changing categories keeps the window open and avoids stacked modal dialogs for routine navigation.
 - [x] UX09-03 Add a short explanatory sentence to each category. **Done when:** a new user understands what can be changed before reading individual technical fields.
-- [ ] UX09-04 Mark setting scope as App, Project, or Next request. **Done when:** project-specific changes name their target, and settings that need a project explain that requirement inline.
-- [ ] UX09-05 Define Save/Cancel and immediate-preference behavior consistently. **Done when:** changes are not lost on accidental navigation, and immediate choices such as Theme are clearly shown as applied.
+- [x] UX09-04 Mark setting scope as App, Project, or Next request. **Done when:** project-specific changes name their target, and settings that need a project explain that requirement inline.
+- [x] UX09-05 Define Save/Cancel and immediate-preference behavior consistently. **Done when:** changes are not lost on accidental navigation, and immediate choices such as Theme are clearly shown as applied.
 - [x] UX09-06 Add direct destinations from Change model, missing provider, budget warning, and run error actions. **Done when:** each opens the matching category and focuses the relevant control.
-- [ ] UX09-07 Move implementation terminology into optional details and improve primary labels. **Done when:** primary actions use Choose model, Connect account, Test connection, Set limit, or Open logs instead of requiring users to understand offerings, manifests, or handoff packets.
-- [ ] UX09-08 Add inline validation and consistent pending/success/error feedback. **Done when:** field mistakes are explained next to the field and operations cannot be accidentally submitted twice.
+- [x] UX09-07 Move implementation terminology into optional details and improve primary labels. **Done when:** primary actions use Choose model, Connect account, Test connection, Set limit, or Open logs instead of requiring users to understand offerings, manifests, or handoff packets.
+- [x] UX09-08 Add inline validation and consistent pending/success/error feedback. **Done when:** field mistakes are explained next to the field and operations cannot be accidentally submitted twice.
 - [x] UX09-09 Verify keyboard navigation, scrolling, and return to work. **Done when:** Settings works at minimum window size and closing it returns focus to the originating action/composer.
 
 Evidence (partial): reply receipts persist in schema v15 with legacy backup and cascading message deletion; 18 receipt/settings/activity/storage tests passed. Existing UI/workspace/identity/theme tests passed (68 tests) before the schema-backup assertions were updated for v15. New tests verify navigable model settings, last-versus-next identity, request context, reduced motion, background Build access and terminal animation stop. Remaining acceptance tasks are unchecked.
@@ -261,33 +261,33 @@ Evidence (partial): reply receipts persist in schema v15 with legacy backup and 
 
 Prerequisite: UX06 and UX09. Primary files: provider settings, onboarding, environment discovery.
 
-- [ ] UX10-01 Present installed/registered providers as cards with name, local/cloud type, readiness, and one relevant next action. **Done when:** Disconnected, Sign-in needed, Ready, and Unavailable are visually and textually distinct.
-- [ ] UX10-02 Separate provider installation, account connection, and model selection steps. **Done when:** a successful installation does not imply that authentication or model availability is complete.
-- [ ] UX10-03 Add a local-model chooser with friendly names and exact identifiers in details. **Done when:** the user's chosen local model is visible in the main identity component and persisted through the existing settings mechanism.
-- [ ] UX10-04 Add external-agent model controls with a clearly labeled Provider default option. **Done when:** leaving an override empty is described as an unknown/provider-controlled model choice, not a known named model.
-- [ ] UX10-05 Label supported uses for each connection. **Done when:** a route available only for Build or capped API tests cannot be presented as selectable for main Chat; this phase does not silently add hosted Chat execution.
-- [ ] UX10-06 Guide supported provider setup through the existing installer/sign-in flows. **Done when:** the user sees the next required step, including any official browser sign-in, without being promised automatic account creation.
-- [ ] UX10-07 Simplify custom-provider entry into essential fields with advanced options collapsed. **Done when:** endpoint, model, and credential requirements have examples and field validation; advanced facts remain available when needed.
-- [ ] UX10-08 Distinguish Test connection from Send test message. **Done when:** a connectivity check cannot silently spend inference quota and a paid test exposes its existing cap/authorization.
+- [x] UX10-01 Present installed/registered providers as cards with name, local/cloud type, readiness, and one relevant next action. **Done when:** Disconnected, Sign-in needed, Ready, and Unavailable are visually and textually distinct.
+- [x] UX10-02 Separate provider installation, account connection, and model selection steps. **Done when:** a successful installation does not imply that authentication or model availability is complete.
+- [x] UX10-03 Add a local-model chooser with friendly names and exact identifiers in details. **Done when:** the user's chosen local model is visible in the main identity component and persisted through the existing settings mechanism.
+- [x] UX10-04 Add external-agent model controls with a clearly labeled Provider default option. **Done when:** leaving an override empty is described as an unknown/provider-controlled model choice, not a known named model.
+- [x] UX10-05 Label supported uses for each connection. **Done when:** a route available only for Build or capped API tests cannot be presented as selectable for main Chat; this phase does not silently add hosted Chat execution.
+- [x] UX10-06 Guide supported provider setup through the existing installer/sign-in flows. **Done when:** the user sees the next required step, including any official browser sign-in, without being promised automatic account creation.
+- [x] UX10-07 Simplify custom-provider entry into essential fields with advanced options collapsed. **Done when:** endpoint, model, and credential requirements have examples and field validation; advanced facts remain available when needed.
+- [x] UX10-08 Distinguish Test connection from Send test message. **Done when:** a connectivity check cannot silently spend inference quota and a paid test exposes its existing cap/authorization.
 - [ ] UX10-09 Show setup failures and platform limitations next to the affected provider. **Done when:** unsupported credential storage, missing binaries, or rejected authentication each has a concrete explanation and available next action.
 - [ ] UX10-10 Verify local setup, known CLI default, expired sign-in, custom API configuration, and unavailable-platform fixtures. **Done when:** each flow reaches a clear usable or blocked state without leaking credential values into the UI, exports, or logs.
 
-Evidence: pending.
+Evidence (partial): provider cards show verified readiness after an explicit no-inference check; the fixture check covers ready, login-required and not-installed. Custom provider Save now validates inline. 17 provider/settings/chat/failure/action tests passed. Settings model overrides and remaining final journeys are still being verified.
 
 ## UX11 — Finish the remaining settings categories
 
 Prerequisite: UX09–UX10. Primary files: settings pages and existing preference services.
 
-- [ ] UX11-01 Implement General preferences for Matrix/Light, readable text size, reduced motion, and Remember last workspace. **Done when:** each setting persists and its scope/default is evident.
-- [ ] UX11-02 Implement a project list with name, folder, and Open/Change/Remove-from-list actions. **Done when:** removing a registration is described accurately and does not delete the folder.
-- [ ] UX11-03 Explain Build strategy choices in everyday language. **Done when:** Local offline, Hybrid, and External provider behavior, constraints, and possible provider handoffs are understandable before Run.
-- [ ] UX11-04 Present project trust and execution ownership as explicit choices. **Done when:** Internal Build versus Kandev ownership and provider permission cannot be confused with a model selection.
+- [x] UX11-01 Implement General preferences for Matrix/Light, readable text size, reduced motion, and Remember last workspace. **Done when:** each setting persists and its scope/default is evident.
+- [x] UX11-02 Implement a project list with name, folder, and Open/Change/Remove-from-list actions. **Done when:** removing a registration is described accurately and does not delete the folder.
+- [x] UX11-03 Explain Build strategy choices in everyday language. **Done when:** Local offline, Hybrid, and External provider behavior, constraints, and possible provider handoffs are understandable before Run.
+- [x] UX11-04 Present project trust and execution ownership as explicit choices. **Done when:** Internal Build versus Kandev ownership and provider permission cannot be confused with a model selection.
 - [ ] UX11-05 Present Usage & limits with measured, estimated, and unavailable values distinguished. **Done when:** subscription CLI limits and hard metered API limits are not described as equivalent spending controls.
 - [ ] UX11-06 Provide Kandev setup/status and Open board in its category. **Done when:** disabled, installed/stopped, connected, and active-task states each have appropriate actions; optional Kandev remains easy to opt into or leave unused.
-- [ ] UX11-07 Put environment checks, runtime health, logs, and evidence export under Diagnostics. **Done when:** technical detail remains reachable without dominating normal settings or the main workspace.
+- [x] UX11-07 Put environment checks, runtime health, logs, and evidence export under Diagnostics. **Done when:** technical detail remains reachable without dominating normal settings or the main workspace.
 - [ ] UX11-08 Verify that the reorganized settings preserve existing authorization boundaries. **Done when:** opening a page, checking health, or choosing a model never silently launches an agent, installs a resource, starts a paid test, or applies project changes.
 
-Evidence: pending.
+Evidence (partial): provider cards show verified readiness after an explicit no-inference check; the fixture check covers ready, login-required and not-installed. Custom provider Save now validates inline. 17 provider/settings/chat/failure/action tests passed. Settings model overrides and remaining final journeys are still being verified.
 
 ## UX12 — Check readability and complete user journeys
 
