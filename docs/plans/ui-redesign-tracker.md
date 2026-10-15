@@ -84,3 +84,7 @@ Tasks are checked only after verification. Existing execution and authorization 
 - [x] UI11-02 Embed the icon in Windows executables, include it in Python packages, set application/window icons and Windows taskbar identity, and explicitly assign the desktop shortcut icon. Installer notifies Explorer of the two updated paths.
 - [x] UI11-03 Verify icon loading at taskbar/Explorer sizes and workspace behavior: **13 tests passed**. Inspect the icon preview and compare all nine embedded executable image resources with the generated ICO.
 - [x] UI11-04 Package and install **1.2.3**, preserving the previous install. Desktop and embedded-browser smoke checks passed; installed executable hash matches the verified build and shortcut icon points to the installed executable.
+
+## Follow-up usability plan (2026-10-15)
+
+The user's screenshots revealed additional usability and state-consistency gaps. The [workspace usability plan](workspace-usability-plan.md) contains 129 unchecked implementation tasks across 13 phases, covering one-click New chat, current model/provider attribution, relevant work context, explicit project scope, visible activity and failures, simple folder actions, and clearer Settings. Planning and read-only diagnosis are complete; implementation has not started. Prior UI task completion does not imply that these new acceptance criteria have been met.

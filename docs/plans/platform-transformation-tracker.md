@@ -399,3 +399,5 @@ Mark a row only when its end-to-end proof is attached. These are validation gate
 ## UI redesign
 
 The approved Chat/Build redesign is tracked in [UI redesign tracker](ui-redesign-tracker.md), including supplied branding, visible usage, embedded Kandev and lifecycle setup.
+
+The subsequent [workspace usability plan](workspace-usability-plan.md) tracks the user-reported navigation, model identity, context relevance, project scope, activity/failure visibility, folder-action routing, and Settings improvements. Its implementation tasks remain unchecked until implemented and verified.
