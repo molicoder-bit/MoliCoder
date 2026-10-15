@@ -29,15 +29,26 @@ jobs:
         run: python -m pytest
       - name: Build
         run: python -m PyInstaller --noconfirm --clean LocalModelChat.spec
+      - name: Check packaged app
+        shell: pwsh
+        run: |
+          Copy-Item LICENSE dist/MoliCoder/LICENSE
+          Copy-Item NOTICE dist/MoliCoder/NOTICE
+          $process = Start-Process -FilePath (Resolve-Path dist/MoliCoder/MoliCoder.exe) -ArgumentList '--package-health-check' -WindowStyle Hidden -PassThru
+          if (-not $process.WaitForExit(15000)) {
+            Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
+            throw 'Packaged health check timed out'
+          }
+          if ($process.ExitCode -ne 0) { throw "Packaged health check failed: $($process.ExitCode)" }
       - name: Archive
         shell: pwsh
-        run: Compress-Archive -Path dist/LocalModelChat/* -DestinationPath LocalModelChat-Windows-x64.zip
+        run: Compress-Archive -Path dist/MoliCoder/* -DestinationPath MoliCoder-Windows-x64.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: LocalModelChat-Windows-x64
-          path: LocalModelChat-Windows-x64.zip
+          name: MoliCoder-Windows-x64
+          path: MoliCoder-Windows-x64.zip
       - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: LocalModelChat-Windows-x64.zip
+          files: MoliCoder-Windows-x64.zip
