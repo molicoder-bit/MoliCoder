@@ -19,10 +19,14 @@ Source = "https://github.com/molicoder-bit/MoliCoder"
 Issues = "https://github.com/molicoder-bit/MoliCoder/issues"
 
 [project.optional-dependencies]
+remote = [
+  "cryptography==50.0.2",
+]
 dev = [
   "PyInstaller==6.22.2",
   "pytest==9.1.1",
   "pytest-qt==4.5.0",
+  "cryptography==50.0.2",
 ]
 
 [project.scripts]

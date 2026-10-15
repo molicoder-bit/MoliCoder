@@ -90,7 +90,7 @@ def test_version_five_upgrade_creates_ledger_and_online_backup(tmp_path) -> None
 
     ChatStore(db)
 
-    assert len(list(tmp_path.glob("version-five.sqlite3.pre-v12-*.bak"))) == 1
+    assert len(list(tmp_path.glob("version-five.sqlite3.pre-v13-*.bak"))) == 1
     with sqlite3.connect(db) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == ChatStore.SCHEMA_VERSION
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -122,7 +122,7 @@ def test_version_six_upgrade_adds_budget_scopes_without_losing_reservations(tmp_
 
     ChatStore(db)
 
-    assert len(list(tmp_path.glob("version-six.sqlite3.pre-v12-*.bak"))) == 1
+    assert len(list(tmp_path.glob("version-six.sqlite3.pre-v13-*.bak"))) == 1
     with sqlite3.connect(db) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == ChatStore.SCHEMA_VERSION
         assert connection.execute(

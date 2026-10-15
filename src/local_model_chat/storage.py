@@ -15,7 +15,7 @@ from .domain import (
 
 
 class ChatStore:
-    SCHEMA_VERSION = 12
+    SCHEMA_VERSION = 13
     TASK_STATES = frozenset({
         "pending", "proposed", "ready", "running", "verifying", "completed",
         "blocked", "failed", "retrying", "waiting_quota", "waiting_approval",
@@ -432,6 +432,18 @@ class ChatStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_remote_leases_worker_state
                     ON remote_leases(worker_id, state);
+                CREATE TABLE IF NOT EXISTS remote_message_receipts (
+                    message_id TEXT PRIMARY KEY,
+                    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    worker_id TEXT NOT NULL REFERENCES remote_workers(id),
+                    epoch INTEGER NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    nonce TEXT NOT NULL,
+                    envelope_sha256 TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    UNIQUE(task_id, epoch, sequence),
+                    UNIQUE(worker_id, nonce)
+                );
                 CREATE INDEX IF NOT EXISTS idx_inference_offerings_provider_status
                     ON inference_offerings(provider_id, status, id);
                 CREATE INDEX IF NOT EXISTS idx_knowledge_project_status
