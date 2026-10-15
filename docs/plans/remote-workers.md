@@ -1,6 +1,6 @@
 # Optional remote-worker protocol draft
 
-Status: durable coordinator leases and signed, replay-fenced control-message receipts are implemented. Remote networking and execution remain disabled while authenticated transport, central budget dispatch, and artifact validation are built and tested. Attaching a worker still requires an explicit user choice.
+Status: durable leases, signed control-message receipts, an opt-in loopback TLS transport, and bounded candidate staging are implemented. The app does not start a listener; remote task execution, central budget dispatch, and artifact acceptance remain disabled while their gates are built and tested. Attaching a worker still requires an explicit user choice.
 
 ## Authority and ownership
 
