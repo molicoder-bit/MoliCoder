@@ -70,7 +70,7 @@ def test_knowledge_schema_upgrade_preserves_data_and_online_backup(tmp_path) -> 
             connection.execute(f"DROP TABLE {table}")
 
     upgraded = ChatStore(database)
-    backups = list(tmp_path.glob("legacy-chat.sqlite3.pre-v13-*.bak"))
+    backups = list(tmp_path.glob("legacy-chat.sqlite3.pre-v14-*.bak"))
 
     assert len(backups) == 1
     assert upgraded.list_messages(conversation.id)[0].content == "Retain this"
@@ -83,9 +83,9 @@ def test_knowledge_schema_upgrade_preserves_data_and_online_backup(tmp_path) -> 
     with sqlite3.connect(backups[0]) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
         assert connection.execute("SELECT content FROM messages WHERE id = 1").fetchone()[0] == "Retain this"
-    assert len(list(tmp_path.glob("legacy-chat.sqlite3.pre-v13-*.bak"))) == 1
+    assert len(list(tmp_path.glob("legacy-chat.sqlite3.pre-v14-*.bak"))) == 1
     ChatStore(database)
-    assert len(list(tmp_path.glob("legacy-chat.sqlite3.pre-v13-*.bak"))) == 1
+    assert len(list(tmp_path.glob("legacy-chat.sqlite3.pre-v14-*.bak"))) == 1
 
     restored_path = tmp_path / "restored.sqlite3"
     shutil.copy2(backups[0], restored_path)
@@ -111,7 +111,7 @@ def test_version_three_upgrade_adds_context_links_without_losing_knowledge(tmp_p
     reopened = ChatStore(database)
 
     assert reopened.get_knowledge_item(item_id).body == "Keep progress"
-    assert len(list(tmp_path.glob("version-three.sqlite3.pre-v13-*.bak"))) == 1
+    assert len(list(tmp_path.glob("version-three.sqlite3.pre-v14-*.bak"))) == 1
     with sqlite3.connect(database) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == ChatStore.SCHEMA_VERSION
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -248,7 +248,7 @@ def test_version_ten_task_rows_get_compatible_check_defaults(tmp_path) -> None:
     task = reopened.list_run_tasks(run_id)[0]
     assert task.acceptance_criteria == ("Configured validation must pass",)
     assert task.verification_checks == ("project-default",)
-    assert len(list(tmp_path.glob("version-ten.sqlite3.pre-v13-*.bak"))) == 1
+    assert len(list(tmp_path.glob("version-ten.sqlite3.pre-v14-*.bak"))) == 1
 
 
 def test_completion_record_rejects_model_prose_without_passing_validation(tmp_path) -> None:

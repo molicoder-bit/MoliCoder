@@ -75,6 +75,8 @@ class RemoteCandidateCoordinator:
                 or lease.epoch != manifest.epoch or lease.state != "active"
                 or datetime.fromisoformat(lease.expires_at) <= datetime.now(timezone.utc)):
             raise LeaseConflict("candidate lease is not active")
+        if RemoteLeaseStore(self.store).cancel_requested(manifest.task_id, manifest.epoch):
+            raise LeaseConflict("remote cancellation blocks candidate review")
         existing = self._existing_review(manifest.task_id, envelope["message_id"])
         if existing:
             if existing.candidate_commit != manifest.candidate_commit or not existing.staged_path.is_dir():

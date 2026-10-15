@@ -23,7 +23,9 @@ from .leases import LeaseConflict
 
 MAX_ENVELOPE_BYTES = 64 * 1024
 MAX_CLOCK_SKEW = timedelta(minutes=5)
-CONTROL_KINDS = frozenset({"lease_accept", "heartbeat", "reconcile", "request_inference", "artifact_manifest"})
+CONTROL_KINDS = frozenset({
+    "lease_accept", "heartbeat", "reconcile", "request_inference", "artifact_manifest", "cancel_ack",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,7 +133,14 @@ class RemoteMessageStore:
                 raise LeaseConflict("worker sequence was replayed or reordered")
             expired = datetime.fromisoformat(lease["expires_at"]) <= current
             kind = envelope["kind"]
-            if expired and kind != "reconcile" and lease["state"] in {"offered", "active"}:
+            cancel_intent = connection.execute(
+                "SELECT acknowledged_at FROM remote_cancel_intents WHERE task_id = ? AND epoch = ?",
+                (envelope["task_id"], envelope["epoch"]),
+            ).fetchone()
+            cancel_pending = cancel_intent is not None and cancel_intent["acknowledged_at"] is None
+            if cancel_pending and kind in {"lease_accept", "request_inference", "artifact_manifest"}:
+                raise LeaseConflict("remote cancellation blocks new dispatches")
+            if expired and kind not in {"reconcile", "cancel_ack"} and lease["state"] in {"offered", "active"}:
                 connection.execute(
                     "UPDATE remote_leases SET state = 'reconciling', updated_at = ? WHERE task_id = ?",
                     (current.astimezone(timezone.utc).isoformat(), envelope["task_id"]),
@@ -148,12 +157,33 @@ class RemoteMessageStore:
                 raise LeaseConflict("artifact report requires an active unexpired lease")
             if kind == "reconcile" and lease["state"] not in {"active", "reconciling"}:
                 raise LeaseConflict("lease is not ready for reconciliation")
-            state = "active" if kind == "lease_accept" else "reconciling" if kind == "reconcile" else lease["state"]
+            if kind == "cancel_ack":
+                if (not cancel_pending or lease["state"] not in {"offered", "active", "reconciling"}
+                        or envelope["body"] != {"stopped": True}):
+                    raise LeaseConflict("cancellation acknowledgement is invalid")
+                pending = connection.execute(
+                    """SELECT 1 FROM inference_requests r WHERE r.task_id = ? AND NOT EXISTS (
+                       SELECT 1 FROM inference_usage_events e WHERE e.request_id = r.request_id
+                       AND e.status IN ('completed', 'failed', 'cancelled', 'denied')) LIMIT 1""",
+                    (envelope["task_id"],),
+                ).fetchone()
+                if pending:
+                    raise LeaseConflict("unsettled inference prevents cancellation acknowledgement")
+            state = (
+                "active" if kind == "lease_accept" else
+                "reconciling" if kind == "reconcile" else
+                "cancelled" if kind == "cancel_ack" else lease["state"]
+            )
             received_at = current.astimezone(timezone.utc).isoformat()
             connection.execute(
                 "UPDATE remote_leases SET state = ?, last_sequence = ?, updated_at = ? WHERE task_id = ?",
                 (state, envelope["sequence"], received_at, envelope["task_id"]),
             )
+            if kind == "cancel_ack":
+                connection.execute(
+                    "UPDATE remote_cancel_intents SET acknowledged_at = ? WHERE task_id = ? AND epoch = ?",
+                    (received_at, envelope["task_id"], envelope["epoch"]),
+                )
             connection.execute(
                 """INSERT INTO remote_message_receipts(
                    message_id, task_id, worker_id, epoch, sequence, nonce, envelope_sha256, received_at)

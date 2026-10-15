@@ -126,6 +126,7 @@ class RemoteLeaseStore:
             if previous and previous["state"] not in {"completed", "cancelled"}:
                 raise LeaseConflict("task already has an unresolved lease")
             epoch = previous["epoch"] + 1 if previous else 1
+            connection.execute("DELETE FROM remote_cancel_intents WHERE task_id = ?", (task_id,))
             connection.execute(
                 """INSERT INTO remote_leases(task_id, worker_id, epoch, state, base_commit,
                    worktree_root, expires_at, last_sequence, updated_at)
@@ -139,6 +140,40 @@ class RemoteLeaseStore:
             )
             connection.commit()
         return self.get(task_id)
+
+    def request_cancel(self, task_id: int, *, reason: str) -> bool:
+        """Persist a stop intent; retain the lease until the worker acknowledges it."""
+        if not reason.strip() or len(reason) > 500:
+            raise ValueError("remote cancellation needs a short reason")
+        with closing(self.store._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            lease = connection.execute(
+                "SELECT epoch, state FROM remote_leases WHERE task_id = ?", (task_id,),
+            ).fetchone()
+            if not lease or lease["state"] not in {"offered", "active", "reconciling"}:
+                raise LeaseConflict("remote lease is not cancellable")
+            existing = connection.execute(
+                "SELECT epoch FROM remote_cancel_intents WHERE task_id = ?", (task_id,),
+            ).fetchone()
+            if existing:
+                if existing["epoch"] != lease["epoch"]:
+                    raise LeaseConflict("stale cancellation intent")
+                return False
+            connection.execute(
+                "INSERT INTO remote_cancel_intents(task_id, epoch, reason, requested_at) "
+                "VALUES (?, ?, ?, ?)",
+                (task_id, lease["epoch"], reason.strip(), _timestamp(_now())),
+            )
+            connection.commit()
+        return True
+
+    def cancel_requested(self, task_id: int, epoch: int) -> bool:
+        with closing(self.store._connect()) as connection:
+            row = connection.execute(
+                "SELECT 1 FROM remote_cancel_intents WHERE task_id = ? AND epoch = ? "
+                "AND acknowledged_at IS NULL", (task_id, epoch),
+            ).fetchone()
+        return row is not None
 
     def advance(self, task_id: int, worker_id: str, epoch: int, sequence: int,
                 state: str, *, now: datetime | None = None) -> RemoteLease:
@@ -156,6 +191,12 @@ class RemoteLeaseStore:
                 raise LeaseConflict("unknown, revoked, or stale lease")
             if sequence <= row["last_sequence"]:
                 raise LeaseConflict("replayed or reordered lease message")
+            cancel_pending = connection.execute(
+                "SELECT 1 FROM remote_cancel_intents WHERE task_id = ? AND epoch = ? "
+                "AND acknowledged_at IS NULL", (task_id, epoch),
+            ).fetchone()
+            if cancel_pending:
+                raise LeaseConflict("remote cancellation requires signed acknowledgement")
             if datetime.fromisoformat(row["expires_at"]) <= current_time:
                 connection.execute(
                     "UPDATE remote_leases SET state = 'reconciling', updated_at = ? WHERE task_id = ?",

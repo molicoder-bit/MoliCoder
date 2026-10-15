@@ -84,6 +84,11 @@ def test_loopback_tls_accepts_exact_signed_message_and_rejects_pin_mismatch(tmp_
             post_signed_message(port, {**envelope, "message_id": "message-00000002", "sequence": 2,
                                        "nonce": "c" * 32}, ed25519.Ed25519PrivateKey.generate(),
                                 certificate, fingerprint)
+        leases.request_cancel(task_id, reason="Stop the remote fixture")
+        heartbeat = {**envelope, "message_id": "message-00000003", "sequence": 2,
+                     "nonce": "d" * 32, "kind": "heartbeat"}
+        assert post_signed_message(port, heartbeat, worker_key, certificate, fingerprint)[
+            "cancel_requested"] is True
         leases.revoke_worker("worker-a")
         with pytest.raises(LeaseConflict, match="rejected"):
             post_signed_message(port, envelope, worker_key, certificate, fingerprint)

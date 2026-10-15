@@ -17,7 +17,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from ..storage import ChatStore
-from .leases import LeaseConflict
+from .leases import LeaseConflict, RemoteLeaseStore
 from .messages import MAX_ENVELOPE_BYTES, RemoteMessageStore, canonical_bytes
 
 
@@ -83,6 +83,10 @@ def create_loopback_server(store: ChatStore, certificate: Path, private_key: Pat
                 "epoch": receipt.epoch,
                 "sequence": receipt.sequence,
                 "received_at": receipt.received_at,
+                "cancel_requested": (
+                    envelope["kind"] == "heartbeat" and
+                    RemoteLeaseStore(store).cancel_requested(receipt.task_id, receipt.epoch)
+                ),
             })
 
     class LoopbackServer(ThreadingHTTPServer):

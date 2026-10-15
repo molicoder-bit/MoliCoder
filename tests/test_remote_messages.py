@@ -122,7 +122,7 @@ def test_v12_upgrade_preserves_lease_and_adds_message_receipts(tmp_path) -> None
         connection.execute("PRAGMA user_version = 12")
     upgraded = ChatStore(store.path)
     assert RemoteLeaseStore(upgraded).get(lease.task_id) == lease
-    assert len(list(tmp_path.glob("messages.sqlite3.pre-v13-*.bak"))) == 1
+    assert len(list(tmp_path.glob("messages.sqlite3.pre-v14-*.bak"))) == 1
     envelope = _envelope(lease, now)
     assert RemoteMessageStore(upgraded).receive(
         envelope, _signature(private, envelope), now=now,
@@ -174,3 +174,64 @@ def test_reconnect_needs_signed_reconcile_and_exact_renewal_approval(tmp_path) -
     assert renewed.state == "active" and renewed.expires_at == renewal.isoformat()
     with pytest.raises(LeaseConflict, match="reconciled lease changed"):
         leases.renew_after_reconcile(reconcile, signature, renewal, now=later)
+
+
+def test_cancel_intent_blocks_dispatch_until_signed_worker_ack(tmp_path) -> None:
+    store, leases, private, lease, now = _fixture(tmp_path)
+    messages = RemoteMessageStore(store)
+    accept = _envelope(lease, now)
+    messages.receive(accept, _signature(private, accept), now=now)
+    assert leases.request_cancel(lease.task_id, reason="User stopped this remote task")
+    assert not leases.request_cancel(lease.task_id, reason="User stopped this remote task")
+    assert leases.cancel_requested(lease.task_id, lease.epoch)
+    request = _envelope(lease, now, sequence=2, kind="request_inference",
+                        nonce="b" * 32, message_id="message-00000002")
+    with pytest.raises(LeaseConflict, match="cancellation blocks"):
+        messages.receive(request, _signature(private, request), now=now)
+    heartbeat = _envelope(lease, now, sequence=2, kind="heartbeat",
+                          nonce="c" * 32, message_id="message-00000003")
+    messages.receive(heartbeat, _signature(private, heartbeat), now=now)
+    ack = _envelope(lease, now, sequence=3, kind="cancel_ack",
+                    nonce="d" * 32, message_id="message-00000004")
+    ack["body"] = {"stopped": True}
+    signature = _signature(private, ack)
+    receipt = messages.receive(ack, signature, now=now)
+    assert messages.receive(ack, signature, now=now) == receipt
+    assert leases.get(lease.task_id).state == "cancelled"
+    assert not leases.cancel_requested(lease.task_id, lease.epoch)
+
+
+def test_cancel_ack_waits_for_uncertain_paid_dispatch(tmp_path) -> None:
+    from local_model_chat.inference.adapters.ollama import ensure_local_offering, local_offering_id
+    from local_model_chat.inference.contracts import InferencePurpose, InferenceRequest
+    from local_model_chat.inference.ledger import InferenceLedger, UsageEvent
+    from local_model_chat.inference.registry import ProviderRegistry
+
+    store, leases, private, lease, now = _fixture(tmp_path)
+    messages = RemoteMessageStore(store)
+    accept = _envelope(lease, now)
+    messages.receive(accept, _signature(private, accept), now=now)
+    leases.request_cancel(lease.task_id, reason="Stop after dispatch settles")
+    with store._connect() as connection:
+        row = connection.execute(
+            "SELECT t.run_id, r.project_id FROM tasks t JOIN runs r ON r.id = t.run_id "
+            "WHERE t.id = ?", (lease.task_id,),
+        ).fetchone()
+    ensure_local_offering(ProviderRegistry(store), "molicoder:latest",
+                          context_window=4096, max_output_tokens=256)
+    pending = InferenceRequest(
+        "remote-cancel-pending", row["project_id"], local_offering_id("molicoder:latest"),
+        "molicoder:latest", InferencePurpose.EXECUTION,
+        ({"role": "user", "content": "Hi"},), "private", (), 100, 20, 5,
+        run_id=row["run_id"], task_id=lease.task_id,
+    )
+    InferenceLedger(store).start(pending)
+    ack = _envelope(lease, now, sequence=2, kind="cancel_ack",
+                    nonce="e" * 32, message_id="message-00000005")
+    ack["body"] = {"stopped": True}
+    with pytest.raises(LeaseConflict, match="unsettled inference"):
+        messages.receive(ack, _signature(private, ack), now=now)
+    assert leases.get(lease.task_id).state == "active"
+    InferenceLedger(store).append(UsageEvent(pending.request_id, "failed"))
+    messages.receive(ack, _signature(private, ack), now=now)
+    assert leases.get(lease.task_id).state == "cancelled"
