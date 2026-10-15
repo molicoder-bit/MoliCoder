@@ -1,6 +1,8 @@
 import subprocess
 from types import SimpleNamespace
 
+import pytest
+
 from local_model_chat.kandev.adapter import KandevTaskAdapter
 from local_model_chat.kandev.contracts import KandevConnection, KandevMode
 from local_model_chat.kandev.run import KandevRunOrchestrator
@@ -43,6 +45,15 @@ class FakeApi:
 def _service(tmp_path):
     root = tmp_path / "project"
     root.mkdir()
+    def git(*args):
+        return subprocess.run(["git", "-C", str(root), *args], capture_output=True,
+                              text=True, check=True).stdout.strip()
+    git("init", "-b", "main")
+    git("config", "user.email", "fixture@example.test")
+    git("config", "user.name", "Fixture")
+    (root / "file.txt").write_text("base", encoding="utf-8")
+    git("add", "file.txt")
+    git("commit", "-m", "base")
     store = ChatStore(tmp_path / "state.sqlite3")
     project = store.upsert_project("Project", str(root), "python")
     connection = KandevConnection(KandevMode.ATTACHED, "http://127.0.0.1:38429/mcp")
@@ -94,12 +105,6 @@ def test_remote_completion_records_only_a_verified_git_worktree(tmp_path):
     def git(path, *args):
         return subprocess.run(["git", "-C", str(path), *args], capture_output=True,
                               text=True, check=True).stdout.strip()
-    git(root, "init", "-b", "main")
-    git(root, "config", "user.email", "fixture@example.test")
-    git(root, "config", "user.name", "Fixture")
-    (root / "file.txt").write_text("base", encoding="utf-8")
-    git(root, "add", "file.txt")
-    git(root, "commit", "-m", "base")
     base = git(root, "rev-parse", "HEAD")
     worktree = tmp_path / "remote-worktree"
     git(root, "worktree", "add", "-b", "feature/task", str(worktree))
@@ -119,3 +124,32 @@ def test_remote_completion_records_only_a_verified_git_worktree(tmp_path):
     assert store.get_run(result.run_id)["final_commit"] == git(worktree, "rev-parse", "HEAD")
     assert store.list_run_tasks(result.run_id)[0].worktree == str(worktree.resolve())
     assert any(event.kind == "kandev_worktree_reconciled" for event in store.list_events(result.run_id))
+
+    failed = KandevRunOrchestrator(
+        store=store, project=project, adapter=adapter,
+        validate=lambda _path: "validation failed: fixture",
+    ).resume(result.run_id)
+    assert failed.status == "needs_attention"
+    assert store.get_task_completion(store.list_run_tasks(result.run_id)[0].id) is None
+
+    accepted = KandevRunOrchestrator(
+        store=store, project=project, adapter=adapter,
+        validate=lambda _path: "validation passed: fixture",
+    ).resume(result.run_id)
+    assert accepted.status == "ready_to_apply" and accepted.completed_tasks == 1
+    task_record = store.list_run_tasks(result.run_id)[0]
+    assert task_record.status == "completed"
+    assert task_record.changed_paths == ("file.txt",)
+    assert store.get_task_completion(task_record.id).revision == git(worktree, "rev-parse", "HEAD")
+
+    (root / "uncommitted.txt").write_text("user edit", encoding="utf-8")
+    with pytest.raises(ValueError, match="dirty"):
+        KandevRunOrchestrator(store=store, project=project, adapter=adapter).apply(result.run_id)
+    (root / "uncommitted.txt").unlink()
+    applied = KandevRunOrchestrator(store=store, project=project, adapter=adapter).apply(result.run_id)
+    assert applied.status == "completed"
+    assert git(root, "rev-parse", "HEAD") == accepted.final_commit
+    again = KandevRunOrchestrator(store=store, project=project, adapter=adapter).apply(result.run_id)
+    assert again.status == "completed"
+    assert len([event for event in store.list_events(result.run_id)
+                if event.kind == "kandev_changes_applied"]) == 1

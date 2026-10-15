@@ -178,6 +178,9 @@ def build_orchestrator(
             )
         return KandevRunOrchestrator(
             store=store, project=project, adapter=kandev_adapter, on_event=on_event,
+            validate=lambda worktree: build_validator(
+                worktree, environment_root=Path(project.path).resolve(),
+            ).run_and_summarize(),
         )
     root = Path(project.path).resolve()
     preset = MODEL_PRESETS["molicoder:latest"]

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Callable
 
 from ..domain import Project
 from ..molicoder.orchestrator import OrchestrationResult
 from ..storage import ChatStore
+from ..molicoder.validate import assess_architectural_invariants
 from .adapter import KandevTaskAdapter
 from .contracts import KandevTaskRef, KandevTaskSnapshot
 from .worktree import verify_kandev_worktree
@@ -18,12 +20,14 @@ class KandevRunOrchestrator:
     def __init__(
         self, *, store: ChatStore, project: Project, adapter: KandevTaskAdapter,
         on_event: Callable[[str, dict], None] | None = None,
+        validate: Callable[[Path], str] | None = None,
     ) -> None:
         self.store = store
         self.project = project
         self.root = Path(project.path).resolve()
         self.adapter = adapter
         self.on_event = on_event
+        self.validate = validate
         if not self.root.is_dir():
             raise ValueError("project folder does not exist")
 
@@ -45,12 +49,17 @@ class KandevRunOrchestrator:
             "session_id": snapshot.session_id, "state": state,
             "worktree": snapshot.worktree, "observed_at": snapshot.observed_at,
         })
+        accepted = False
         if state == "verifying":
             expected_repository_id = str(getattr(getattr(self.adapter.api, "config", None), "repository_id", ""))
             check = verify_kandev_worktree(
                 self.root, snapshot, expected_repository_id=expected_repository_id,
             )
-            if check.valid:
+            selected_base = str((self.store.get_run(ref.run_id) or {}).get("base_commit") or "")
+            if check.valid and check.base_commit != selected_base:
+                detail = "Kandev worktree base differs from the selected project revision"
+                self._event(ref, "kandev_worktree_review_required", {"reason": detail})
+            elif check.valid:
                 self.store.update_task_workspace(
                     ref.task_id, worktree=check.path, branch=check.branch,
                     base_commit=check.base_commit,
@@ -61,25 +70,103 @@ class KandevRunOrchestrator:
                     "worktree": check.path, "branch": check.branch,
                     "base_commit": check.base_commit, "checkpoint": check.checkpoint,
                 })
+                if self.validate is not None:
+                    accepted, detail = self._validate_checkpoint(ref, snapshot, check)
             else:
                 detail = check.reason
                 self._event(ref, "kandev_worktree_review_required", {"reason": check.reason})
         # Remote completion still needs MoliCoder's worktree and acceptance checks.
+        if accepted:
+            return OrchestrationResult(
+                ref.run_id, "ready_to_apply", 1, 1, "",
+                Path(snapshot.worktree), snapshot.worktree_branch,
+                snapshot.base_commit_sha, check.checkpoint,
+            )
         run_state = "running" if state in {"ready", "running"} else "needs_attention"
         self.store.update_run_state(ref.run_id, run_state, recovery_reason=detail)
         return OrchestrationResult(ref.run_id, run_state, 0, 1, detail)
+
+    def _validate_checkpoint(self, ref: KandevTaskRef, snapshot: KandevTaskSnapshot, check) -> tuple[bool, str]:
+        worktree = Path(check.path)
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(worktree), "diff", "--name-only", check.base_commit, check.checkpoint, "--"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False, "Kandev changed paths could not be verified"
+        if result.returncode != 0:
+            return False, "Kandev changed paths could not be verified"
+        changed = tuple(sorted({line.strip().replace("\\", "/") for line in result.stdout.splitlines() if line.strip()}))
+        if not changed:
+            return False, "Kandev checkpoint has no changed files"
+        architecture = assess_architectural_invariants(self.store, self.project.id, changed)
+        if architecture.conflicts or architecture.review_required:
+            self._event(ref, "kandev_architecture_review_required", {"changed_paths": changed})
+            return False, "Kandev checkpoint requires architectural review"
+        try:
+            summary = self.validate(worktree) if self.validate is not None else ""
+        except Exception:
+            return False, "Kandev checkpoint validation failed"
+        if not summary.lstrip().startswith("validation passed"):
+            self._event(ref, "kandev_validation_failed", {"summary": summary[-8000:]})
+            return False, summary[-8000:] or "Kandev checkpoint validation failed"
+        rechecked = verify_kandev_worktree(
+            self.root, snapshot,
+            expected_repository_id=str(getattr(getattr(self.adapter.api, "config", None), "repository_id", "")),
+        )
+        if not rechecked.valid or rechecked.checkpoint != check.checkpoint:
+            return False, "Kandev worktree changed during validation"
+        existing = self.store.get_task_completion(ref.task_id)
+        if existing is not None and existing.revision != check.checkpoint:
+            return False, "Kandev checkpoint differs from the previously accepted revision"
+        if existing is None:
+            self.store.record_task_completion(
+                ref.run_id, ref.task_id, revision=check.checkpoint,
+                checks=("project-default",), validation_summary=summary,
+                output_artifacts=changed, unmet_criteria=(), human_review_status="not_required",
+            )
+        self.store.update_task_workspace(
+            ref.task_id, worktree=check.path, branch=check.branch,
+            base_commit=check.base_commit, changed_paths=changed,
+        )
+        self.store.update_run_task(ref.task_id, "completed", 0, reason="Kandev checkpoint passed local validation")
+        self.store.update_run_state(ref.run_id, "ready_to_apply", worktree=check.path,
+                                    base_commit=check.base_commit, final_commit=check.checkpoint)
+        self._event(ref, "kandev_checkpoint_accepted", {
+            "checkpoint": check.checkpoint, "changed_paths": changed,
+            "validation_summary": summary[-8000:],
+        })
+        return True, ""
 
     def run(self, request: str, *, mode: str = "HYBRID") -> OrchestrationResult:
         if not request.strip():
             raise ValueError("Build request is empty")
         if self.adapter.probe().health_state != "ready":
             raise RuntimeError("Kandev task capabilities are incomplete")
-        run_id = self.store.create_run(self.project.id, request, mode, provider="kandev")
+        def git(*args: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["git", "-C", str(self.root), *args], capture_output=True, text=True,
+                encoding="utf-8", errors="replace", check=False, timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        head = git("rev-parse", "HEAD")
+        branch = git("branch", "--show-current")
+        dirty = git("status", "--porcelain", "--untracked-files=all")
+        if (head.returncode != 0 or branch.returncode != 0 or not branch.stdout.strip()
+                or dirty.returncode != 0 or dirty.stdout.strip()):
+            raise ValueError("Kandev Build requires a clean branch with a base commit")
+        base = head.stdout.strip()
+        run_id = self.store.create_run(
+            self.project.id, request, mode, provider="kandev", base_commit=base,
+        )
         task_id = self.store.create_run_task(run_id, "K1", "Kandev Build task", request, "high")
         ref = KandevTaskRef(run_id, task_id, f"molicoder:project:{self.project.id}:run:{run_id}:task:{task_id}")
         self._event(ref, "kandev_owner_selected", {
             "external_id": ref.external_id, "connection_mode": self.adapter.connection.mode.value,
-            "endpoint": self.adapter.connection.endpoint,
+            "endpoint": self.adapter.connection.endpoint, "project_branch": branch.stdout.strip(),
+            "base_commit": base,
         })
         try:
             snapshot = self.adapter.create_task(ref, request)
@@ -107,8 +194,73 @@ class KandevRunOrchestrator:
         expected = f"molicoder:project:{self.project.id}:run:{run_id}:task:{task_id}"
         if selection.get("external_id") != expected or selection.get("endpoint") != self.adapter.connection.endpoint:
             raise ValueError("Kandev ownership identity or endpoint differs")
+        if selection.get("base_commit") != run["base_commit"]:
+            raise ValueError("Kandev base commit selection differs")
         ref = KandevTaskRef(run_id, task_id, expected)
         snapshot = self.adapter.reconcile(ref)
         if snapshot.ref.remote_task_id:
             self.adapter.subscribe_events(snapshot.ref)
         return self._record(snapshot)
+
+    def apply(self, run_id: int) -> OrchestrationResult:
+        """Fast-forward a locally accepted Kandev checkpoint once."""
+        run = self.store.get_run(run_id)
+        if run is None or run["project_id"] != self.project.id or run["provider"] != "kandev":
+            raise ValueError("run is not a Kandev-owned Build for this project")
+        if run["status"] not in {"ready_to_apply", "completed"}:
+            raise ValueError("Kandev checkpoint has not passed local acceptance")
+        tasks = self.store.list_run_tasks(run_id)
+        if len(tasks) != 1 or tasks[0].status != "completed":
+            raise ValueError("Kandev task acceptance record is missing")
+        task = tasks[0]
+        completion = self.store.get_task_completion(task.id)
+        checkpoint = str(run["final_commit"] or "")
+        base = str(run["base_commit"] or "")
+        if (completion is None or completion.revision != checkpoint
+                or task.worktree != run["worktree"] or task.base_commit != base):
+            raise ValueError("Kandev accepted checkpoint identity differs")
+        selection = next((json.loads(event.payload_json) for event in self.store.list_events(run_id)
+                          if event.task_id == task.id and event.kind == "kandev_owner_selected"), None)
+        if (not isinstance(selection, dict) or selection.get("endpoint") != self.adapter.connection.endpoint
+                or selection.get("base_commit") != base):
+            raise ValueError("Kandev ownership selection differs")
+        ref = KandevTaskRef(
+            run_id, task.id, f"molicoder:project:{self.project.id}:run:{run_id}:task:{task.id}",
+        )
+        snapshot = self.adapter.reconcile(ref)
+        check = verify_kandev_worktree(
+            self.root, snapshot,
+            expected_repository_id=str(getattr(getattr(self.adapter.api, "config", None), "repository_id", "")),
+        )
+        if (snapshot.state != "verifying" or not check.valid or check.path != task.worktree
+                or check.base_commit != base or check.checkpoint != checkpoint):
+            raise ValueError("Kandev worktree changed after acceptance")
+        def git(*args: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["git", "-C", str(self.root), *args], capture_output=True, text=True,
+                encoding="utf-8", errors="replace", check=False, timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        branch = git("branch", "--show-current")
+        head = git("rev-parse", "HEAD")
+        dirty = git("status", "--porcelain", "--untracked-files=all")
+        if (branch.returncode != 0 or not branch.stdout.strip() or head.returncode != 0
+                or dirty.returncode != 0 or dirty.stdout.strip()):
+            raise ValueError("project checkout changed or is dirty")
+        if branch.stdout.strip() != selection.get("project_branch"):
+            raise ValueError("project branch changed after the Kandev task started")
+        current = head.stdout.strip()
+        if current != checkpoint:
+            if current != base:
+                raise ValueError("project HEAD changed after the Kandev task started")
+            merged = git("merge", "--ff-only", checkpoint)
+            if merged.returncode != 0 or git("rev-parse", "HEAD").stdout.strip() != checkpoint:
+                raise ValueError("Kandev checkpoint could not be fast-forwarded")
+        if run["status"] != "completed":
+            self.store.finish_run(run_id, "completed")
+            self._event(ref, "kandev_changes_applied", {
+                "base_commit": base, "final_commit": checkpoint,
+                "worktree": check.path, "branch": check.branch,
+            })
+        return OrchestrationResult(run_id, "completed", 1, 1, "", Path(check.path),
+                                   check.branch, base, checkpoint)
