@@ -342,6 +342,7 @@ class ChatStore:
                     request_id TEXT PRIMARY KEY,
                     project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
                     run_id INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+                    task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
                     offering_id TEXT NOT NULL REFERENCES inference_offerings(id) ON DELETE RESTRICT,
                     model_id TEXT NOT NULL,
                     purpose TEXT NOT NULL,
@@ -472,6 +473,8 @@ class ChatStore:
             request_columns = {row[1] for row in connection.execute("PRAGMA table_info(inference_requests)")}
             if "run_id" not in request_columns:
                 connection.execute("ALTER TABLE inference_requests ADD COLUMN run_id INTEGER REFERENCES runs(id) ON DELETE SET NULL")
+            if "task_id" not in request_columns:
+                connection.execute("ALTER TABLE inference_requests ADD COLUMN task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL")
             task_columns = {row[1] for row in connection.execute("PRAGMA table_info(tasks)")}
             if "acceptance_criteria_json" not in task_columns:
                 connection.execute(

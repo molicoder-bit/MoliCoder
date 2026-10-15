@@ -34,6 +34,7 @@ class InferenceGateway:
         self.resident_model: str | None = None
         self.last_request_id: str | None = None
         self.run_id: int | None = None
+        self.task_id: int | None = None
 
     def chat(
         self,
@@ -56,7 +57,7 @@ class InferenceGateway:
             max_output_tokens=max_output_tokens, timeout_seconds=1200,
             tool_scopes=("local-worktree-tools",) if tools else (),
             options={"context_window": context_window, "temperature": temperature, "top_p": top_p},
-            run_id=self.run_id,
+            run_id=self.run_id, task_id=self.task_id,
         )
         self.last_request_id = request.request_id
         ledger = InferenceLedger(self.policy.registry.store) if self.policy is not None else None

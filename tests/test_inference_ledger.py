@@ -46,6 +46,25 @@ def test_ledger_appends_immutable_usage_without_storing_prompt(tmp_path) -> None
         ledger.start(_request("request-1"))
 
 
+def test_ledger_attributes_request_to_task_in_same_run(tmp_path) -> None:
+    store = ChatStore(tmp_path / "task-ledger.sqlite3")
+    registry = ProviderRegistry(store)
+    ensure_local_offering(registry, "test:latest", context_window=100, max_output_tokens=20)
+    project = store.upsert_project("Example", str(tmp_path), "python")
+    run_id = store.create_run(project.id, "Feature", "LOCAL_OFFLINE")
+    task_id = store.create_run_task(run_id, "step", "Step", "Edit", "low")
+    ledger = InferenceLedger(store)
+    ledger.start(replace(_request("task-request"), project_id=project.id,
+                         run_id=run_id, task_id=task_id))
+    with sqlite3.connect(store.path) as connection:
+        assert connection.execute(
+            "SELECT task_id FROM inference_requests WHERE request_id = 'task-request'"
+        ).fetchone()[0] == task_id
+    other_run = store.create_run(project.id, "Other", "LOCAL_OFFLINE")
+    with pytest.raises(ValueError, match="does not belong"):
+        ledger.start(replace(_request("wrong-run"), run_id=other_run, task_id=task_id))
+
+
 def test_gateway_records_policy_denial_before_adapter_call(tmp_path) -> None:
     store = ChatStore(tmp_path / "ledger.sqlite3")
     registry = ProviderRegistry(store)

@@ -47,12 +47,18 @@ class InferenceLedger:
 
     def start(self, request: InferenceRequest) -> None:
         with closing(self.store._connect()) as connection:
+            if request.task_id is not None and connection.execute(
+                "SELECT 1 FROM tasks WHERE id = ? AND run_id = ?",
+                (request.task_id, request.run_id),
+            ).fetchone() is None:
+                raise ValueError("inference task does not belong to its run")
             connection.execute(
                 """INSERT INTO inference_requests(
-                    request_id, project_id, run_id, offering_id, model_id, purpose, sensitivity,
+                    request_id, project_id, run_id, task_id, offering_id, model_id, purpose, sensitivity,
                     context_packet_id, reservation_id, idempotency_key, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (request.request_id, request.project_id, request.run_id, request.offering_id, request.model_id,
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (request.request_id, request.project_id, request.run_id, request.task_id,
+                 request.offering_id, request.model_id,
                  request.purpose.value, request.sensitivity, request.context_packet_id,
                  request.reservation_id, request.idempotency_key, self._now()),
             )

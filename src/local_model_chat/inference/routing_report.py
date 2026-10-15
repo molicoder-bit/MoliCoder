@@ -7,11 +7,14 @@ never invokes an offering and keeps missing spend distinct from zero spend.
 from __future__ import annotations
 
 from collections import defaultdict
+from contextlib import closing
 from dataclasses import dataclass
+from datetime import datetime
 from math import isfinite
 
 from .registry import ProviderRegistry
 from .router import RouteMetrics, RouteRequest, choose_route
+from ..storage import ChatStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +73,76 @@ def measured_metrics(outcomes: tuple[RoutingOutcome, ...]) -> dict[str, RouteMet
         )
         for offering_id, rows in grouped.items()
     }
+
+
+def recorded_task_outcomes(store: ChatStore, project_id: int) -> tuple[RoutingOutcome, ...]:
+    """Read Build outcomes only when task, route, and spend attribution are clear.
+
+    Opaque calls, multiple offerings, incomplete usage events, and tasks without a
+    timed start are omitted. Unknown cost stays unknown. No prompt is loaded.
+    """
+    with closing(store._connect()) as connection:
+        tasks = connection.execute(
+            """SELECT t.id, t.run_id, t.status, t.attempts, t.updated_at
+               FROM tasks t JOIN runs r ON r.id = t.run_id
+               WHERE r.project_id = ? AND t.status IN
+                   ('completed', 'needs_attention', 'review_required', 'blocked', 'cancelled')
+               ORDER BY t.run_id, t.id""",
+            (project_id,),
+        ).fetchall()
+        outcomes: list[RoutingOutcome] = []
+        for task in tasks:
+            if connection.execute(
+                """SELECT 1 FROM external_calls
+                   WHERE task_id = ? OR (run_id = ? AND task_id IS NULL) LIMIT 1""",
+                (task["id"], task["run_id"]),
+            ).fetchone():
+                continue
+            requests = connection.execute(
+                """SELECT r.offering_id, e.status, e.actual_cost_usd
+                   FROM inference_requests r
+                   LEFT JOIN inference_usage_events e ON e.id = (
+                       SELECT MAX(id) FROM inference_usage_events
+                       WHERE request_id = r.request_id
+                         AND status IN ('completed', 'failed', 'cancelled', 'denied')
+                   )
+                   WHERE r.task_id = ? ORDER BY r.created_at""",
+                (task["id"],),
+            ).fetchall()
+            if not requests or any(row["status"] is None for row in requests):
+                continue
+            offerings = {row["offering_id"] for row in requests}
+            if len(offerings) != 1:
+                continue
+            started = connection.execute(
+                """SELECT created_at FROM events
+                   WHERE task_id = ? AND kind = 'task_started'
+                   ORDER BY id LIMIT 1""", (task["id"],),
+            ).fetchone()
+            if started is None:
+                continue
+            seconds = (datetime.fromisoformat(task["updated_at"])
+                       - datetime.fromisoformat(started[0])).total_seconds()
+            if seconds < 0:
+                continue
+            completion = store.get_task_completion(task["id"])
+            accepted = (task["status"] == "completed" and completion is not None
+                        and not completion.unmet_criteria
+                        and completion.human_review_status in {"not_required", "approved"})
+            interventions = connection.execute(
+                """SELECT COUNT(*) FROM events WHERE task_id = ?
+                   AND kind IN ('task_review_required', 'provider_takeover')""",
+                (task["id"],),
+            ).fetchone()[0]
+            known_cost = all(row["actual_cost_usd"] is not None for row in requests)
+            outcomes.append(RoutingOutcome(
+                f"run:{task['run_id']}:task:{task['id']}", next(iter(offerings)),
+                accepted, seconds,
+                sum(row["actual_cost_usd"] for row in requests) if known_cost else None,
+                max(0, task["attempts"] - 1), interventions,
+                task["status"] != "completed" or any(row["status"] != "completed" for row in requests),
+            ))
+    return tuple(outcomes)
 
 
 def _summarize(rows: list[RoutingOutcome], paid_ids: set[str]) -> PolicySummary:

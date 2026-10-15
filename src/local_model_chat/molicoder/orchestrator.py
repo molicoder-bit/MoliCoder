@@ -800,6 +800,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         self._active_run_id = run_id
         if self.inference_gateway is not None:
             self.inference_gateway.run_id = run_id
+            self.inference_gateway.task_id = None
         log_path = self.root / ".molicoder" / "logs" / f"run-{run_id}.jsonl"
         self._event(run_id, "run_started", {
             "request": request, "strategy": strategy, "provider": self.provider.name,
@@ -861,6 +862,8 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 return self._finish_run(run_id, "cancelled", completed, len(plan.tasks), error="cancelled by user", workspace=workspace)
             task_id = task_ids[task.key]
             self._active_task_id = task_id
+            if self.inference_gateway is not None:
+                self.inference_gateway.task_id = task_id
             self.store.update_run_task(task_id, "ready", 0, reason="dependencies satisfied")
             self.store.update_run_task(task_id, "running", 0)
             self._event(run_id, "task_started", asdict(task) | {
@@ -1188,6 +1191,8 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         if target is None:
             raise ValueError("the saved run has no tasks")
         self._active_task_id = target.id
+        if self.inference_gateway is not None:
+            self.inference_gateway.task_id = target.id
         self.store.reopen_run(run_id)
         self._event(run_id, "run_resumed", {
             "provider": self.provider.name, "model": self.provider.model or None,

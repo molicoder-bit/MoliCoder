@@ -60,6 +60,7 @@ class InferenceRequest:
     idempotency_key: str | None = None
     options: dict[str, Any] = field(default_factory=dict)
     run_id: int | None = None
+    task_id: int | None = None
 
     def __post_init__(self) -> None:
         if not self.request_id or not self.offering_id or not self.model_id:
@@ -68,6 +69,8 @@ class InferenceRequest:
             raise ValueError("messages and positive input/output limits are required")
         if self.timeout_seconds <= 0 or self.sensitivity not in {"public", "private", "restricted"}:
             raise ValueError("timeout and sensitivity must be valid")
+        if self.task_id is not None and (self.run_id is None or self.task_id <= 0):
+            raise ValueError("task attribution requires a run and positive task ID")
 
 
 @dataclass(frozen=True, slots=True)

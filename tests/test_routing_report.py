@@ -4,9 +4,14 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from local_model_chat.inference.catalog import CatalogRecord, import_catalog_record
+from local_model_chat.inference.adapters.ollama import ensure_local_offering, local_offering_id
+from local_model_chat.inference.contracts import InferencePurpose, InferenceRequest
+from local_model_chat.inference.ledger import InferenceLedger, UsageEvent
 from local_model_chat.inference.registry import ProviderRegistry
 from local_model_chat.inference.router import RouteRequest
-from local_model_chat.inference.routing_report import RoutingOutcome, compare_routing
+from local_model_chat.inference.routing_report import (
+    RoutingOutcome, compare_routing, recorded_task_outcomes,
+)
 from local_model_chat.storage import ChatStore
 
 
@@ -80,3 +85,36 @@ def test_comparison_preserves_privacy_and_does_not_guess_missing_cost(tmp_path):
     with pytest.raises(ValueError, match="disjoint"):
         compare_routing(registry, (("train-0", request),), training,
                         (replace(evaluation[0], scenario_id="train-0"),))
+
+
+def test_recorded_task_outcomes_require_unambiguous_attribution(tmp_path):
+    store = ChatStore(tmp_path / "recorded.sqlite3")
+    project = store.upsert_project("Example", str(tmp_path), "python")
+    registry = ProviderRegistry(store)
+    ensure_local_offering(registry, "test:latest", context_window=4096, max_output_tokens=500)
+    run_id = store.create_run(project.id, "Feature", "LOCAL_OFFLINE")
+    task_id = store.create_run_task(run_id, "step", "Step", "Edit", "low")
+    store.add_event(run_id, "task_started", {}, task_id)
+    ledger = InferenceLedger(store)
+    ledger.start(InferenceRequest(
+        "task-call", project.id, local_offering_id("test:latest"), "test:latest",
+        InferencePurpose.EXECUTION, ({"role": "user", "content": "edit"},),
+        "private", (), 10, 10, 60, run_id=run_id, task_id=task_id,
+    ))
+    ledger.append(UsageEvent("task-call", "completed", 10, 2,
+                             actual_cost_usd=0, cost_accuracy="local_zero"))
+    store.record_task_completion(
+        run_id, task_id, revision="abc123", checks=("test",),
+        validation_summary="validation passed", output_artifacts=("file.py",),
+        unmet_criteria=(), human_review_status="not_required",
+    )
+    store.update_run_task(task_id, "completed", 1)
+    outcomes = recorded_task_outcomes(store, project.id)
+    assert len(outcomes) == 1
+    assert outcomes[0].accepted is True
+    assert outcomes[0].cost_usd == 0
+    assert outcomes[0].offering_id == local_offering_id("test:latest")
+
+    # A task that also used an opaque provider cannot be assigned this local cost.
+    store.add_external_call(run_id, "opaque", "execution", "fixture", 0, 0, 1, "completed", task_id)
+    assert recorded_task_outcomes(store, project.id) == ()
