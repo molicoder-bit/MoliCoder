@@ -1,6 +1,10 @@
 import io
 import json
+import urllib.error
+import threading
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
@@ -10,7 +14,7 @@ from local_model_chat.inference import eligibility
 from local_model_chat.environment.security import platform_security
 from local_model_chat.inference.budget import BudgetManager
 from local_model_chat.inference.catalog import CatalogRecord, import_catalog_record
-from local_model_chat.inference.contracts import InferencePurpose, InferenceRequest
+from local_model_chat.inference.contracts import InferenceEventKind, InferencePurpose, InferenceRequest
 from local_model_chat.inference.ledger import InferenceLedger
 from local_model_chat.inference.onboarding import (
     CustomRoute, CustomRouteFacts, attest_custom_route_facts,
@@ -125,7 +129,7 @@ def test_paid_custom_api_requires_budget_and_exact_approval_before_dispatch(tmp_
     ))
     attest_custom_route_facts(store, CustomRouteFacts(
         offering_id, "https://api.example.test/pricing", "https://api.example.test/terms",
-        "private", 8192, 512, 1.0, 2.0, True,
+        "private", 8192, 512, 1.0, 2.0, True, True,
     ))
     registry.update_account_secret(
         "manual-key:remote-api", "remote-api", "encrypted-local:" + "a" * 64,
@@ -179,6 +183,28 @@ def test_paid_custom_api_requires_budget_and_exact_approval_before_dispatch(tmp_
     assert [event["status"] for event in InferenceLedger(store).events(request.request_id)] == [
         "started", "completed",
     ]
+    stream_request = replace(prepare_custom_chat(registry, project.id, offering_id, "Hi"), stream=True)
+    stream_adapter = OpenAICompatibleAdapter(
+        registry, Credentials(),
+        opener=lambda *_args, **_kwargs: io.BytesIO(
+            b'data: {"choices":[{"delta":{"content":"Part"}}]}\n\n'
+            b'data: [DONE]\n\n'
+        ),
+    )
+    stream_gateway = ControlledGateway(
+        InferencePolicy(registry), stream_adapter, InferenceLedger(store),
+    )
+    stream = stream_gateway.stream(stream_request)
+    assert next(stream).kind == InferenceEventKind.STARTED
+    assert next(stream).kind == InferenceEventKind.CONTENT_DELTA
+    stream_adapter.cancel(stream_request.request_id)
+    assert list(stream)[-1].kind == InferenceEventKind.CANCELLED
+    with store._connect() as connection:
+        row = connection.execute(
+            "SELECT status, amount_usd, actual_usd FROM budget_reservations WHERE id = ?",
+            (stream_request.reservation_id,),
+        ).fetchone()
+    assert row[0] == "settled" and row[2] == row[1]
     with store._connect() as connection:
         connection.execute(
             "UPDATE inference_offerings SET price_checked_at = ? WHERE id = ?",
@@ -189,3 +215,131 @@ def test_paid_custom_api_requires_budget_and_exact_approval_before_dispatch(tmp_
     with pytest.raises(PermissionError, match="stale"):
         gateway.invoke(stale_request)
     assert calls == ["https://api.example.test/v1/chat/completions"]
+
+
+def test_custom_stream_tracks_usage_and_can_be_cancelled(tmp_path) -> None:
+    store = ChatStore(tmp_path / "stream.sqlite3")
+    registry = ProviderRegistry(store)
+    offering_id = register_custom_route(store, CustomRoute(
+        "local-api", "Local API", "http://127.0.0.1:12345/v1", "model-a",
+    ))
+    attest_custom_route_facts(store, CustomRouteFacts(
+        offering_id, "https://example.test/model", "", "private", 8192, 512,
+        None, None, True, True,
+    ))
+    registry.set_offering_state(
+        offering_id, status="eligible", health_state="healthy", actor="user", reason="fixture",
+    )
+    request = InferenceRequest(
+        "stream-1", None, offering_id, "model-a", InferencePurpose.CHAT,
+        ({"role": "user", "content": "Hi"},), "private", (), 100, 20, 5,
+        stream=True,
+    )
+    body = (b'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
+            b'data: {"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":1}}\n\n'
+            b'data: [DONE]\n\n')
+    gateway = ControlledGateway(
+        InferencePolicy(registry),
+        OpenAICompatibleAdapter(registry, opener=lambda *_args, **_kwargs: io.BytesIO(body)),
+        InferenceLedger(store),
+    )
+    events = list(gateway.stream(request))
+    assert [item.kind for item in events] == [
+        InferenceEventKind.STARTED, InferenceEventKind.CONTENT_DELTA,
+        InferenceEventKind.COMPLETED,
+    ]
+    assert events[1].payload["text"] == "Hello"
+    assert events[-1].payload["metrics"].prompt_tokens == 4
+    assert InferenceLedger(store).events(request.request_id)[-1]["input_tokens"] == 4
+
+    cancelled = InferenceRequest(
+        "stream-2", None, offering_id, "model-a", InferencePurpose.CHAT,
+        request.messages, "private", (), 100, 20, 5, stream=True,
+    )
+    adapter = OpenAICompatibleAdapter(registry, opener=lambda *_args, **_kwargs: io.BytesIO(body))
+    stream = adapter.stream(cancelled)
+    assert next(stream).kind == InferenceEventKind.STARTED
+    assert next(stream).kind == InferenceEventKind.CONTENT_DELTA
+    adapter.cancel(cancelled.request_id)
+    assert list(stream)[-1].kind == InferenceEventKind.CANCELLED
+
+
+def test_custom_stream_redirect_and_malformed_payload_fail_closed(tmp_path) -> None:
+    store = ChatStore(tmp_path / "stream-failure.sqlite3")
+    registry = ProviderRegistry(store)
+    offering_id = register_custom_route(store, CustomRoute(
+        "local-api", "Local API", "http://127.0.0.1:12345/v1", "model-a",
+    ))
+    request = InferenceRequest(
+        "stream-1", None, offering_id, "model-a", InferencePurpose.CHAT,
+        ({"role": "user", "content": "Hi"},), "public", (), 100, 20, 5, stream=True,
+    )
+
+    def redirect(transport_request, *, timeout):
+        raise urllib.error.HTTPError(transport_request.full_url, 302, "redirect", {}, None)
+
+    adapter = OpenAICompatibleAdapter(registry, opener=redirect)
+    assert list(adapter.stream(request))[-1].kind == InferenceEventKind.FAILED
+    malformed = OpenAICompatibleAdapter(
+        registry, opener=lambda *_args, **_kwargs: io.BytesIO(b"data: {bad}\n\n"),
+    )
+    assert list(malformed.stream(request))[-1].kind == InferenceEventKind.FAILED
+
+
+def test_real_loopback_redirect_is_never_followed(tmp_path) -> None:
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen.append(self.path)
+            self.send_response(302)
+            self.send_header("Location", "/sink")
+            self.end_headers()
+
+        def log_message(self, *_args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        store = ChatStore(tmp_path / "redirect.sqlite3")
+        registry = ProviderRegistry(store)
+        offering_id = register_custom_route(store, CustomRoute(
+            "local-api", "Local API", f"http://127.0.0.1:{server.server_port}/v1", "model-a",
+        ))
+        request = InferenceRequest(
+            "redirect-1", None, offering_id, "model-a", InferencePurpose.CHAT,
+            ({"role": "user", "content": "Hi"},), "public", (), 100, 20, 5,
+        )
+        result = OpenAICompatibleAdapter(registry).invoke(request)
+        assert result.status == "failed" and result.error.value == "unavailable"
+        assert seen == ["/v1/chat/completions"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_custom_chat_classifies_auth_and_timeout_without_server_body(tmp_path) -> None:
+    store = ChatStore(tmp_path / "errors.sqlite3")
+    registry = ProviderRegistry(store)
+    offering_id = register_custom_route(store, CustomRoute(
+        "local-api", "Local API", "http://127.0.0.1:12345/v1", "model-a",
+    ))
+    request = InferenceRequest(
+        "failure-1", None, offering_id, "model-a", InferencePurpose.CHAT,
+        ({"role": "user", "content": "Hi"},), "public", (), 100, 20, 5,
+    )
+
+    def reject(transport_request, *, timeout):
+        raise urllib.error.HTTPError(transport_request.full_url, 401, "private provider body", {}, None)
+
+    unauthorized = OpenAICompatibleAdapter(registry, opener=reject).invoke(request)
+    assert unauthorized.error.value == "auth" and unauthorized.content == ""
+
+    def timeout(_request, *, timeout):
+        raise TimeoutError("private provider body")
+
+    expired = OpenAICompatibleAdapter(registry, opener=timeout).invoke(request)
+    assert expired.error.value == "timeout" and expired.content == ""

@@ -1426,6 +1426,7 @@ class MainWindow(QMainWindow):
             control.setSingleStep(0.1)
             control.setEnabled(offering.offering_class != "local")
         automation = QCheckBox("Official terms permit automated API use", dialog)
+        supports_stream = QCheckBox("Provider documents chat streaming support", dialog)
         attested = QCheckBox("I reviewed the linked current prices, terms, privacy rules, and model limits", dialog)
         form.addRow("Official price/model source", source)
         form.addRow("Official terms", terms)
@@ -1435,6 +1436,7 @@ class MainWindow(QMainWindow):
         form.addRow("Input USD / million tokens", input_price)
         form.addRow("Output USD / million tokens", output_price)
         form.addRow(automation)
+        form.addRow(supports_stream)
         form.addRow(attested)
         note = QLabel("These are user-attested facts. The route stays inactive until its connection and exact project approval pass.")
         note.setWordWrap(True)
@@ -1454,7 +1456,7 @@ class MainWindow(QMainWindow):
                 str(privacy.currentData()), context.value(), output.value(),
                 None if offering.offering_class == "local" else input_price.value(),
                 None if offering.offering_class == "local" else output_price.value(),
-                automation.isChecked(),
+                automation.isChecked(), supports_stream.isChecked(),
             ))
         except ValueError as exc:
             QMessageBox.warning(self, "Custom provider facts", str(exc))

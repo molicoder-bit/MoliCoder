@@ -44,6 +44,7 @@ class CustomRouteFacts:
     input_usd_per_million: float | None
     output_usd_per_million: float | None
     automation_allowed: bool
+    supports_stream: bool = False
 
 
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -154,7 +155,7 @@ def attest_custom_route_facts(store: ChatStore, facts: CustomRouteFacts) -> int:
     checked_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     return import_catalog_record(store, CatalogRecord(
         facts.offering_id, facts.source_url, checked_at, facts.terms_url,
-        {"chat": True, "stream": False, "context_window": facts.context_window,
+        {"chat": True, "stream": facts.supports_stream, "context_window": facts.context_window,
          "max_output_tokens": facts.max_output_tokens},
         facts.privacy_class, facts.automation_allowed,
         facts.input_usd_per_million, facts.output_usd_per_million, {},
