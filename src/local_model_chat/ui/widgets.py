@@ -25,7 +25,7 @@ class ChatBubble(QFrame):
 
         header = QHBoxLayout()
         author = QLabel("You" if role == "user" else "MoliCoder")
-        author.setStyleSheet("font-weight: 700; color: #E2E8F0;")
+        author.setObjectName("messageAuthor")
         header.addWidget(author)
         header.addStretch()
         copy_button = QPushButton("Copy")
@@ -60,14 +60,23 @@ class ChatBubble(QFrame):
         self.body.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.body.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.body.setStyleSheet("background: transparent; border: none; padding: 0;")
-        self.body.document().setDefaultStyleSheet(
-            "blockquote { background-color: #0E2A36; border-left: 4px solid #22D3EE; "
-            "margin: 8px 0; padding: 10px 12px; color: #F8FAFC; }"
-        )
+        self.apply_theme()
         self.body.document().documentLayout().documentSizeChanged.connect(self._resize_body)
         outer.addWidget(self.body)
         self.set_content(content)
         self.set_thinking(thinking)
+
+    def apply_theme(self) -> None:
+        from PySide6.QtWidgets import QApplication
+        light = QApplication.instance().property("molicoderTheme") == "light"
+        background, border, foreground = ("#E7EEE3", "#216442", "#202C23") if light else ("#001006", "#00EE24", "#85FF9C")
+        self.body.document().setDefaultStyleSheet(
+            f"blockquote {{ background-color: {background}; border-left: 4px solid {border}; "
+            f"margin: 8px 0; padding: 10px 12px; color: {foreground}; }}"
+        )
+        # Reparse only this displayed document; stored content/history is untouched.
+        if self.content:
+            self.body.setMarkdown(normalize_model_markdown(self.content))
 
     def _resize_body(self, size) -> None:
         self.body.setFixedHeight(max(28, int(size.height()) + 8))
@@ -110,7 +119,7 @@ class AttachmentChip(QFrame):
     def __init__(self, path: str, name: str, size_label: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.path = path
-        self.setStyleSheet("background: #172033; border: 1px solid #334155; border-radius: 7px;")
+        self.setObjectName("attachmentChip")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 4, 4, 4)
         label = QLabel(f"{name} · {size_label}")

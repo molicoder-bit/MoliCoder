@@ -51,6 +51,7 @@ from ..workers import (
 )
 from .knowledge_dialog import KnowledgeReviewDialog
 from .widgets import AttachmentChip, ChatBubble, MessageComposer, MetricCard
+from .theme import apply_theme, theme_color
 
 
 class MainWindow(QMainWindow):
@@ -118,6 +119,7 @@ class MainWindow(QMainWindow):
             except (ValueError, TypeError):
                 pass
         self._build_ui()
+        apply_theme(self, self.store.get_setting("ui.theme", "matrix"), persist=False)
         self._build_menu()
         self._load_project_list(select_saved=True)
         self._load_conversation_list(select_first=True)
@@ -235,7 +237,7 @@ class MainWindow(QMainWindow):
         self.model_combo.currentIndexChanged.connect(self._model_changed)
         model_row.addWidget(self.model_combo)
         self.model_badge = QLabel("8,192 context")
-        self.model_badge.setStyleSheet("color: #22D3EE; font-weight: 650;")
+        self.model_badge.setObjectName("modelBadge")
         model_row.addWidget(self.model_badge)
         model_row.addStretch()
         knowledge_button = QPushButton("Project knowledge")
@@ -257,7 +259,7 @@ class MainWindow(QMainWindow):
         self.transcript_layout.setSpacing(12)
         self.chat_welcome = QLabel("A clearer path from question to working code.\n\nChat with your local model, inspect project facts, or take a request into Build.")
         self.chat_welcome.setWordWrap(True)
-        self.chat_welcome.setStyleSheet("font-size: 22px; color: #A2B2A6; padding: 36px;")
+        self.chat_welcome.setObjectName("welcome")
         self.transcript_layout.addWidget(self.chat_welcome)
         self.transcript_layout.addStretch()
         self.scroll.setWidget(self.transcript)
@@ -329,7 +331,7 @@ class MainWindow(QMainWindow):
         heading.setObjectName("sectionTitle")
         layout.addWidget(heading)
         self.build_project_title = QLabel("No project selected")
-        self.build_project_title.setStyleSheet("font-size: 24px; font-weight: 750; color: #F8FAFC;")
+        self.build_project_title.setObjectName("projectHeading")
         layout.addWidget(self.build_project_title)
         self.build_project_meta = QLabel("Choose a project above, or add one through History.")
         self.build_project_meta.setObjectName("muted")
@@ -451,7 +453,7 @@ class MainWindow(QMainWindow):
         self.build_ownership_status.setWordWrap(True)
         status_layout.addWidget(self.build_ownership_status)
         self.build_activity = QLabel("Idle")
-        self.build_activity.setStyleSheet("color: #22D3EE; font-weight: 650;")
+        self.build_activity.setObjectName("buildActivity")
         status_layout.addWidget(self.build_activity)
         self.build_events = QListWidget()
         self.build_events.setMinimumHeight(80)
@@ -1116,10 +1118,12 @@ class MainWindow(QMainWindow):
             )
         if available:
             self.connection_label.setText("● Ollama connected")
-            self.connection_label.setStyleSheet("color: #34D399; font-weight: 650;")
+            self.connection_label.setProperty("themeTone", "success")
+            self.connection_label.setStyleSheet(f"color: {theme_color('success')}; font-weight: 650;")
         else:
             self.connection_label.setText("● Ollama unavailable")
-            self.connection_label.setStyleSheet("color: #FB7185; font-weight: 650;")
+            self.connection_label.setProperty("themeTone", "error")
+            self.connection_label.setStyleSheet(f"color: {theme_color('error')}; font-weight: 650;")
             QMessageBox.warning(
                 self, "Ollama unavailable",
                 "Local Model Chat could not reach Ollama at 127.0.0.1:11434. Start Ollama, then restart this app.",
@@ -1484,8 +1488,8 @@ class MainWindow(QMainWindow):
                 f"   {profile.limitation}"
             )
             label.setStyleSheet(
-                "color: #34D399;" if status and status.installed and status.auth_verified
-                and status.authenticated and profile.selectable else "color: #F59E0B;"
+                f"color: {theme_color('success')};" if status and status.installed and status.auth_verified
+                and status.authenticated and profile.selectable else f"color: {theme_color('warning')};"
             )
             label.setWordWrap(True)
             layout.addWidget(label)
@@ -2691,7 +2695,7 @@ class MainWindow(QMainWindow):
                 widget.deleteLater()
         if not messages:
             welcome = QLabel("A clearer path from question to working code.\n\nAsk a question. Inspect your project. Build with control.")
-            welcome.setWordWrap(True); welcome.setStyleSheet("font-size: 22px; color: #A2B2A6; padding: 36px;")
+            welcome.setWordWrap(True); welcome.setObjectName("welcome")
             self.transcript_layout.insertWidget(0, welcome)
         for message in messages:
             if message.role in {"user", "assistant"}:
@@ -2725,7 +2729,7 @@ class MainWindow(QMainWindow):
         self.top_p_spin.blockSignals(False)
         self.output_spin.blockSignals(False)
         self.model_badge.setText(f"{preset.context_window:,} context")
-        self.model_badge.setStyleSheet(f"color: {preset.accent}; font-weight: 650;")
+        self.model_badge.setObjectName("modelBadge")
         self._refresh_context_meter()
 
     def _current_messages(self) -> list[Message]:
@@ -2744,7 +2748,7 @@ class MainWindow(QMainWindow):
         budget = calculate_budget(messages, self._pending_content(), self.preset.context_window, reserved)
         percent = round(budget.fraction * 100)
         self.context_progress.setValue(percent)
-        color = "#FB7185" if budget.blocked else "#F59E0B" if budget.warning else self.preset.accent
+        color = theme_color("error") if budget.blocked else theme_color("warning") if budget.warning else theme_color("accent")
         self.context_progress.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: 5px; }}")
         self.context_label.setText(
             f"{budget.estimated_prompt_tokens:,} estimated prompt + {reserved:,} reserved output\n"
@@ -2761,13 +2765,13 @@ class MainWindow(QMainWindow):
         self.send_button.setEnabled(can_send)
         if budget.blocked:
             self.context_notice.setText("Safe context limit exceeded. Start a new chat or remove the last exchange; history will not be trimmed silently.")
-            self.context_notice.setStyleSheet("color: #FB7185; font-weight: 650;")
+            self.context_notice.setStyleSheet(f"color: {theme_color('error')}; font-weight: 650;")
         elif budget.warning:
             self.context_notice.setText("Context is nearly full. Consider a new chat before sending more large messages.")
-            self.context_notice.setStyleSheet("color: #F59E0B; font-weight: 650;")
+            self.context_notice.setStyleSheet(f"color: {theme_color('warning')}; font-weight: 650;")
         else:
             self.context_notice.setText("Pre-send values are conservative estimates. Ollama's exact count appears after generation.")
-            self.context_notice.setStyleSheet("color: #94A3B8;")
+            self.context_notice.setStyleSheet(f"color: {theme_color('muted')};")
 
     def _send_message(self) -> None:
         if self.chat_worker or self.current_conversation_id is None:

@@ -45,6 +45,8 @@ def build_workspace(w):
     w.sidebar.setMaximumWidth(500)
     row.addWidget(w.chat_nav_button); row.addWidget(w.build_nav_button)
     row.addStretch()
+    w.theme_button = button('Light', lambda: toggle_theme(w))
+    row.addWidget(w.theme_button)
     row.addWidget(button('History', lambda: show_history(w)))
     row.addWidget(button('Settings', lambda: show_settings(w)))
     layout.addWidget(bar)
@@ -212,3 +214,10 @@ def show_run(w, run_id):
     open_drawer(w, 'Validation')
     w.history_dialog.hide()
 
+
+
+def toggle_theme(w):
+    from .theme import apply_theme
+    from PySide6.QtWidgets import QApplication
+    current = QApplication.instance().property('molicoderTheme')
+    apply_theme(w, 'matrix' if current == 'light' else 'light')

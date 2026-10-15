@@ -56,3 +56,10 @@ Tasks are checked only after verification. Existing execution and authorization 
 - Source revision `53d1892`: Linux x64 and macOS Intel CI passed, each with **453 passed, 8 skipped**, plus packaged desktop and embedded-browser smoke checks. [Platform run](https://github.com/molicoder-bit/MoliCoder/actions/runs/38813196483).
 - Windows hosted tests and packaged desktop/browser checks passed; artifact archival was in progress at final review. Validation is recorded at [Windows run](https://github.com/molicoder-bit/MoliCoder/actions/runs/38813196729). Local Windows full suite: 454 passed, 6 skipped before the final additional setup regression; final focused UI/package suite: 52 passed, with the added setup regression verified separately.
 - Supplied `molicodeLogo.png` is copied unchanged into package assets and used in the workspace header and application window icon. SHA-256 comparison with Downloads matched.
+
+## UI08 — Matrix and Light themes (2026-10-15)
+
+- [x] UI08-01 Add a header switch with exactly Matrix and Light appearances and a saved preference; legacy dark preferences resolve to Matrix.
+- [x] UI08-02 Implement black/green monospace Matrix and warm Light palettes across native screens, dialogs, message documents and attachments.
+- [x] UI08-03 Verify immediate switching, restart restoration, invalid preference fallback, and unchanged Chat/Build drafts. Focused UI/theme/workspace suite: 49 passed. Both themes visually checked at native Windows scaling, including a 1020 × 680 logical window.
+- [x] UI08-04 Packaged and installed 1.2.1; desktop and embedded-browser startup smoke checks passed. Five packaging tests also passed. The original logo remains unchanged.

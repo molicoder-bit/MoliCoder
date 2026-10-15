@@ -44,6 +44,12 @@ Context estimates and reserved output stay visible above the workspace. The bott
 
 The screenshot uses a demonstration conversation and makes no inference call. The [UI tracker](docs/plans/ui-redesign-tracker.md) records implementation and verification.
 
+### Matrix and Light themes
+
+Use the **Light** / **Matrix** button in the header to switch instantly. Matrix uses black surfaces, bright green accents, thin borders and monospace text; Light uses warm white surfaces and dark text. The preference is saved locally and restored on launch. Chat, Build, dialogs, attachments, and detail drawers follow the selected theme. Kandev's embedded web content keeps its own appearance settings.
+
+[Matrix preview](docs/images/theme-matrix.png) · [Light preview](docs/images/theme-light.png)
+
 ## Run from source
 
 Requirements: Python 3.13+, Git, and Ollama on a tested platform. On Windows, Linux x64, and macOS Intel or Apple Silicon, Environment readiness can install a pinned official Ollama runtime after showing its source, checksum, disk estimate, user-scope destination, and rollback path for your approval. The Chat presets use Ollama model names `molicoder:latest` and `local-reasoning:latest`; any other installed Ollama model also appears in Chat with conservative default generation settings. Environment readiness can inspect a public Ollama library model's official manifest, show its size and hardware estimate, and download it through Ollama after your exact approval. It does not replace model weights without approval.

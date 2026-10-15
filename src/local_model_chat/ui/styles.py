@@ -122,3 +122,51 @@ QScrollArea { border: none; }
 """
 
 APP_STYLESHEET += "QPushButton#buildPrimary { background: #F0AF7B; color: #26190F; border-color: #F0AF7B; } QLabel { background: transparent; }"
+
+# One-pass substitution keeps both themes on the same component rules.
+_LIGHT_COLORS = {
+    '#151816': '#F6F7F2', '#111512': '#EDF1E9', '#1E2421': '#FFFFFF',
+    '#303A33': '#CED8CD', '#EAE9E1': '#202C23', '#FFFFFF': '#202C23',
+    '#A2B2A6': '#536650', '#CBD5E1': '#3A4D3E', '#26312B': '#E7EEE3',
+    '#3E4D42': '#BCCBBB', '#334438': '#D7E5D3', '#18241D': '#DCE8D7',
+    '#64748B': '#6C7E6E', '#19221C': '#F0F4EB', '#3B4940': '#B8C8B6',
+    '#355440': '#C9E1C8', '#3F6149': '#CEE6CD', '#17314A': '#C5DDCB',
+    '#273449': '#CED8CD', '#223047': '#CED8CD', '#12344A': '#E3EFE0',
+    '#21170A': '#FFF5E4', '#78450A': '#B58336', '#475569': '#A4B7A3',
+    '#1A211C': '#EAF0E3', '#FDA4AF': '#9D2339', '#7F1D1D': '#C77782',
+    '#2A1118': '#FCE9EB',
+}
+
+
+def stylesheet_for_theme(theme: str) -> str:
+    import re
+    if theme == 'light':
+        return re.sub(r'#[0-9a-fA-F]{6}', lambda match: _LIGHT_COLORS.get(match.group().upper(), match.group()), APP_STYLESHEET) + 'QLabel#brandLogo { background: #FFFFFF; }'
+    from PySide6.QtGui import QFontDatabase
+    fixed_font = QFontDatabase.systemFont(QFontDatabase.FixedFont).family()
+    sheet = re.sub(r'#[0-9a-fA-F]{6}', lambda match: _MATRIX_COLORS.get(match.group().upper(), match.group()), APP_STYLESHEET)
+    sheet = re.sub(r'border-radius: \d+px', 'border-radius: 2px', sheet)
+    return sheet + f'QWidget {{ font-family: "{fixed_font}"; }}'
+
+
+
+APP_STYLESHEET += r'''
+QLabel#messageAuthor { font-weight: 700; }
+QLabel#welcome { font-size: 22px; color: #A2B2A6; padding: 36px; }
+QLabel#projectHeading { font-size: 24px; font-weight: 750; }
+QLabel#modelBadge, QLabel#buildActivity { color: #9AE6BE; font-weight: 650; }
+QFrame#attachmentChip { background: #26312B; border: 1px solid #3B4940; border-radius: 7px; }
+'''
+
+_MATRIX_COLORS = {
+    '#151816': '#000000', '#111512': '#000000', '#1E2421': '#020A03',
+    '#303A33': '#125C24', '#EAE9E1': '#85FF9C', '#FFFFFF': '#A3FFB0',
+    '#A2B2A6': '#69B875', '#CBD5E1': '#85D994', '#26312B': '#041508',
+    '#3E4D42': '#237F34', '#334438': '#082B0D', '#18241D': '#001B05',
+    '#64748B': '#527759', '#19221C': '#010803', '#3B4940': '#1D672A',
+    '#355440': '#064015', '#3F6149': '#07551A', '#17314A': '#064015',
+    '#273449': '#125C24', '#223047': '#125C24', '#12344A': '#031A08',
+    '#21170A': '#071407', '#78450A': '#237F34', '#475569': '#237F34',
+    '#1A211C': '#010A02', '#9AE6BE': '#00EE24', '#F0AF7B': '#00EE24',
+    '#26190F': '#001B05', '#102419': '#001B05',
+}
