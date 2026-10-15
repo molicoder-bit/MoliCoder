@@ -30,6 +30,14 @@ class OfferingRecord:
     health_state: str
 
 
+@dataclass(frozen=True, slots=True)
+class AccountStatus:
+    id: str
+    provider_id: str
+    auth_status: str
+    credential_present: bool
+
+
 class ProviderRegistry:
     def __init__(self, store: ChatStore) -> None:
         self.store = store
@@ -176,6 +184,18 @@ class ProviderRegistry:
                 "SELECT auth_status FROM inference_accounts WHERE id = ?", (account_id,)
             ).fetchone()
         return str(row[0]) if row else None
+
+    def list_account_statuses(self) -> tuple[AccountStatus, ...]:
+        """Return setup metadata only; never expose stored secret references."""
+        with closing(self.store._connect()) as connection:
+            rows = connection.execute(
+                """SELECT id, provider_id, auth_status, (secret_ref != '') AS credential_present
+                   FROM inference_accounts ORDER BY provider_id, id"""
+            ).fetchall()
+        return tuple(AccountStatus(
+            str(row["id"]), str(row["provider_id"]), str(row["auth_status"]),
+            bool(row["credential_present"]),
+        ) for row in rows)
 
     def set_offering_state(
         self, offering_id: str, *, status: str | None = None,

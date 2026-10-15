@@ -25,6 +25,7 @@ from ..environment.security import platform_security
 from ..context import calculate_budget, estimate_tokens
 from ..domain import Attachment, GenerationMetrics, Message, Project
 from ..inference.adapters.ollama import ensure_local_offering, local_offering_id
+from ..inference.onboarding import CustomRoute, check_custom_connection, register_custom_route
 from ..inference.policy import InferencePolicy
 from ..inference.pacing import project_pacing
 from ..inference.registry import ProviderRegistry
@@ -1092,6 +1093,18 @@ class MainWindow(QMainWindow):
         security_label = QLabel(security.reason)
         security_label.setWordWrap(True)
         layout.addWidget(security_label)
+        add_custom = QPushButton("Add custom OpenAI-compatible provider")
+        add_custom.clicked.connect(self._add_custom_provider)
+        layout.addWidget(add_custom)
+        layout.addWidget(QLabel("API account readiness"))
+        accounts = self.inference_registry.list_account_statuses()
+        if not accounts:
+            layout.addWidget(QLabel("No API accounts configured. Add a provider to begin setup."))
+        for account in accounts:
+            layout.addWidget(QLabel(
+                f"{account.provider_id} ({account.id}): {account.auth_status}; "
+                f"encrypted key {'stored' if account.credential_present else 'not stored'}"
+            ))
         if api_providers:
             key_button = QPushButton("Store API key for a registered provider")
             key_button.setEnabled(security.credential_backend is not None)
@@ -1099,6 +1112,14 @@ class MainWindow(QMainWindow):
                 key_button.setToolTip("No verified encrypted provider-key backend is available on this OS.")
             key_button.clicked.connect(lambda: self._store_provider_key(api_providers))
             layout.addWidget(key_button)
+        custom_offerings = tuple(
+            offering for offering in self.inference_registry.list_offerings()
+            if offering.id.startswith("custom:")
+        )
+        if custom_offerings:
+            check_button = QPushButton("Check custom provider connection")
+            check_button.clicked.connect(lambda: self._check_custom_provider_connection(custom_offerings))
+            layout.addWidget(check_button)
         offerings = self.inference_registry.list_offerings()
         offering_controls: list[tuple[str, QCheckBox, str]] = []
         layout.addWidget(QLabel("Registered inference offerings"))
@@ -1161,6 +1182,47 @@ class MainWindow(QMainWindow):
         )
         self._refresh_build_readiness()
 
+    def _add_custom_provider(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add custom API provider")
+        form = QFormLayout(dialog)
+        provider_id = QLineEdit(dialog)
+        provider_id.setPlaceholderText("my-provider")
+        name = QLineEdit(dialog)
+        name.setPlaceholderText("Provider display name")
+        endpoint = QLineEdit(dialog)
+        endpoint.setPlaceholderText("https://provider.example/v1")
+        model = QLineEdit(dialog)
+        model.setPlaceholderText("provider-model-id")
+        form.addRow("Provider ID", provider_id)
+        form.addRow("Name", name)
+        form.addRow("API base URL", endpoint)
+        form.addRow("Model ID", model)
+        note = QLabel(
+            "Registration makes no network request. The route stays inactive until its key, "
+            "capabilities, price, terms, and connection have been verified."
+        )
+        note.setWordWrap(True)
+        form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            offering_id = register_custom_route(self.store, CustomRoute(
+                provider_id.text().strip(), name.text().strip(), endpoint.text().strip(),
+                model.text().strip(),
+            ))
+        except ValueError as exc:
+            QMessageBox.warning(self, "Custom provider", str(exc))
+            return
+        QMessageBox.information(
+            self, "Provider registered",
+            f"{offering_id} is registered and inactive. Open Provider settings again to store its key.",
+        )
+
     def _store_provider_key(self, providers: tuple[tuple[str, str], ...]) -> None:
         choices = [f"{name} ({provider_id})" for provider_id, name in providers]
         selected, accepted = QInputDialog.getItem(
@@ -1185,6 +1247,28 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self, "Provider key stored",
             "The key is encrypted for this Windows user. The provider remains inactive until an eligible route is configured.",
+        )
+
+    def _check_custom_provider_connection(self, offerings) -> None:
+        choices = [f"{item.provider_id} / {item.model_id}" for item in offerings]
+        selected, accepted = QInputDialog.getItem(
+            self, "Check provider connection", "Registered model", choices, 0, False,
+        )
+        if not accepted:
+            return
+        offering = offerings[choices.index(selected)]
+        try:
+            credentials = (ProtectedCredentialStore(data_dir() / "credentials")
+                           if offering.account_id else None)
+            result = check_custom_connection(
+                self.store, offering.id, credentials=credentials,
+            )
+        except (CredentialUnavailable, OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Provider connection", str(exc))
+            return
+        QMessageBox.information(
+            self, "Provider connection",
+            f"{result.detail}\nThe route stays inactive until its price, terms, and capabilities are configured.",
         )
 
     def _refresh_build_readiness(self) -> None:

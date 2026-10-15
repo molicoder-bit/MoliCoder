@@ -311,6 +311,15 @@ The module names below are proposed until P06-04 confirms interfaces. Each check
   - [x] **I17-04b Reconcile the draft with completed local side-effect and platform security gates.** V: no remote implementation starts until I14-05 and I17-03 pass. Evidence: I14-05 and I17-03 checked; draft retains coordinator authority and disabled opaque remote paid dispatch (2026-10-15).
 - [ ] **I17-05 Implement one opt-in remote worker path.** D: I17-04. A: `molicoder/orchestrator.py`, `storage.py`; N: `remote/`. V: authenticated connection, centralized budget reservation, worktree ownership, crash/reconnect and conflict tests; local-only behavior remains available. C/R: L/high. G4,G5,G10.
 
+### I18 — In-app provider onboarding and custom routes (6 tasks; added 2026-10-15)
+
+- [x] **I18-01 Inventory existing provider accounts and installed CLIs in the app.** V: names and readiness are shown without reading or displaying secret values; a discovered login never silently activates a paid route. Evidence: provider settings shows CLI probe results and API account readiness metadata; registry test proves secret references are omitted (2026-10-15).
+- [x] **I18-02 Register a custom OpenAI-compatible endpoint and model in the app.** V: exact HTTPS or loopback endpoint, provider ID, model, and keyless/key-needed state persist; unsafe URLs and duplicate IDs fail before mutation; new paid routes stay disabled. Evidence: `inference/onboarding.py`, provider dialog, and focused registry/UI tests pass (2026-10-15).
+- [x] **I18-03 Add guided credential entry and connection check.** D: I18-02. V: Windows key is encrypted through DPAPI, non-Windows without a verified key store fails closed, and a bounded no-inference check distinguishes auth, transport, and model availability. Evidence: Provider settings offers protected key entry and a five-second, 256 KiB `GET /models` check with redirects blocked; auth, endpoint, and model outcomes stay inactive. Full suite: 376 passed, 6 skipped (2026-10-15).
+- [ ] **I18-04 Dispatch custom and preset API routes through the central policy.** D: I18-03, I06-02, I07-02. V: exact endpoint, no redirects, reservation, privacy, timeout, cancellation, usage trace, and unknown price denial pass integration tests.
+- [ ] **I18-05 Add one-click managed setup for supported CLI or local runtimes.** D: I10-04. V: pinned source and integrity check, explicit install approval, user-scope destination, health check, and rollback appear in Setup; third-party account consent is handled in its official sign-in flow.
+- [ ] **I18-06 Run a capped direct-versus-gateway benchmark from configured accounts.** D: I18-03, I18-04, I16-03a. V: same model/version and prompts, explicit spend ceiling, recorded failures and uncertainty, and no automatic provider purchase.
+
 ## Release gates and completion evidence
 
 - [x] **Gate 0 — Planning complete:** P01–P06 checked, blueprint and dated provider sources available, open decisions identified, implementation milestone approved.

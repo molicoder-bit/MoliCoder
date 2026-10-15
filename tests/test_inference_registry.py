@@ -27,6 +27,10 @@ def test_same_model_has_distinct_provider_offerings_and_account_refs(tmp_path) -
     assert first.offering_class == "metered" and second.offering_class == "recurring_free"
     assert first.input_usd_per_million is None
     assert first.account_id == "account-1" and second.account_id is None
+    account_statuses = registry.list_account_statuses()
+    assert [(item.id, item.provider_id, item.auth_status, item.credential_present)
+            for item in account_statuses] == [("account-1", "p1", "unknown", True)]
+    assert "os-keychain:one" not in repr(account_statuses)
     assert store.get_project_preferences(project.id).provider == "codex"
     with sqlite3.connect(db) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == ChatStore.SCHEMA_VERSION

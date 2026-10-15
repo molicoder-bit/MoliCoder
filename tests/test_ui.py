@@ -3,7 +3,7 @@ from local_model_chat.ui.main_window import MainWindow
 from local_model_chat.ui.widgets import ChatBubble
 from local_model_chat.molicoder.providers import ProviderStatus
 from local_model_chat.kandev.contracts import KandevTaskRef
-from PySide6.QtWidgets import QCheckBox, QDialog, QLabel, QMessageBox, QPushButton, QTextBrowser
+from PySide6.QtWidgets import QCheckBox, QDialog, QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton, QTextBrowser
 import subprocess
 import hashlib
 from types import SimpleNamespace
@@ -630,6 +630,62 @@ def test_provider_settings_shows_registry_and_saves_offering_enable_control(qtbo
     assert "quota: unknown" in captured["labels"]
     assert "Price checked: unknown; terms checked: unknown" in captured["labels"]
     assert registry.get_offering("fixture-offering").status == "eligible"
+
+
+def test_custom_provider_can_be_registered_from_ui_without_activation(qtbot, tmp_path, monkeypatch) -> None:
+    store = ChatStore(tmp_path / "custom-provider.sqlite3")
+    window = MainWindow(store, FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: window.startup_worker is None)
+    def fill_dialog(dialog):
+        edits = {item.placeholderText(): item for item in dialog.findChildren(QLineEdit)}
+        edits["my-provider"].setText("custom-api")
+        edits["Provider display name"].setText("Custom API")
+        edits["https://provider.example/v1"].setText("https://api.example.test/v1")
+        edits["provider-model-id"].setText("sample-model")
+        return QDialog.DialogCode.Accepted
+    monkeypatch.setattr(QDialog, "exec", fill_dialog)
+    monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
+    window._add_custom_provider()
+    offerings = [item for item in window.inference_registry.list_offerings()
+                 if item.provider_id == "custom-api"]
+    assert len(offerings) == 1 and offerings[0].status == "discovered"
+
+
+def test_custom_provider_connection_check_is_available_in_settings(qtbot, tmp_path, monkeypatch) -> None:
+    from local_model_chat.inference.onboarding import ConnectionCheck, CustomRoute, register_custom_route
+
+    store = ChatStore(tmp_path / "custom-check.sqlite3")
+    project_root = tmp_path / "sample"
+    project_root.mkdir()
+    project = store.upsert_project("Sample", str(project_root), "python")
+    window = MainWindow(store, FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: window.startup_worker is None)
+    window._load_project_list(select_id=project.id)
+    offering_id = register_custom_route(store, CustomRoute(
+        "local-api", "Local API", "http://127.0.0.1:12345/v1", "model-a",
+    ))
+    captured = {}
+
+    def inspect_dialog(dialog):
+        buttons = [button.text() for button in dialog.findChildren(QPushButton)]
+        assert "Check custom provider connection" in buttons
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(QDialog, "exec", inspect_dialog)
+    window._provider_settings()
+    monkeypatch.setattr(QInputDialog, "getItem", lambda *_args: ("local-api / model-a", True))
+    monkeypatch.setattr(
+        "local_model_chat.ui.main_window.check_custom_connection",
+        lambda _store, selected_id, **_kwargs: (
+            captured.update(offering_id=selected_id) or ConnectionCheck("ready", "Connected.")
+        ),
+    )
+    monkeypatch.setattr(QMessageBox, "information", lambda _parent, _title, detail: captured.update(detail=detail))
+    window._check_custom_provider_connection(tuple(window.inference_registry.list_offerings()))
+    assert captured["offering_id"] == offering_id
+    assert "stays inactive" in captured["detail"]
 
 
 def test_doctor_refresh_updates_states_and_keeps_chat_available(qtbot, tmp_path, monkeypatch) -> None:
