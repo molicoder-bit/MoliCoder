@@ -2937,6 +2937,8 @@ class MainWindow(QMainWindow):
         can_send = can_send and self.chat_worker is None
         if self._installed_model_names and not deterministic_question:
             can_send = can_send and self.preset.name in self._installed_model_names
+            if self.preset.name not in self._installed_model_names:
+                self.composer_hint.setText('Selected model is not installed · Change model or open Settings')
         self.send_button.setEnabled(can_send)
         if budget.blocked:
             self.composer_hint.setText('Context limit reached · Open Usage for details')

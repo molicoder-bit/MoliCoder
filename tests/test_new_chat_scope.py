@@ -68,3 +68,15 @@ def test_new_chat_rejects_late_tokens_from_previous_reply(qtbot, tmp_path, monke
     assert old.cancelled
     assert not window.store.list_messages(current)
     assert not window._retired_chat_workers
+
+
+def test_missing_selected_model_explains_disabled_send(qtbot,tmp_path):
+    from test_ui import FakeClient
+    w=MainWindow(ChatStore(tmp_path/'missing-model.db'),FakeClient(),start_ollama_check=False)
+    qtbot.addWidget(w)
+    w._ollama_ready(True,[{'name':'another-installed-model'}])
+    w.composer.setPlainText('Hello model')
+    assert not w.send_button.isEnabled()
+    assert 'not installed' in w.composer_hint.text()
+    w.composer.setPlainText(f'create a folder called "one" in {tmp_path}')
+    assert w.send_button.isEnabled()
