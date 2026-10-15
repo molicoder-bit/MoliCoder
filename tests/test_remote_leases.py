@@ -16,8 +16,11 @@ BASE = "b" * 40
 def _setup(tmp_path):
     store = ChatStore(tmp_path / "remote.sqlite3")
     project = store.upsert_project("Remote fixture", str(tmp_path), "python")
-    run_id = store.create_run(project.id, "Harmless remote test", "LOCAL_OFFLINE")
+    run_id = store.create_run(project.id, "Harmless remote test", "REMOTE_OPT_IN",
+                              provider="remote", base_commit=BASE)
     task_id = store.create_run_task(run_id, "T1", "Read file", "Report a line", "low")
+    store.transition_task_state(task_id, "ready", attempts=0,
+                                reason="remote fixture ready", actor="system")
     leases = RemoteLeaseStore(store)
     for worker in ("worker-a", "worker-b"):
         key = bytes([1 if worker == "worker-a" else 2]) * 32
@@ -85,3 +88,21 @@ def test_remote_offer_is_atomic_across_coordinator_connections(tmp_path) -> None
         outcomes = list(pool.map(offer, ("worker-a", "worker-b")))
     assert sorted(outcomes) == ["offered", "rejected"]
     assert leases.get(task_id).epoch == 1
+
+
+def test_local_only_run_and_escaping_root_cannot_acquire_remote_lease(tmp_path) -> None:
+    store, leases, task_id = _setup(tmp_path)
+    now = datetime.now(timezone.utc)
+    with pytest.raises(ValueError, match="worktree root"):
+        leases.offer(task_id, "worker-a", base_commit=BASE,
+                     worktree_root="../outside", expires_at=now + timedelta(minutes=5), now=now)
+    with store._connect() as connection:
+        connection.execute(
+            "UPDATE runs SET mode = 'LOCAL_OFFLINE' WHERE id = (SELECT run_id FROM tasks WHERE id = ?)",
+            (task_id,),
+        )
+        connection.commit()
+    with pytest.raises(LeaseConflict, match="explicitly ready"):
+        leases.offer(task_id, "worker-a", base_commit=BASE,
+                     worktree_root="remote/checkout", expires_at=now + timedelta(minutes=5), now=now)
+    assert leases.get(task_id) is None

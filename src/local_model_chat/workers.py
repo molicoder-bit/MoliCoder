@@ -167,6 +167,7 @@ class ManagedInstallWorker(QThread):
 
             receipt = install_managed_archive(
                 self.store, self.plan, self.manifest, self.managed_root,
+                timeout_seconds=1800 if self.manifest.size_bytes > 1_000_000_000 else 300,
             )
             result = subprocess.run(
                 [receipt.executable, "--version"], capture_output=True, text=True,
@@ -176,6 +177,28 @@ class ManagedInstallWorker(QThread):
             if result.returncode != 0 or self.manifest.version not in (result.stdout + result.stderr):
                 raise RuntimeError("managed executable failed its version check")
             self.completed.emit(receipt)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class WindowsOllamaInstallWorker(QThread):
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, store, plan, manifest, managed_root) -> None:
+        super().__init__()
+        self.store = store
+        self.plan = plan
+        self.manifest = manifest
+        self.managed_root = managed_root
+
+    def run(self) -> None:
+        try:
+            from .environment.windows_installer import install_verified_ollama
+
+            self.completed.emit(install_verified_ollama(
+                self.store, self.plan, self.manifest, self.managed_root,
+            ))
         except Exception as exc:
             self.failed.emit(str(exc))
 

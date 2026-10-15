@@ -132,6 +132,11 @@ def discover_environment(
     tools = []
     for name in _TOOLS:
         binary = which(name)
+        if not binary and name == "ollama" and which is shutil.which:
+            from .managed_tools import managed_executable
+
+            managed = managed_executable("ollama")
+            binary = str(managed) if managed else None
         tools.append(DiscoveredTool(
             name, str(Path(binary).resolve()) if binary else None,
             version(binary) if binary else None,

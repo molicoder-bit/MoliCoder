@@ -41,7 +41,9 @@ def plan_setup(store: ChatStore, environment: EnvironmentReport, manifest: Insta
         None if existing else manifest.source_url,
         None if existing else manifest.sha256,
         0 if existing else manifest.size_bytes,
-        0 if existing else manifest.size_bytes * 2,
+        0 if existing else manifest.size_bytes * (
+            4 if manifest.install_kind == "installer" or manifest.source_url.endswith(".tar.zst") else 2
+        ),
         manifest.privilege, approval.allowed, approval.reason,
         "Administrator permission required" if manifest.privilege == "administrator" and not existing else None,
         (

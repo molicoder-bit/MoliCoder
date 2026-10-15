@@ -46,6 +46,7 @@ from ..telemetry import format_bytes, read_nvidia_telemetry
 from ..workers import (
     ChatWorker, CustomApiWorker, DoctorWorker, ManagedInstallWorker,
     ManagedRepairWorker, ModelInspectWorker, ModelPullWorker, OrchestrationWorker, StartupWorker,
+    WindowsOllamaInstallWorker,
 )
 from .knowledge_dialog import KnowledgeReviewDialog
 from .widgets import AttachmentChip, ChatBubble, MessageComposer, MetricCard
@@ -78,6 +79,7 @@ class MainWindow(QMainWindow):
         self.managed_repair_worker: ManagedRepairWorker | None = None
         self.model_inspect_worker: ModelInspectWorker | None = None
         self.model_pull_worker: ModelPullWorker | None = None
+        self.ollama_install_worker: WindowsOllamaInstallWorker | None = None
         self.custom_api_worker: CustomApiWorker | None = None
         self.chat_worker: ChatWorker | None = None
         self.startup_worker: StartupWorker | None = None
@@ -498,6 +500,9 @@ class MainWindow(QMainWindow):
         managed_repair = QPushButton("Repair receipt-backed managed tool")
         managed_repair.setEnabled(False)
         layout.addWidget(managed_repair)
+        install_ollama = QPushButton("Install verified Ollama runtime (Windows)")
+        install_ollama.setEnabled(False)
+        layout.addWidget(install_ollama)
         pull_model = QPushButton("Install Ollama library model")
         layout.addWidget(pull_model)
         self.doctor_dialog = dialog
@@ -516,9 +521,15 @@ class MainWindow(QMainWindow):
                 if manifest.system == report.environment.system
                 and manifest.architecture == report.environment.architecture
                 and manifest.install_kind == "archive"
-                and manifest.source_url.endswith((".tar.gz", ".zip"))
+                and manifest.source_url.endswith((".tar.gz", ".tgz", ".tar.zst", ".zip"))
             )
             managed_install.setEnabled(bool(installable) and self.managed_install_worker is None)
+            install_ollama.setEnabled(
+                any(item.tool_id == "ollama" and item.system == "Windows"
+                    and item.architecture == report.environment.architecture
+                    and item.install_kind == "installer" for item in load_manifests())
+                and self.ollama_install_worker is None
+            )
             repairable = False
             for manifest in installable:
                 try:
@@ -573,7 +584,7 @@ class MainWindow(QMainWindow):
                 if manifest.system == latest_report.environment.system
                 and manifest.architecture == latest_report.environment.architecture
                 and manifest.install_kind == "archive"
-                and manifest.source_url.endswith((".tar.gz", ".zip"))
+                and manifest.source_url.endswith((".tar.gz", ".tgz", ".tar.zst", ".zip"))
             )
             if not candidates:
                 return
@@ -644,7 +655,7 @@ class MainWindow(QMainWindow):
                 if (manifest.system != latest_report.environment.system
                         or manifest.architecture != latest_report.environment.architecture
                         or manifest.install_kind != "archive"
-                        or not manifest.source_url.endswith((".tar.gz", ".zip"))):
+                        or not manifest.source_url.endswith((".tar.gz", ".tgz", ".tar.zst", ".zip"))):
                     continue
                 try:
                     plan = plan_maintenance(
@@ -707,6 +718,67 @@ class MainWindow(QMainWindow):
             worker.start()
 
         managed_repair.clicked.connect(begin_managed_repair)
+        def begin_ollama_install() -> None:
+            from ..environment.manifests import load_manifests
+            from ..environment.policy import plan_setup
+
+            if latest_report is None or self.ollama_install_worker is not None:
+                return
+            manifest = next((item for item in load_manifests()
+                             if item.tool_id == "ollama" and item.system == "Windows"
+                             and item.architecture == latest_report.environment.architecture
+                             and item.install_kind == "installer"), None)
+            if manifest is None:
+                return
+            try:
+                plan = plan_setup(self.store, latest_report.environment, manifest)
+            except ValueError as exc:
+                QMessageBox.warning(dialog, "Ollama setup", str(exc))
+                return
+            if plan.action != "install_managed":
+                QMessageBox.information(dialog, "Ollama setup", "Ollama is already installed. Review the existing installation before changing it.")
+                return
+            answer = QMessageBox.question(
+                dialog, "Approve Ollama installer",
+                f"Install official Ollama {manifest.version} for this Windows user?\n\n"
+                f"Download: {plan.download_bytes / 1_000_000_000:.2f} GB from {manifest.source_url}\n"
+                f"SHA-256: {manifest.sha256}\n"
+                f"Estimated free disk needed: {plan.estimated_disk_bytes / 1_000_000_000:.2f} GB\n"
+                f"Destination: {data_dir() / 'tools' / f'ollama-{manifest.version}'}\n\n"
+                "The app will check SHA-256 and Windows Authenticode, then run Ollama's official "
+                "user-scope installer silently and verify its version. Ollama manages its separate model store.\n"
+                f"Rollback: {manifest.rollback}",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            self.store.record_action_authorization(
+                project_id=None, action="setup", scope=plan.scope, risk="mutation",
+                decision="approved", actor="user",
+                expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+                reason="approved exact official Ollama installer in Environment readiness",
+            )
+            worker = WindowsOllamaInstallWorker(
+                self.store, plan_setup(self.store, latest_report.environment, manifest),
+                manifest, data_dir() / "tools",
+            )
+            self.ollama_install_worker = worker
+            install_ollama.setEnabled(False)
+            progress.setText(f"Installing Ollama {manifest.version}…")
+            worker.completed.connect(lambda receipt: (
+                QMessageBox.information(dialog, "Ollama installed", f"Verified {receipt.executable}"),
+                check_again(), self._start_ollama_check(),
+            ))
+            worker.failed.connect(lambda error: (
+                QMessageBox.warning(dialog, "Ollama setup failed", error),
+                progress.setText("Ollama setup failed; review the installer state before retrying."),
+            ))
+            worker.finished.connect(lambda: (
+                setattr(self, "ollama_install_worker", None),
+                install_ollama.setEnabled(True), worker.deleteLater(),
+            ))
+            worker.start()
+
+        install_ollama.clicked.connect(begin_ollama_install)
         def begin_model_pull() -> None:
             if self.model_inspect_worker is not None or self.model_pull_worker is not None:
                 return

@@ -62,6 +62,11 @@ class OllamaClient:
         else:
             executable = shutil.which("ollama")
         if not executable:
+            from .environment.managed_tools import managed_executable
+
+            managed = managed_executable("ollama")
+            executable = str(managed) if managed else None
+        if not executable:
             return False
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:

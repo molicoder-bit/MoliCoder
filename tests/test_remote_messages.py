@@ -15,8 +15,11 @@ from local_model_chat.storage import ChatStore
 def _fixture(tmp_path):
     store = ChatStore(tmp_path / "messages.sqlite3")
     project = store.upsert_project("Signed messages", str(tmp_path), "python")
-    run_id = store.create_run(project.id, "Read one file", "LOCAL_OFFLINE")
+    run_id = store.create_run(project.id, "Read one file", "REMOTE_OPT_IN",
+                              provider="remote", base_commit="b" * 40)
     task_id = store.create_run_task(run_id, "T1", "Read", "Read one file", "low")
+    store.transition_task_state(task_id, "ready", attempts=0,
+                                reason="remote fixture ready", actor="system")
     private = Ed25519PrivateKey.generate()
     key = private.public_key().public_bytes(
         encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw,
@@ -124,3 +127,50 @@ def test_v12_upgrade_preserves_lease_and_adds_message_receipts(tmp_path) -> None
     assert RemoteMessageStore(upgraded).receive(
         envelope, _signature(private, envelope), now=now,
     ).message_id == envelope["message_id"]
+
+
+def test_reconnect_needs_signed_reconcile_and_exact_renewal_approval(tmp_path) -> None:
+    store, leases, private, lease, now = _fixture(tmp_path)
+    messages = RemoteMessageStore(store)
+    accept = _envelope(lease, now)
+    messages.receive(accept, _signature(private, accept), now=now)
+    later = now + timedelta(minutes=3)
+    reconcile = _envelope(lease, later, sequence=2, kind="reconcile",
+                          nonce="b" * 32, message_id="message-00000002")
+    signature = _signature(private, reconcile)
+    messages.receive(reconcile, signature, now=later)
+    renewal = later + timedelta(minutes=10)
+    with pytest.raises(PermissionError, match="approval"):
+        leases.renew_after_reconcile(reconcile, signature, renewal, now=later)
+    scope = (f"remote_renew:task:{lease.task_id}:epoch:{lease.epoch}:"
+             f"sequence:2:expires:{renewal.isoformat()}")
+    store.record_action_authorization(
+        project_id=None, action="remote_renew", scope=scope, risk="mutation",
+        decision="approved", actor="user",
+        expires_at=(later + timedelta(minutes=15)).isoformat(),
+    )
+    from local_model_chat.inference.adapters.ollama import ensure_local_offering, local_offering_id
+    from local_model_chat.inference.contracts import InferencePurpose, InferenceRequest
+    from local_model_chat.inference.ledger import InferenceLedger, UsageEvent
+    from local_model_chat.inference.registry import ProviderRegistry
+    with store._connect() as connection:
+        row = connection.execute(
+            "SELECT t.run_id, r.project_id FROM tasks t JOIN runs r ON r.id = t.run_id "
+            "WHERE t.id = ?", (lease.task_id,),
+        ).fetchone()
+    ensure_local_offering(ProviderRegistry(store), "molicoder:latest",
+                          context_window=4096, max_output_tokens=256)
+    pending = InferenceRequest(
+        "remote-pending", row["project_id"], local_offering_id("molicoder:latest"),
+        "molicoder:latest", InferencePurpose.EXECUTION,
+        ({"role": "user", "content": "Hi"},), "private", (), 100, 20, 5,
+        run_id=row["run_id"], task_id=lease.task_id,
+    )
+    InferenceLedger(store).start(pending)
+    with pytest.raises(LeaseConflict, match="unsettled inference"):
+        leases.renew_after_reconcile(reconcile, signature, renewal, now=later)
+    InferenceLedger(store).append(UsageEvent(pending.request_id, "failed"))
+    renewed = leases.renew_after_reconcile(reconcile, signature, renewal, now=later)
+    assert renewed.state == "active" and renewed.expires_at == renewal.isoformat()
+    with pytest.raises(LeaseConflict, match="reconciled lease changed"):
+        leases.renew_after_reconcile(reconcile, signature, renewal, now=later)

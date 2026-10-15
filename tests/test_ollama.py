@@ -3,6 +3,23 @@ import json
 from local_model_chat.ollama import OllamaClient, _metrics_from_response
 
 
+def test_managed_ollama_binary_can_start_local_service_without_path(tmp_path, monkeypatch) -> None:
+    binary = tmp_path / "ollama"
+    binary.write_bytes(b"fixture")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr("local_model_chat.ollama.shutil.which", lambda _name: None)
+    monkeypatch.setattr("local_model_chat.environment.managed_tools.managed_executable",
+                        lambda tool_id: binary if tool_id == "ollama" else None)
+    client = OllamaClient()
+    checks = iter((False, True))
+    monkeypatch.setattr(client, "is_available", lambda: next(checks))
+    captured = {}
+    monkeypatch.setattr("local_model_chat.ollama.subprocess.Popen", lambda command, **_kwargs:
+                        captured.update(command=command) or object())
+    assert client.ensure_running(wait_seconds=1)
+    assert captured["command"] == [str(binary), "serve"]
+
+
 def test_metrics_conversion() -> None:
     metrics = _metrics_from_response(
         {

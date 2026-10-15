@@ -41,8 +41,11 @@ def test_loopback_tls_accepts_exact_signed_message_and_rejects_pin_mismatch(tmp_
     certificate, tls_key, fingerprint = _certificate(tmp_path)
     store = ChatStore(tmp_path / "transport.sqlite3")
     project = store.upsert_project("Remote TLS", str(tmp_path), "python")
-    run_id = store.create_run(project.id, "Read file", "LOCAL_OFFLINE")
+    run_id = store.create_run(project.id, "Read file", "REMOTE_OPT_IN",
+                              provider="remote", base_commit="a" * 40)
     task_id = store.create_run_task(run_id, "T1", "Read", "Read a line", "low")
+    store.transition_task_state(task_id, "ready", attempts=0,
+                                reason="remote fixture ready", actor="system")
     worker_key = ed25519.Ed25519PrivateKey.generate()
     public = worker_key.public_key().public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw,

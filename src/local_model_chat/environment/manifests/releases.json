@@ -13,7 +13,7 @@
     "privilege": "user",
     "install_kind": "installer",
     "expected_executable": "ollama.exe",
-    "rollback": "Restore only a MoliCoder-managed previous version and its configuration backup.",
+    "rollback": "Use Ollama's registered Windows uninstaller for a new install; model data remains unless separately approved.",
     "source_checked_at": "2026-10-15T05:48:20+00:00",
     "signature_requirement": "Windows Authenticode valid before execution"
   },
@@ -141,6 +141,42 @@
     "expected_executable": "opencode",
     "rollback": "Remove only the verified MoliCoder-managed version or restore its previous managed version.",
     "source_checked_at": "2026-10-15T18:52:00+00:00",
+    "signature_requirement": "SHA-256 asset digest matches the official GitHub release asset"
+  },
+  {
+    "tool_id": "ollama",
+    "version": "0.34.2",
+    "system": "Darwin",
+    "architecture": "x86_64",
+    "source_url": "https://github.com/ollama/ollama/releases/download/v0.34.2/ollama-darwin.tgz",
+    "sha256": "f33b2a5aa59bc6c961ed3ec23ba9dc646ca6d99ced8d2a0d46eb3a522167dd3f",
+    "size_bytes": 158526160,
+    "license_id": "MIT",
+    "license_url": "https://github.com/ollama/ollama/blob/v0.34.2/LICENSE",
+    "prerequisites": ["macOS Intel", "user-writable managed tools directory"],
+    "privilege": "user",
+    "install_kind": "archive",
+    "expected_executable": "ollama",
+    "rollback": "Remove only the receipt-backed MoliCoder-managed runtime or restore its previous managed version; local model data is separate.",
+    "source_checked_at": "2026-10-15T19:43:00+00:00",
+    "signature_requirement": "SHA-256 asset digest matches the official GitHub release asset"
+  },
+  {
+    "tool_id": "ollama",
+    "version": "0.34.2",
+    "system": "Darwin",
+    "architecture": "aarch64",
+    "source_url": "https://github.com/ollama/ollama/releases/download/v0.34.2/ollama-darwin.tgz",
+    "sha256": "f33b2a5aa59bc6c961ed3ec23ba9dc646ca6d99ced8d2a0d46eb3a522167dd3f",
+    "size_bytes": 158526160,
+    "license_id": "MIT",
+    "license_url": "https://github.com/ollama/ollama/blob/v0.34.2/LICENSE",
+    "prerequisites": ["macOS Apple Silicon", "user-writable managed tools directory"],
+    "privilege": "user",
+    "install_kind": "archive",
+    "expected_executable": "ollama",
+    "rollback": "Remove only the receipt-backed MoliCoder-managed runtime or restore its previous managed version; local model data is separate.",
+    "source_checked_at": "2026-10-15T19:43:00+00:00",
     "signature_requirement": "SHA-256 asset digest matches the official GitHub release asset"
   }
 ]

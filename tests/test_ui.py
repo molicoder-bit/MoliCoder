@@ -933,6 +933,78 @@ def test_managed_repair_button_uses_receipt_and_two_exact_approvals(qtbot, tmp_p
     dialog.close()
 
 
+def test_windows_ollama_installer_button_requires_exact_approval(qtbot, tmp_path, monkeypatch) -> None:
+    from local_model_chat.environment.discovery import DiscoveredTool, EnvironmentReport
+    from local_model_chat.environment.doctor import doctor_report
+    from local_model_chat.environment.manifests import load_manifests
+    from local_model_chat.workers import DoctorWorker, WindowsOllamaInstallWorker
+
+    environment = EnvironmentReport(
+        1, "Windows", "x86_64", 4, 16 * 1024**3, 20 * 1024**3,
+        "unknown", "fixture", (DiscoveredTool("ollama", None, None, "missing"),), (),
+    )
+    monkeypatch.setattr(
+        DoctorWorker, "start",
+        lambda worker: worker.ready.emit(doctor_report(environment, load_manifests())),
+    )
+    captured = {}
+    monkeypatch.setattr(QMessageBox, "question", lambda _dialog, _title, detail: (
+        captured.update(detail=detail) or QMessageBox.StandardButton.Yes
+    ))
+    monkeypatch.setattr(WindowsOllamaInstallWorker, "start",
+                        lambda worker: captured.update(worker=worker))
+    store = ChatStore(tmp_path / "ollama-install-ui.sqlite3")
+    window = MainWindow(store, FakeClient(), start_ollama_check=False)
+    qtbot.addWidget(window)
+    window._show_environment_doctor()
+    dialog = window.doctor_dialog
+    button = next(item for item in dialog.findChildren(QPushButton)
+                  if item.text() == "Install verified Ollama runtime (Windows)")
+    button.click()
+    worker = captured["worker"]
+    assert worker.plan.authorized and worker.manifest.tool_id == "ollama"
+    assert worker.manifest.sha256 in captured["detail"]
+    assert "Authenticode" in captured["detail"]
+    approval = store.latest_action_authorization(
+        project_id=None, action="setup", scope=worker.plan.scope,
+    )
+    assert approval["decision"] == "approved" and approval["actor"] == "user"
+    dialog.close()
+
+
+def test_linux_ollama_archive_is_offered_as_managed_setup(qtbot, tmp_path, monkeypatch) -> None:
+    from local_model_chat.environment.discovery import DiscoveredTool, EnvironmentReport
+    from local_model_chat.environment.doctor import doctor_report
+    from local_model_chat.environment.manifests import load_manifests
+    from local_model_chat.workers import DoctorWorker, ManagedInstallWorker
+
+    environment = EnvironmentReport(
+        1, "Linux", "x86_64", 4, 16 * 1024**3, 20 * 1024**3,
+        "unknown", "fixture", (DiscoveredTool("ollama", None, None, "missing"),), (),
+    )
+    monkeypatch.setattr(DoctorWorker, "start", lambda worker: worker.ready.emit(
+        doctor_report(environment, load_manifests()),
+    ))
+    monkeypatch.setattr(QInputDialog, "getItem", lambda *_args: ("ollama 0.34.2", True))
+    captured = {}
+    monkeypatch.setattr(QMessageBox, "question", lambda _dialog, _title, detail: (
+        captured.update(detail=detail) or QMessageBox.StandardButton.Yes
+    ))
+    monkeypatch.setattr(ManagedInstallWorker, "start", lambda worker: captured.update(worker=worker))
+    store = ChatStore(tmp_path / "linux-ollama-ui.sqlite3")
+    window = MainWindow(store, FakeClient(), start_ollama_check=False)
+    qtbot.addWidget(window)
+    window._show_environment_doctor()
+    dialog = window.doctor_dialog
+    button = next(item for item in dialog.findChildren(QPushButton)
+                  if item.text() == "Install supported managed tool")
+    button.click()
+    assert captured["worker"].manifest.source_url.endswith(".tar.zst")
+    assert captured["worker"].plan.authorized
+    assert "ollama" in captured["detail"].lower()
+    dialog.close()
+
+
 def test_usage_dialog_shows_source_aware_project_report(qtbot, tmp_path, monkeypatch) -> None:
     from local_model_chat.inference.budget import BudgetManager
     store = ChatStore(tmp_path / "usage-ui.sqlite3")

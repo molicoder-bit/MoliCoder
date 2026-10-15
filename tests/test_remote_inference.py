@@ -51,8 +51,11 @@ def test_remote_paid_request_uses_coordinator_budget_and_never_replays(tmp_path,
     monkeypatch.setattr(eligibility, "platform_security", lambda: platform_security("Windows"))
     store = ChatStore(tmp_path / "remote-paid.sqlite3")
     project = store.upsert_project("Remote paid", str(tmp_path), "python")
-    run_id = store.create_run(project.id, "Read file", "LOCAL_OFFLINE")
+    run_id = store.create_run(project.id, "Read file", "REMOTE_OPT_IN",
+                              provider="remote", base_commit="a" * 40)
     task_id = store.create_run_task(run_id, "T1", "Read", "Read one file", "low")
+    store.transition_task_state(task_id, "ready", attempts=0,
+                                reason="remote fixture ready", actor="system")
     registry = ProviderRegistry(store)
     offering_id = register_custom_route(store, CustomRoute(
         "remote-api", "Remote API", "https://api.example.test/v1", "model-a",

@@ -7,12 +7,13 @@ from local_model_chat.environment.manifests import load_manifests
 
 def test_official_pinned_manifests_have_platform_trust_and_rollback() -> None:
     manifests = load_manifests()
-    assert len(manifests) == 8
+    assert len(manifests) == 10
     assert {(item.tool_id, item.system, item.architecture) for item in manifests} == {
         ("ollama", "Windows", "x86_64"), ("ollama", "Linux", "x86_64"),
         ("kandev", "Windows", "x86_64"), ("kandev", "Linux", "x86_64"),
         ("opencode", "Windows", "x86_64"), ("opencode", "Linux", "x86_64"),
         ("opencode", "Darwin", "x86_64"), ("opencode", "Darwin", "aarch64"),
+        ("ollama", "Darwin", "x86_64"), ("ollama", "Darwin", "aarch64"),
     }
     assert all(item.sha256 and item.license_url and item.rollback for item in manifests)
     assert all(item.signature_requirement for item in manifests)
