@@ -25,6 +25,16 @@ def _authorize(store, project, kind, key, payload):
     )
 
 
+def _authorize_reconciliation(store, project, kind, key, payload):
+    scope = ActionReceipts.scope_for(project.id, kind, key, payload)
+    risk = {"deployment": "external", "payment": "financial", "destructive": "destructive"}[kind]
+    store.record_action_authorization(
+        project_id=project.id, action="external_action_reconcile", scope=scope, risk=risk,
+        decision="approved", actor="user",
+        expires_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+    )
+
+
 @pytest.mark.parametrize("kind", ["deployment", "payment", "destructive"])
 def test_receipt_prevents_duplicate_external_dispatch(tmp_path, kind):
     store, project, service = _service(tmp_path)
@@ -88,3 +98,27 @@ def test_invalid_provider_receipt_stays_uncertain(tmp_path):
     with pytest.raises(ActionReviewRequired, match="uncertain"):
         service.execute_once("deployment", key, payload, lambda _key: "api_key=secret")
     assert service.get(key).status == "uncertain"
+
+
+def test_verified_external_outcome_closes_uncertain_receipt_without_redispatch(tmp_path):
+    store, project, service = _service(tmp_path)
+    key, payload = "payment-verified-123", b"charge request"
+    _authorize(store, project, "payment", key, payload)
+    calls = []
+    with pytest.raises(ActionReviewRequired, match="uncertain"):
+        service.execute_once("payment", key, payload, lambda _key: calls.append(1) or (_ for _ in ()).throw(TimeoutError()))
+    assert calls == [1]
+    with pytest.raises(PermissionError, match="approval"):
+        service.reconcile_completed("payment", key, payload, "processor-charge-123")
+    _authorize_reconciliation(store, project, "payment", key, payload)
+    _authorize_reconciliation(store, project, "payment", key, b"different charge")
+    with pytest.raises(ActionReviewRequired, match="identity differs"):
+        service.reconcile_completed("payment", key, b"different charge", "processor-charge-123")
+    receipt = service.reconcile_completed("payment", key, payload, "processor-charge-123")
+    assert receipt.status == "completed" and receipt.external_receipt == "processor-charge-123"
+    assert service.reconcile_completed("payment", key, payload, "processor-charge-123") == receipt
+    with pytest.raises(ActionReviewRequired, match="different verified receipt"):
+        service.reconcile_completed("payment", key, payload, "processor-charge-456")
+    restarted = ActionReceipts(store, project.id)
+    assert restarted.execute_once("payment", key, payload, lambda _key: calls.append(2) or "duplicate") == receipt
+    assert calls == [1]

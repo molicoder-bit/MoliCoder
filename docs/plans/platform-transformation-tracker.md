@@ -273,6 +273,8 @@ The module names below are proposed until P06-04 confirms interfaces. Each check
 - [x] **I14-03 Classify failures and choose recovery action.** D: I08-04, I14-02. A: `molicoder/repair.py`, `fingerprint.py`; N: none. V: tests distinguish provider, agent/process, validation, architecture, no-progress, and interrupted failures. C/R: M/medium. G7.
 - [x] **I14-04 Hand off to an alternate eligible model.** D: I14-03, I04-04. A: `molicoder/orchestrator.py`; N: none. V: transfer packet carries verified progress and diagnostics; no over-budget retry; same failure loop stops with explanation. C/R: L/high. G3,G5,G7.
 - [ ] **I14-05 Guard external side effects across retries and crashes.** D: I14-01, I02-03. A: `molicoder/tools.py`, `orchestrator.py`; N: `actions/receipts.py`. V: idempotency receipt prevents duplicate deployment/payment/destructive action; unsupported action stops for user review. C/R: L/high. G5,G7.
+  - [x] **I14-05a Reconcile a verified uncertain external outcome without replay.** Exact reconciliation authorization and matching action identity close an uncertain receipt; 7 focused tests pass.
+  - [x] **I14-05b Stop automatic opaque-agent retries when external side effects may have occurred.** Preserve the worktree and require review before a second agent execution. A failed or unvalidated opaque execution now stops before repair or handoff; focused tests cover both outcomes.
 
 ### I15 — User surfaces and observability (5 tasks)
 

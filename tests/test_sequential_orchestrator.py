@@ -5,6 +5,8 @@ import re
 import json
 from pathlib import Path
 
+import pytest
+
 from local_model_chat.molicoder.orchestrator import SequentialRunOrchestrator
 from local_model_chat.molicoder.evidence_view import render_task_evidence
 from local_model_chat.molicoder.planner.schema import parse_plan
@@ -69,6 +71,49 @@ class Executor:
 
     def cancel(self):
         return None
+
+
+@pytest.mark.parametrize("provider_status", ["needs_attention", "completed"])
+def test_opaque_agent_stops_for_review_before_retry_or_handoff(tmp_path, provider_status) -> None:
+    root, store, project = _project(tmp_path)
+    events = []
+
+    class OneTaskPlanner:
+        provider = "fixture"
+
+        def plan(self, _packet):
+            return parse_plan({"objective": "One change", "tasks": [{
+                "key": "one", "title": "One", "objective": "Create output",
+                "risk": "low", "depends_on": [], "expected_paths": ["one.txt"],
+            }]})
+
+    class OpaqueExecutor(Executor):
+        enforcement_class = "opaque_agent"
+
+        def execute(self, worktree, _prompt, *, timeout_seconds=1200):
+            self.paths.append(Path(worktree))
+            (Path(worktree) / "one.txt").write_text("unreviewed\n", encoding="utf-8")
+            return ProviderResult(provider_status, "attempted", error="quota exceeded")
+
+    class Alternate(Executor):
+        def execute(self, *_args, **_kwargs):
+            raise AssertionError("opaque agent outcome must not trigger a handoff")
+
+    opaque = OpaqueExecutor()
+    result = SequentialRunOrchestrator(
+        store=store, project=project, planner=OneTaskPlanner(), provider=opaque,
+        alternate_provider=Alternate(), validate=lambda _root: "validation failed",
+        worktree_base=tmp_path / "opaque-worktrees", max_task_attempts=3,
+        on_event=lambda kind, payload: events.append((kind, payload)),
+    ).run("Opaque execution", mode="FRONTIER_ONLY")
+
+    task = store.list_run_tasks(result.run_id)[0]
+    assert result.status == "needs_attention" and task.status == "review_required"
+    assert task.attempts == 1 and len(opaque.paths) == 1
+    assert result.integration_path and (result.integration_path / "one.txt").read_text() == "unreviewed\n"
+    assert (root / "first.txt").read_text() == "base\n"
+    assert any(kind == "opaque_attempt_review_required" for kind, _payload in events)
+    assert not any(kind in {"model_handoff", "repair_started"} for kind, _payload in events)
 
 
 def test_tasks_share_one_worktree_and_success_auto_applies(tmp_path) -> None:

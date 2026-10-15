@@ -921,6 +921,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
 
             if not changed:
                 wait_state = ""
+                opaque_review_required = False
                 attempt_provider = self.provider
                 failed_fingerprints: set[str] = set()
                 for frontier_attempt in range(1, self.max_task_attempts + 1):
@@ -955,6 +956,8 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                         "key": task.key, "provider": attempt_provider.name, "attempt": frontier_attempt,
                         "maximum_attempts": self.max_task_attempts,
                     }, task_id)
+                    opaque_attempt = getattr(attempt_provider, "enforcement_class", "") == "opaque_agent"
+                    calls_before = getattr(attempt_provider, "calls", None) if opaque_attempt else None
                     try:
                         result = attempt_provider.execute(
                             workspace.path,
@@ -967,6 +970,10 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                         )
                     except (ProviderUnavailable, PermissionError) as exc:
                         validation_error = str(exc)
+                        if opaque_attempt and calls_before is not None and getattr(attempt_provider, "calls", None) != calls_before:
+                            validation_error = "Opaque agent execution may have caused external side effects: " + validation_error
+                            opaque_review_required = True
+                            break
                         wait_state = "waiting_approval" if isinstance(exc, PermissionError) else (
                             "waiting_auth" if classify_provider_failure("failed", validation_error).category == "auth" else ""
                         )
@@ -974,12 +981,22 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                             "key": task.key, "reason": validation_error,
                         }, task_id)
                         break
+                    except Exception as exc:
+                        if not opaque_attempt:
+                            raise
+                        validation_error = "Opaque agent execution may have caused external side effects: " + str(exc)
+                        opaque_review_required = True
+                        break
                     self._record_provider_result(run_id, task_id, frontier_attempt, result, attempt_provider)
                     if result.status == "cancelled":
                         self.store.update_run_task(task_id, "cancelled", attempts, reason="cancelled by user")
                         return self._finish_run(run_id, "cancelled", completed, len(plan.tasks), error="cancelled by user", workspace=workspace)
                     if result.status != "completed":
                         validation_error = result.error or result.status
+                        if opaque_attempt:
+                            validation_error = "Opaque agent execution requires review before retry: " + validation_error
+                            opaque_review_required = True
+                            break
                         action = classify_provider_failure(result.status, validation_error)
                         wait_state = {"auth": "waiting_auth", "quota": "waiting_quota"}.get(action.category, "")
                         self._route_cooldowns.apply(attempt_provider.name, action)
@@ -1046,6 +1063,10 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                             validation_error = "provider completed without making a repository change"
                     if validation_error.startswith("architectural review required:"):
                         break
+                    if opaque_attempt:
+                        validation_error = "Opaque agent output requires review before retry: " + validation_error
+                        opaque_review_required = True
+                        break
                     if frontier_attempt < self.max_task_attempts:
                         self._event(run_id, "repair_started", {"key": task.key, "reason": validation_error, "attempt": frontier_attempt + 1}, task_id)
 
@@ -1057,7 +1078,12 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                     "action": recovery.action, "retry_allowed": recovery.retry_allowed,
                     "fingerprint": recovery.fingerprint,
                 }, task_id)
-                needs_review = error.startswith("architectural review required:")
+                needs_review = opaque_review_required or error.startswith("architectural review required:")
+                if opaque_review_required:
+                    self._event(run_id, "opaque_attempt_review_required", {
+                        "key": task.key, "attempt": attempts, "provider": attempt_provider.name,
+                        "reason": error[:500], "worktree": str(workspace.path),
+                    }, task_id)
                 final_state = "review_required" if needs_review else wait_state or "needs_attention"
                 self.store.update_run_task(task_id, final_state, attempts, reason=error)
                 self._event(run_id, "task_review_required" if needs_review else "task_failed", {

@@ -137,3 +137,37 @@ class ActionReceipts:
             )
             connection.commit()
         return self.get(key)
+
+    def reconcile_completed(
+        self, kind: str, key: str, payload: bytes, external_receipt: str,
+    ) -> ActionReceipt:
+        """Record a human-verified external outcome without dispatching again."""
+        scope = self.scope_for(self.project_id, kind, key, payload)
+        if not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,200}", external_receipt):
+            raise ValueError("reconciliation requires a verifiable external receipt")
+        AuthorizationPolicy(self.store).require(ActionRequest(
+            self.project_id, "external_action_reconcile", scope, _RISKS[kind],
+        ))
+        digest = hashlib.sha256(payload).hexdigest()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM action_receipts WHERE idempotency_key = ?", (key,),
+            ).fetchone()
+            if row is None:
+                raise ActionReviewRequired("external action has no reserved receipt to reconcile")
+            if row["kind"] != kind or row["scope"] != scope or row["payload_digest"] != digest:
+                raise ActionReviewRequired("external action identity differs from the reserved receipt")
+            if row["status"] == "completed":
+                if row["external_receipt"] != external_receipt:
+                    raise ActionReviewRequired("external action already has a different verified receipt")
+            else:
+                connection.execute(
+                    """UPDATE action_receipts SET status = 'completed', external_receipt = ?, updated_at = ?
+                       WHERE idempotency_key = ? AND status IN ('in_progress', 'uncertain')""",
+                    (external_receipt, datetime.now(timezone.utc).isoformat(), key),
+                )
+                connection.commit()
+        receipt = self.get(key)
+        assert receipt is not None
+        return receipt
