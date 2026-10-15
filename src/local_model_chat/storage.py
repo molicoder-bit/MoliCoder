@@ -15,7 +15,7 @@ from .domain import (
 
 
 class ChatStore:
-    SCHEMA_VERSION = 14
+    SCHEMA_VERSION = 15
     TASK_STATES = frozenset({
         "pending", "proposed", "ready", "running", "verifying", "completed",
         "blocked", "failed", "retrying", "waiting_quota", "waiting_approval",
@@ -76,6 +76,10 @@ class ChatStore:
                     output_tokens INTEGER,
                     metrics_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS message_receipts (
+                    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+                    receipt_json TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
@@ -601,6 +605,17 @@ class ChatStore:
             )
             connection.commit()
             return int(cursor.lastrowid)
+
+    def set_message_receipt(self, message_id: int, receipt: dict) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute("INSERT INTO message_receipts(message_id,receipt_json) VALUES(?,?) ON CONFLICT(message_id) DO UPDATE SET receipt_json=excluded.receipt_json",
+                               (message_id, json.dumps({"version": 1, **receipt}, ensure_ascii=False)))
+            connection.commit()
+
+    def message_receipt(self, message_id: int) -> dict | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute("SELECT receipt_json FROM message_receipts WHERE message_id=?", (message_id,)).fetchone()
+        return json.loads(row[0]) if row else None
 
     def delete_last_exchange(self, conversation_id: int) -> None:
         with closing(self._connect()) as connection:

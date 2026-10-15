@@ -37,6 +37,13 @@ def refresh_route_identity(w):
     elif w.view_stack.currentWidget() == w.chat_view:
         model = getattr(w.chat_worker, 'model', w.preset.name)
         text = f'Chat {"running" if w.chat_worker is not None else "selected"} · Ollama (local) · {model}'
+        if w.chat_worker is None:
+            from .workspace import last_receipt
+            receipt = last_receipt(w)
+            if receipt:
+                last = ('No AI model used' if receipt.get('model_source') == 'no_inference' else
+                        f"{receipt.get('provider', 'Unknown provider')} · {receipt.get('requested_model', 'Model not reported')} ({receipt.get('model_source', 'unknown')})")
+                text = f'Last reply: {last}\nNext reply: Ollama (local) · {model}'
     elif w.build_tabs.currentIndex() == 1:
         text = 'Kandev board · agent/model managed in Kandev · model not reported'
     elif w.orchestration_worker is not None:

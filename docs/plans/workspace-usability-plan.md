@@ -191,71 +191,71 @@ Prerequisite: UX01, UX04, UX05. Primary files: route identity, provider events, 
 - [ ] UX06-01 Define a route identity record containing provider ID/display name, requested model, reported model, alias/display label, evidence source, and call identity. **Done when:** configured and reported values cannot overwrite each other's meaning.
 - [ ] UX06-02 Resolve local model labels from available verified discovery metadata. **Done when:** a known model family can accompany its exact alias, while a user-created alias is never treated as proof of underlying weights.
 - [ ] UX06-03 Capture model reports from supported provider events as soon as they arrive. **Done when:** the active identity updates before completion when evidence exists; unsupported CLI reports remain explicitly unknown.
-- [ ] UX06-04 Persist route attribution with completed assistant responses. **Done when:** reopening a conversation identifies the route used for each response rather than the model currently selected in Settings.
+- [x] UX06-04 Persist route attribution with completed assistant responses. **Done when:** reopening a conversation identifies the route used for each response rather than the model currently selected in Settings.
 - [ ] UX06-05 Persist route attribution for individual Build stages/attempts. **Done when:** planning, local execution, fallback, and review can show different providers/models without mislabeling the entire run as one model.
-- [ ] UX06-06 Represent deterministic replies and actions explicitly. **Done when:** project-status answers and folder actions say No AI model used and are not attributed to the selected local model.
-- [ ] UX06-07 Replace the small legacy banner with a readable identity component beside current work. **Done when:** provider and model can be identified at a glance in both themes and normal display scaling.
-- [ ] UX06-08 Separate Next reply/Selected for Build from Working now and Last reply/Last call. **Done when:** changing settings does not relabel prior output, and worker cleanup retains the last actual identity.
-- [ ] UX06-09 Add response attribution in the transcript. **Done when:** a reader can determine the origin of a prior response without selecting the original model again; legacy records with missing evidence are labeled unavailable.
+- [x] UX06-06 Represent deterministic replies and actions explicitly. **Done when:** project-status answers and folder actions say No AI model used and are not attributed to the selected local model.
+- [x] UX06-07 Replace the small legacy banner with a readable identity component beside current work. **Done when:** provider and model can be identified at a glance in both themes and normal display scaling.
+- [x] UX06-08 Separate Next reply/Selected for Build from Working now and Last reply/Last call. **Done when:** changing settings does not relabel prior output, and worker cleanup retains the last actual identity.
+- [x] UX06-09 Add response attribution in the transcript. **Done when:** a reader can determine the origin of a prior response without selecting the original model again; legacy records with missing evidence are labeled unavailable.
 - [ ] UX06-10 Show an active fallback or local handoff immediately. **Done when:** the old provider/model disappears from the active-call field and remains only in historical evidence.
 - [ ] UX06-11 Handle Kandev and custom API tests explicitly. **Done when:** Kandev displays only identities supported by adapter evidence, and API tests show their own provider/model without altering Chat attribution.
-- [ ] UX06-12 Add a compact Change action that opens Settings at the relevant model/route section. **Done when:** the main screen remains free of the legacy dropdown and the current model stays visible while settings are closed.
+- [x] UX06-12 Add a compact Change action that opens Settings at the relevant model/route section. **Done when:** the main screen remains free of the legacy dropdown and the current model stays visible while settings are closed.
 - [ ] UX06-13 Verify local alias, explicit external model, unknown CLI default, fallback, deterministic reply, and restarted history scenarios. **Done when:** no case derives the active route from an Ollama health indicator or labels an unknown model as GPT-4.
 
-Evidence: pending.
+Evidence (partial): reply receipts persist in schema v15 with legacy backup and cascading message deletion; 18 receipt/settings/activity/storage tests passed. Existing UI/workspace/identity/theme tests passed (68 tests) before the schema-backup assertions were updated for v15. New tests verify navigable model settings, last-versus-next identity, request context, reduced motion, background Build access and terminal animation stop. Remaining acceptance tasks are unchecked.
 
 ## UX07 — Replace legacy controls with relevant context and results
 
 Prerequisite: UX01, UX02, UX04, UX06. Primary files: workspace, Chat toolbar, request/context assembly, usage views.
 
-- [ ] UX07-01 Remove the permanent Chat model dropdown and context-size badge from the main work area. **Done when:** model selection remains available through UX06's Change action and Settings.
-- [ ] UX07-02 Move the global Chat token meter and reserved-output controls into Usage/advanced model controls. **Done when:** Build no longer displays a Chat estimate as though it describes the running task.
-- [ ] UX07-03 Remove generic runtime/local-route slogans from the main-screen summary. **Done when:** runtime connection health appears in the relevant settings/Performance view, with an actionable alert only when it blocks the chosen operation.
-- [ ] UX07-04 Define a context receipt for each submitted request. **Done when:** it records which conversation turns, attachments, project files, decisions, and tool results were actually included, with IDs and scope.
-- [ ] UX07-05 Produce the receipt from request assembly. **Done when:** selected project metadata alone cannot imply that the full repository or all knowledge was sent to a model.
-- [ ] UX07-06 Render a short Chat context summary from the receipt. **Done when:** users see relevant included sources and scope, and an empty chat has a useful empty state rather than stale counters.
+- [x] UX07-01 Remove the permanent Chat model dropdown and context-size badge from the main work area. **Done when:** model selection remains available through UX06's Change action and Settings.
+- [x] UX07-02 Move the global Chat token meter and reserved-output controls into Usage/advanced model controls. **Done when:** Build no longer displays a Chat estimate as though it describes the running task.
+- [x] UX07-03 Remove generic runtime/local-route slogans from the main-screen summary. **Done when:** runtime connection health appears in the relevant settings/Performance view, with an actionable alert only when it blocks the chosen operation.
+- [x] UX07-04 Define a context receipt for each submitted request. **Done when:** it records which conversation turns, attachments, project files, decisions, and tool results were actually included, with IDs and scope.
+- [x] UX07-05 Produce the receipt from request assembly. **Done when:** selected project metadata alone cannot imply that the full repository or all knowledge was sent to a model.
+- [x] UX07-06 Render a short Chat context summary from the receipt. **Done when:** users see relevant included sources and scope, and an empty chat has a useful empty state rather than stale counters.
 - [ ] UX07-07 Render a Build summary from its current task and verified outcomes. **Done when:** current step, target, completed tasks, changed files, and validation appear only when known and relevant.
-- [ ] UX07-08 Add a Context details action for inspectable source names and omissions. **Done when:** the summary can be checked against actual request evidence without exposing secret values or claiming unsupported retrieval.
+- [x] UX07-08 Add a Context details action for inspectable source names and omissions. **Done when:** the summary can be checked against actual request evidence without exposing secret values or claiming unsupported retrieval.
 - [ ] UX07-09 Retain useful warnings near submission. **Done when:** context overflow, missing required input, or a real configured spending limit is visible before sending, even with the routine meter moved out of the main screen.
 - [ ] UX07-10 Scope Usage to the selected request/run and label missing measurements. **Done when:** unknown token counts/cost are not displayed as zero and prior conversation metrics cannot leak into a new chat.
 - [ ] UX07-11 Keep current configuration distinct from verified work already done. **Done when:** a failed attempt cannot increase completed/changed/accepted counts without supporting evidence.
 - [ ] UX07-12 Verify every summary against fixture receipts and outcomes. **Done when:** changing project, model, conversation, or run clears irrelevant information and preserves the correct historical record.
 
-Evidence: pending.
+Evidence (partial): reply receipts persist in schema v15 with legacy backup and cascading message deletion; 18 receipt/settings/activity/storage tests passed. Existing UI/workspace/identity/theme tests passed (68 tests) before the schema-backup assertions were updated for v15. New tests verify navigable model settings, last-versus-next identity, request context, reduced motion, background Build access and terminal animation stop. Remaining acceptance tasks are unchecked.
 
 ## UX08 — Animate real activity and explain waiting
 
 Prerequisite: UX01, UX02, UX06, UX07. Primary files: Build status widgets and lifecycle/event rendering.
 
-- [ ] UX08-01 Add a graphical busy indicator independent of the status text. **Done when:** animation uses a dedicated Qt widget/timer and cannot be overwritten by a provider heartbeat string.
-- [ ] UX08-02 Keep the activity summary above scrollable Build content. **Done when:** the indicator and current stage stay visible when the task list or drawer is scrolled.
+- [x] UX08-01 Add a graphical busy indicator independent of the status text. **Done when:** animation uses a dedicated Qt widget/timer and cannot be overwritten by a provider heartbeat string.
+- [x] UX08-02 Keep the activity summary above scrollable Build content. **Done when:** the indicator and current stage stay visible when the task list or drawer is scrolled.
 - [ ] UX08-03 Start the indicator when the operation is accepted for work. **Done when:** preflight and planning have immediate feedback before the first provider output arrives.
 - [ ] UX08-04 Derive the stage label from operation events. **Done when:** planning, editing, checking, applying, and reconciling have meaningful names and do not alternate with generic Working text.
-- [ ] UX08-05 Show elapsed time and time since the last genuine event. **Done when:** repaint/animation ticks never reset the last-activity timestamp.
-- [ ] UX08-06 Display waiting and possible stalls truthfully. **Done when:** an inactive stream says Waiting for provider/No recent update with elapsed time, without falsely proving progress or declaring failure solely from silence.
+- [x] UX08-05 Show elapsed time and time since the last genuine event. **Done when:** repaint/animation ticks never reset the last-activity timestamp.
+- [x] UX08-06 Display waiting and possible stalls truthfully. **Done when:** an inactive stream says Waiting for provider/No recent update with elapsed time, without falsely proving progress or declaring failure solely from silence.
 - [ ] UX08-07 Wire pause and cancellation states to the indicator. **Done when:** Pause requested, Paused, Cancelling, and Cancelled are distinct, and cancellation does not report completion before the worker stops.
-- [ ] UX08-08 Stop animation on every terminal outcome. **Done when:** success, failure, interruption, and cancellation produce stable labeled outcomes rather than Idle.
-- [ ] UX08-09 Add a compact background Build indicator when Chat is selected. **Done when:** the user can tell that Build is active or needs attention and return to that run in one click.
-- [ ] UX08-10 Provide reduced-motion behavior. **Done when:** the preference uses a stable status icon plus text/time, without losing any state information.
+- [x] UX08-08 Stop animation on every terminal outcome. **Done when:** success, failure, interruption, and cancellation produce stable labeled outcomes rather than Idle.
+- [x] UX08-09 Add a compact background Build indicator when Chat is selected. **Done when:** the user can tell that Build is active or needs attention and return to that run in one click.
+- [x] UX08-10 Provide reduced-motion behavior. **Done when:** the preference uses a stable status icon plus text/time, without losing any state information.
 - [ ] UX08-11 Verify animation with delayed fixture events and failure injection. **Done when:** the UI remains responsive, makes no fake percentage claims, and never shows an active spinner beside a terminal failed task.
 
-Evidence: pending.
+Evidence (partial): reply receipts persist in schema v15 with legacy backup and cascading message deletion; 18 receipt/settings/activity/storage tests passed. Existing UI/workspace/identity/theme tests passed (68 tests) before the schema-backup assertions were updated for v15. New tests verify navigable model settings, last-versus-next identity, request context, reduced motion, background Build access and terminal animation stop. Remaining acceptance tasks are unchecked.
 
 ## UX09 — Create a navigable settings shell
 
 Prerequisite: UX04–UX08. Primary files: settings entry point and existing dialogs.
 
-- [ ] UX09-01 Define plain-language settings categories: General, Models & providers, Projects & Build, Usage & limits, Kandev, and Diagnostics. **Done when:** every existing setting/action has a destination and no required capability disappears.
-- [ ] UX09-02 Implement one settings window with category navigation and a content pane. **Done when:** changing categories keeps the window open and avoids stacked modal dialogs for routine navigation.
-- [ ] UX09-03 Add a short explanatory sentence to each category. **Done when:** a new user understands what can be changed before reading individual technical fields.
+- [x] UX09-01 Define plain-language settings categories: General, Models & providers, Projects & Build, Usage & limits, Kandev, and Diagnostics. **Done when:** every existing setting/action has a destination and no required capability disappears.
+- [x] UX09-02 Implement one settings window with category navigation and a content pane. **Done when:** changing categories keeps the window open and avoids stacked modal dialogs for routine navigation.
+- [x] UX09-03 Add a short explanatory sentence to each category. **Done when:** a new user understands what can be changed before reading individual technical fields.
 - [ ] UX09-04 Mark setting scope as App, Project, or Next request. **Done when:** project-specific changes name their target, and settings that need a project explain that requirement inline.
 - [ ] UX09-05 Define Save/Cancel and immediate-preference behavior consistently. **Done when:** changes are not lost on accidental navigation, and immediate choices such as Theme are clearly shown as applied.
-- [ ] UX09-06 Add direct destinations from Change model, missing provider, budget warning, and run error actions. **Done when:** each opens the matching category and focuses the relevant control.
+- [x] UX09-06 Add direct destinations from Change model, missing provider, budget warning, and run error actions. **Done when:** each opens the matching category and focuses the relevant control.
 - [ ] UX09-07 Move implementation terminology into optional details and improve primary labels. **Done when:** primary actions use Choose model, Connect account, Test connection, Set limit, or Open logs instead of requiring users to understand offerings, manifests, or handoff packets.
 - [ ] UX09-08 Add inline validation and consistent pending/success/error feedback. **Done when:** field mistakes are explained next to the field and operations cannot be accidentally submitted twice.
-- [ ] UX09-09 Verify keyboard navigation, scrolling, and return to work. **Done when:** Settings works at minimum window size and closing it returns focus to the originating action/composer.
+- [x] UX09-09 Verify keyboard navigation, scrolling, and return to work. **Done when:** Settings works at minimum window size and closing it returns focus to the originating action/composer.
 
-Evidence: pending.
+Evidence (partial): reply receipts persist in schema v15 with legacy backup and cascading message deletion; 18 receipt/settings/activity/storage tests passed. Existing UI/workspace/identity/theme tests passed (68 tests) before the schema-backup assertions were updated for v15. New tests verify navigable model settings, last-versus-next identity, request context, reduced motion, background Build access and terminal animation stop. Remaining acceptance tasks are unchecked.
 
 ## UX10 — Make model and provider setup understandable
 

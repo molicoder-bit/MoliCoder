@@ -64,7 +64,8 @@ def build_workspace(w):
     w.route_identity.setAccessibleName('Provider and model')
     w.route_identity.setWordWrap(True)
     w.route_identity.setTextInteractionFlags(Qt.TextSelectableByMouse)
-    w.route_identity.setStyleSheet('font-weight: 650;')
+    w.route_identity.setStyleSheet('font-weight: 650; font-size: 18px;')
+    w.route_identity.setTextFormat(Qt.PlainText)
     w.route_identity.setContentsMargins(22, 8, 22, 0)
     layout.addWidget(w.route_identity)
     w.work_feedback = QLabel()
@@ -73,17 +74,33 @@ def build_workspace(w):
     w.work_feedback.setTextFormat(Qt.PlainText)
     w.work_feedback.hide()
     layout.addWidget(w.work_feedback)
+    from .activity_indicator import ActivityIndicator
+    activity_row = QFrame()
+    activity_layout = QHBoxLayout(activity_row)
+    activity_layout.setContentsMargins(22, 4, 22, 4)
+    w.busy_indicator = ActivityIndicator()
+    w.current_activity = QLabel('')
+    w.current_activity.setWordWrap(True)
+    activity_layout.addWidget(w.busy_indicator)
+    activity_layout.addWidget(w.current_activity, 1)
+    w.return_to_build = button('Open active Build', lambda: w._set_view('build'))
+    activity_layout.addWidget(w.return_to_build)
+    w.activity_row = activity_row
+    activity_row.hide()
+    layout.addWidget(activity_row)
     w.connection_label = QLabel('Local runtime: Ollama · checking')
     w.center = w._build_center()
     w.inspector = w._build_inspector()
     w.inspector.layout().insertWidget(1, w.connection_label)
-    strip_row.addWidget(w.context_progress)
-    w.context_progress.setMaximumWidth(110)
-    strip_row.addWidget(w.context_label, 1)
+    w.context_summary = QLabel('New conversation · No context sent yet')
+    w.context_summary.setWordWrap(True)
+    strip_row.addWidget(w.context_summary, 1)
     w.usage_summary = QLabel('Local route · no API token charge')
     w.usage_summary.setWordWrap(True); strip_row.addWidget(w.usage_summary, 1)
     w.inspector_button = button('Usage ↗', lambda: open_drawer(w, 'Usage'))
     strip_row.addWidget(w.inspector_button)
+    strip_row.addWidget(button('Change model', lambda: show_settings(w, 'Models & providers')))
+    strip_row.addWidget(button('Context details', lambda: show_context_details(w)))
     layout.addWidget(strip)
     layout.addWidget(w.center, 1)
     w.drawer = QTabWidget(); w.drawer.setObjectName('activityDrawer')
@@ -171,7 +188,32 @@ def open_drawer(w, name):
     w.drawer.show()
 
 
-def show_settings(w):
+def show_settings(w, category='General'):
+    from .settings_window import show_settings_window
+    show_settings_window(w, category)
+
+
+def show_context_details(w):
+    import json
+    receipt = last_receipt(w)
+    dialog = QDialog(w)
+    dialog.setWindowTitle('Context actually included')
+    dialog.resize(650, 450)
+    layout = QVBoxLayout(dialog)
+    text = QTextBrowser()
+    text.setPlainText(json.dumps(receipt, indent=2) if receipt else 'No receipt available for this conversation yet. Older replies may not have recorded attribution.')
+    layout.addWidget(text)
+    layout.addWidget(button('Close', dialog.accept))
+    dialog.exec()
+
+
+def last_receipt(w):
+    messages = w.store.list_messages(w.current_conversation_id) if w.current_conversation_id else []
+    last = next((message for message in reversed(messages) if message.role == 'assistant'), None)
+    return w.store.message_receipt(last.id) if last else None
+
+
+def legacy_settings(w):
     dialog = QDialog(w); dialog.setWindowTitle('Workspace settings'); dialog.resize(600, 400)
     layout = QVBoxLayout(dialog)
     title = QLabel('Your workspace, your resources'); title.setObjectName('appTitle'); layout.addWidget(title)
@@ -186,6 +228,7 @@ def show_settings(w):
 
 
 def refresh_workspace(w):
+    refresh_activity(w)
     from .route_identity import refresh_route_identity
     refresh_route_identity(w)
     sync_projects(w)
@@ -195,6 +238,7 @@ def refresh_workspace(w):
     w.build_nav_button.setProperty('mode', 'build' if build else '')
     if build:
         project = w.registry.selected()
+        w.context_summary.setText(f'Target: {project.name} · {project.path}' if project else 'No project · Choose a folder for repository work')
         status = w.store.current_project_run_status(project.id) if project else None
         if not status or not status.run_id:
             w.usage_summary.setText('Build route · provider cost unknown')
@@ -224,7 +268,17 @@ def refresh_workspace(w):
                 w.run_stage.setText(' / '.join(('Prepare', 'Plan', 'Execute', 'Check', 'Apply')) + f'    ·    {run["status"]}')
     else:
         w.work_feedback.hide()
-        w.usage_summary.setText(f'Last response: {w.last_metrics.prompt_tokens:,} input / {w.last_metrics.output_tokens:,} output · local route')
+        receipt = last_receipt(w)
+        if receipt and receipt.get('model_source') == 'no_inference':
+            w.context_summary.setText('Local records/action · No AI model used')
+            w.usage_summary.setText('No inference token usage for this reply')
+        elif receipt:
+            w.context_summary.setText(f"Last reply included: {len(receipt.get('turn_ids', []))} conversation turns · {len(receipt.get('attachments', []))} attachments")
+            metrics = receipt.get('metrics', {})
+            w.usage_summary.setText(f"Last reply: {metrics.get('prompt_tokens', 'unknown')} input / {metrics.get('output_tokens', 'unknown')} output tokens")
+        else:
+            w.context_summary.setText('No recorded request context yet')
+            w.usage_summary.setText('Usage available after a measured reply')
 
     if w.current_project_id:
         from ..inference.budget import BudgetManager
@@ -234,6 +288,24 @@ def refresh_workspace(w):
     if getattr(w, '_request_failure', ''):
         w.work_feedback.setText(f'Build failed · {w._request_failure}\nOpen Activity for details. Correct the request before retrying.')
         w.work_feedback.show()
+
+
+def refresh_activity(w):
+    import time
+    if not hasattr(w, 'busy_indicator'):
+        return
+    active = w.orchestration_worker is not None and not getattr(w, '_build_terminal', False)
+    waiting = bool(active and getattr(w.orchestration_worker, 'paused', False))
+    reduced = w.store.get_setting('ui.reduce_motion', 'false') == 'true'
+    w.busy_indicator.set_busy(active and not waiting, reduced)
+    w.activity_row.setVisible(active)
+    w.return_to_build.setVisible(active and w.view_stack.currentWidget() != w.build_view)
+    if active:
+        elapsed = max(0, int(time.monotonic() - w._build_started_at))
+        since = max(0, int(time.monotonic() - getattr(w, '_last_build_event_at', w._build_started_at)))
+        stage = 'Paused' if waiting else getattr(w, '_active_stage_label', 'Preparing request')
+        suffix = ' · Waiting for provider; no recent update' if since >= 30 else ''
+        w.current_activity.setText(f'{stage} · {elapsed}s elapsed · Last activity {since}s ago{suffix}')
 
 
 def show_history(w):

@@ -4,7 +4,7 @@ import json
 import hashlib
 import subprocess
 import time
-from dataclasses import replace
+from dataclasses import replace, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -235,17 +235,19 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
 
         model_row = QHBoxLayout()
-        model_row.addWidget(QLabel("Chat model (local)"))
+        self.model_settings_label = QLabel("Chat model")
         self.model_combo = QComboBox()
         for preset in MODEL_PRESETS.values():
             self.model_combo.addItem(f"{preset.label}  ·  {preset.role}", preset.name)
         default_index = self.model_combo.findData("molicoder:latest")
         self.model_combo.setCurrentIndex(max(0, default_index))
         self.model_combo.currentIndexChanged.connect(self._model_changed)
-        model_row.addWidget(self.model_combo)
+        self.model_combo.setParent(center)
+        self.model_combo.hide()
         self.model_badge = QLabel("8,192 context")
         self.model_badge.setObjectName("modelBadge")
-        model_row.addWidget(self.model_badge)
+        self.model_badge.setParent(center)
+        self.model_badge.hide()
         model_row.addStretch()
         knowledge_button = QPushButton("Project knowledge")
         knowledge_button.setObjectName("ghost")
@@ -1378,6 +1380,9 @@ class MainWindow(QMainWindow):
         worker.failed.connect(lambda error, owner=worker: self._build_failed(error) if self.orchestration_worker is owner else None)
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
         self._active_build_route = ""
+        self._build_terminal = False
+        self._active_stage_label = "Preparing request"
+        self._last_build_event_at = time.monotonic()
         self.orchestration_worker = worker
         self.build_request.setEnabled(False)
         self.build_owner.setEnabled(False)
@@ -1410,6 +1415,9 @@ class MainWindow(QMainWindow):
         worker.failed.connect(lambda error, owner=worker: self._build_failed(error) if self.orchestration_worker is owner else None)
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
         self._active_build_route = ""
+        self._build_terminal = False
+        self._active_stage_label = "Preparing request"
+        self._last_build_event_at = time.monotonic()
         self.orchestration_worker = worker
         self.build_request.setEnabled(False)
         self.build_owner.setEnabled(False)
@@ -2069,6 +2077,9 @@ class MainWindow(QMainWindow):
         worker.failed.connect(lambda error, owner=worker: self._build_failed(error) if self.orchestration_worker is owner else None)
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
         self._active_build_route = ""
+        self._build_terminal = False
+        self._active_stage_label = "Preparing request"
+        self._last_build_event_at = time.monotonic()
         self.orchestration_worker = worker
         self.build_events.clear()
         self.build_details.clear()
@@ -2181,6 +2192,9 @@ class MainWindow(QMainWindow):
         worker.failed.connect(lambda error, owner=worker: self._build_failed(error) if self.orchestration_worker is owner else None)
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
         self._active_build_route = ""
+        self._build_terminal = False
+        self._active_stage_label = "Preparing request"
+        self._last_build_event_at = time.monotonic()
         self.orchestration_worker = worker
         self.build_events.clear()
         self.build_details.clear()
@@ -2200,6 +2214,8 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _update_build_activity(self) -> None:
+        from .workspace import refresh_activity
+        refresh_activity(self)
         if self.orchestration_worker is None:
             self.build_activity.setText("Idle")
             return
@@ -2211,8 +2227,16 @@ class MainWindow(QMainWindow):
         self._build_activity_frame += 1
 
     def _build_event(self, kind: str, payload: dict) -> None:
-        if kind == "run_started":
+        self._last_build_event_at = time.monotonic()
+        if kind == 'run_stage':
+            self._active_stage_label = str(payload.get('message') or payload.get('stage') or 'Working')
+        if kind in {"run_started", "run_resumed"}:
             self._request_failure = ""
+            self._build_terminal = False
+        elif kind in {"run_completed", "run_needs_attention", "run_failed", "run_cancelled"}:
+            self._build_terminal = True
+        from .workspace import refresh_activity
+        refresh_activity(self)
         from .route_identity import observe_build_route
         observe_build_route(self, kind, payload)
         if hasattr(self, "run_stage"):
@@ -2426,6 +2450,9 @@ class MainWindow(QMainWindow):
         self.build_status.setText(f"Build worker failed: {error}")
         self.build_events.addItem(f"Worker failure · {error}")
         self._request_failure = error
+        self._build_terminal = True
+        from .workspace import refresh_activity
+        refresh_activity(self)
         self.work_feedback.setText(f'Build failed · {error}\nNo successful result was verified. Open Activity for details.')
         self.work_feedback.show()
 
@@ -2434,6 +2461,8 @@ class MainWindow(QMainWindow):
         if self.orchestration_worker is not worker:
             return
         self.orchestration_worker = None
+        from .workspace import refresh_activity
+        refresh_activity(self)
         self.build_request.setEnabled(True)
         self.build_owner.setEnabled(True)
         self.build_mode.setEnabled(True)
@@ -2763,6 +2792,22 @@ class MainWindow(QMainWindow):
         self._render_messages(self.store.list_messages(conversation.id))
         self._refresh_context_meter()
 
+    def _message_bubble(self, message):
+        bubble = ChatBubble(message.role, message.content, message.thinking)
+        if message.role == "assistant":
+            receipt = self.store.message_receipt(message.id)
+            if not receipt:
+                origin = "Provider/model attribution unavailable for this older reply"
+            elif receipt.get("model_source") == "no_inference":
+                origin = "No AI model used · " + receipt.get("operation", "Local action")
+            else:
+                origin = f"{receipt.get('provider', 'Unknown provider')} · {receipt.get('requested_model', 'Model not reported')} ({receipt.get('model_source', 'unknown')})"
+            label = QLabel(origin)
+            label.setWordWrap(True)
+            label.setTextFormat(Qt.PlainText)
+            bubble.layout().insertWidget(1, label)
+        return bubble
+
     def _render_messages(self, messages: list[Message]) -> None:
         while self.transcript_layout.count() > 1:
             item = self.transcript_layout.takeAt(0)
@@ -2778,7 +2823,7 @@ class MainWindow(QMainWindow):
             if message.role in {"user", "assistant"}:
                 self.transcript_layout.insertWidget(
                     self.transcript_layout.count() - 1,
-                    ChatBubble(message.role, message.content, message.thinking),
+                    self._message_bubble(message),
                 )
         QTimer.singleShot(0, self._scroll_to_bottom)
 
@@ -2894,6 +2939,10 @@ class MainWindow(QMainWindow):
             self.transcript_layout.insertWidget(
                 self.transcript_layout.count() - 1, ChatBubble("user", content)
             )
+        self._pending_receipt = {"provider": "ollama", "requested_model": self.preset.name, "model_source": "requested",
+                                 "attachments": [item.name for item in self.current_attachments],
+                                 "turn_ids": [message.id for message in self.store.list_messages(self.current_conversation_id)],
+                                 "project_files": [], "decisions": [], "system_prompt": True}
         self.active_bubble = ChatBubble("assistant")
         self.active_bubble.reasoning_frame.setVisible(self.preset.show_thinking)
         self.transcript_layout.insertWidget(self.transcript_layout.count() - 1, self.active_bubble)
@@ -2934,7 +2983,8 @@ class MainWindow(QMainWindow):
         if conversation_id is None:
             return
         self.store.add_message(Message(None, conversation_id, "user", content))
-        self.store.add_message(Message(None, conversation_id, "assistant", result.content))
+        message_id = self.store.add_message(Message(None, conversation_id, "assistant", result.content))
+        self.store.set_message_receipt(message_id, {"provider": "none", "model_source": "no_inference", "operation": result.kind})
         if result.kind == "execution_proposal" and result.action_state in {"awaiting_approval", "awaiting_clarification"}:
             self.pending_build_request = (self.current_project_id, content)
             self._update_pending_build_card()
@@ -3001,7 +3051,8 @@ class MainWindow(QMainWindow):
                 None, self.current_conversation_id, "assistant", content, thinking,
                 metrics.prompt_tokens or None, metrics.output_tokens or None,
             )
-            self.store.add_message(message, metrics)
+            message_id = self.store.add_message(message, metrics)
+            self.store.set_message_receipt(message_id, {**getattr(self, "_pending_receipt", {}), "metrics": asdict(metrics)})
         self._reset_generation_state()
         self._update_metrics_cards()
         self._load_conversation_list(select_id=self.current_conversation_id)
