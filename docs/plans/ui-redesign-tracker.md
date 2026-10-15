@@ -36,7 +36,7 @@ Tasks are checked only after verification. Existing execution and authorization 
 - [x] UI07-01 Keyboard, resizing and scaling checks.
 - [x] UI07-02 Behavioral regression suite.
 - [x] UI07-03 Live Kandev lifecycle and embedded board.
-- [ ] UI07-04 Screenshots, documentation and package.
+- [x] UI07-04 Screenshots, documentation and package.
 
 ## Verification evidence — 2026-10-15
 
@@ -47,3 +47,12 @@ Tasks are checked only after verification. Existing execution and authorization 
 - Windows packaged UI/doctor and WebEngine local-page/JavaScript smoke checks passed. Final revision packaging and cross-platform CI are recorded below when complete.
 - Existing environment configuration remains a fallback; saved per-project profiles take precedence. Service data and process ownership receipts are separate from agent-task authorization.
 - Project selection is locked for the duration of the existing single active Build; Chat/Build navigation remains available. This keeps worktree and apply actions bound to the original project.
+
+## Final delivery
+
+- MoliCoder 1.2.0 installed at the existing user executable location; the previous installation was preserved.
+- Both final Windows package startup checks passed, including the embedded browser's local-page JavaScript check.
+- Live connection discovery verified workspace, agent profiles, repository catalog and workflow steps. A UI regression saves a complete profile using the pinned workflow **snapshot** endpoint. Focused setup/workspace suite: 7 passed.
+- Source revision `53d1892`: Linux x64 and macOS Intel CI passed, each with **453 passed, 8 skipped**, plus packaged desktop and embedded-browser smoke checks. [Platform run](https://github.com/molicoder-bit/MoliCoder/actions/runs/38813196483).
+- Windows hosted tests and packaged desktop/browser checks passed; artifact archival was in progress at final review. Validation is recorded at [Windows run](https://github.com/molicoder-bit/MoliCoder/actions/runs/38813196729). Local Windows full suite: 454 passed, 6 skipped before the final additional setup regression; final focused UI/package suite: 52 passed, with the added setup regression verified separately.
+- Supplied `molicodeLogo.png` is copied unchanged into package assets and used in the workspace header and application window icon. SHA-256 comparison with Downloads matched.
