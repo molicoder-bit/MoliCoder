@@ -3,7 +3,7 @@ from local_model_chat.ui.main_window import MainWindow
 from local_model_chat.ui.widgets import ChatBubble
 from local_model_chat.molicoder.providers import ProviderStatus
 from local_model_chat.kandev.contracts import KandevTaskRef
-from PySide6.QtWidgets import QCheckBox, QDialog, QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton, QTextBrowser
+from PySide6.QtWidgets import QCheckBox, QDialog, QDoubleSpinBox, QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton, QTextBrowser
 import subprocess
 import hashlib
 from types import SimpleNamespace
@@ -773,7 +773,8 @@ def test_managed_install_button_records_exact_in_app_approval(qtbot, tmp_path, m
     dialog.close()
 
 
-def test_usage_dialog_shows_source_aware_project_report(qtbot, tmp_path) -> None:
+def test_usage_dialog_shows_source_aware_project_report(qtbot, tmp_path, monkeypatch) -> None:
+    from local_model_chat.inference.budget import BudgetManager
     store = ChatStore(tmp_path / "usage-ui.sqlite3")
     root = tmp_path / "sample"
     root.mkdir()
@@ -788,6 +789,12 @@ def test_usage_dialog_shows_source_aware_project_report(qtbot, tmp_path) -> None
     assert "Project hard API limit: unconfigured" in report
     assert "Opaque subscription CLI calls: 0; internal usage and cost unknown" in report
     assert "Latest Build route: no recorded decision" in report
+    monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
+    dialog.findChild(QDoubleSpinBox).setValue(2.5)
+    next(button for button in dialog.findChildren(QPushButton)
+         if button.text() == "Save hard limit").click()
+    assert BudgetManager(store).project_limit(project.id) == 2.5
+    assert "Project hard API limit: $2.5000" in dialog.findChild(QTextBrowser).toPlainText()
     dialog.close()
 
 

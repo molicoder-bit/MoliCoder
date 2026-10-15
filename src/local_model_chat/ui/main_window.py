@@ -613,6 +613,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Usage and budgets", "Select a project first.")
             return
         from ..inference.usage_view import render_usage_report
+        from ..inference.budget import BudgetManager
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Usage and budgets")
@@ -620,11 +621,35 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(dialog)
         report = QTextBrowser(dialog)
         layout.addWidget(report)
+        limit_row = QHBoxLayout()
+        limit_row.addWidget(QLabel("Project API spending limit (USD, all time)"))
+        project_limit = QDoubleSpinBox(dialog)
+        project_limit.setDecimals(4)
+        project_limit.setRange(0, 10000)
+        project_limit.setSingleStep(1)
+        current_limit = BudgetManager(self.store).project_limit(project.id)
+        project_limit.setValue(current_limit or 0)
+        limit_row.addWidget(project_limit)
+        save_limit = QPushButton("Save hard limit")
+        limit_row.addWidget(save_limit)
+        layout.addLayout(limit_row)
         refresh = QPushButton("Refresh usage")
         refresh.clicked.connect(lambda: report.setPlainText(
             render_usage_report(self.store, self.inference_registry, project.id)
         ))
         layout.addWidget(refresh)
+        def save_project_limit() -> None:
+            BudgetManager(self.store).set_project_limit(
+                project.id, project_limit.value(), actor="user",
+            )
+            report.setPlainText(render_usage_report(self.store, self.inference_registry, project.id))
+            QMessageBox.information(
+                dialog, "Project budget",
+                f"Project API spending limit set to ${project_limit.value():.4f}. "
+                "Each paid request still needs exact-route approval and a request-bound reservation.",
+            )
+
+        save_limit.clicked.connect(save_project_limit)
         refresh.click()
         dialog.show()
 

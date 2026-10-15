@@ -39,6 +39,14 @@ class BudgetManager:
             )
             connection.commit()
 
+    def project_limit(self, project_id: int) -> float | None:
+        with closing(self.store._connect()) as connection:
+            row = connection.execute(
+                "SELECT limit_usd FROM project_budget_limits WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+        return float(row[0]) if row else None
+
     def set_scope_limit(
         self, project_id: int, kind: str, scope: str, limit_usd: float, *, actor: str,
     ) -> None:
