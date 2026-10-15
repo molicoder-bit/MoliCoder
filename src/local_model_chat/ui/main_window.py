@@ -241,7 +241,12 @@ class MainWindow(QMainWindow):
         self.model_combo = QComboBox()
         for preset in MODEL_PRESETS.values():
             self.model_combo.addItem(f"{preset.label}  ·  {preset.role}", preset.name)
-        default_index = self.model_combo.findData("molicoder:latest")
+        saved_model = self.store.get_setting('ui.chat_model', 'molicoder:latest')
+        if self.model_combo.findData(saved_model) < 0:
+            self._installed_model_presets[saved_model] = replace(MODEL_PRESETS['molicoder:latest'], name=saved_model,
+                label=saved_model, role='Saved local model', context_window=8192, max_output_tokens=2048, show_thinking=False)
+            self.model_combo.addItem(saved_model, saved_model)
+        default_index = self.model_combo.findData(saved_model)
         self.model_combo.setCurrentIndex(max(0, default_index))
         self.model_combo.currentIndexChanged.connect(self._model_changed)
         self.model_combo.setParent(center)
@@ -1102,6 +1107,8 @@ class MainWindow(QMainWindow):
         self.startup_worker.start()
 
     def _ollama_ready(self, available: bool, models: list[dict]) -> None:
+        previous_presets = dict(self._installed_model_presets)
+        previous_selection = self.model_combo.currentData()
         self._model_facts = {item.get('name'): item.get('details', {}) for item in models if isinstance(item.get('details', {}), dict)}
         self._installed_model_names = {str(model.get("name", "")) for model in models}
         self._installed_model_presets = {
@@ -1112,6 +1119,8 @@ class MainWindow(QMainWindow):
             )
             for name in self._installed_model_names if name and name not in MODEL_PRESETS
         }
+        if previous_selection in previous_presets:
+            self._installed_model_presets.setdefault(previous_selection, previous_presets[previous_selection])
         for preset in self._installed_model_presets.values():
             ensure_local_offering(
                 self.inference_registry, preset.name,
@@ -1128,7 +1137,8 @@ class MainWindow(QMainWindow):
             if self.model_combo.itemData(index) not in MODEL_PRESETS:
                 self.model_combo.removeItem(index)
         for name in sorted(self._installed_model_presets):
-            self.model_combo.addItem(f"{name}  ·  Installed Ollama model", name)
+            state = 'Installed local model' if name in self._installed_model_names else 'Saved model · unavailable'
+            self.model_combo.addItem(f"{name}  ·  {state}", name)
         index = self.model_combo.findData(selected)
         self.model_combo.setCurrentIndex(index if index >= 0 else 0)
         self.model_combo.blockSignals(False)
@@ -2880,6 +2890,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._scroll_to_bottom)
 
     def _model_changed(self) -> None:
+        self.store.set_setting('ui.chat_model', self.preset.name)
         self._apply_preset_controls()
         self._update_model_availability()
         if self.current_conversation_id:

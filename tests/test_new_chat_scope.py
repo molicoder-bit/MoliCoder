@@ -80,3 +80,19 @@ def test_missing_selected_model_explains_disabled_send(qtbot,tmp_path):
     assert 'not installed' in w.composer_hint.text()
     w.composer.setPlainText(f'create a folder called "one" in {tmp_path}')
     assert w.send_button.isEnabled()
+
+
+def test_model_preference_survives_restart_and_missing_runtime_model(qtbot,tmp_path):
+    from test_ui import FakeClient
+    store=ChatStore(tmp_path/'preference.db')
+    w=MainWindow(store,FakeClient(),start_ollama_check=False);qtbot.addWidget(w)
+    w._ollama_ready(True,[{'name':'molicoder:latest'},{'name':'my-chosen-model'}])
+    w.model_combo.setCurrentIndex(w.model_combo.findData('my-chosen-model'))
+    assert store.get_setting('ui.chat_model') == 'my-chosen-model'
+    w.close()
+    restored=MainWindow(store,FakeClient(),start_ollama_check=False);qtbot.addWidget(restored)
+    assert restored.preset.name == 'my-chosen-model'
+    restored._ollama_ready(True,[{'name':'another-installed-model'}])
+    assert restored.preset.name == 'my-chosen-model'
+    restored.composer.setPlainText('Hello')
+    assert not restored.send_button.isEnabled() and 'not installed' in restored.composer_hint.text()
