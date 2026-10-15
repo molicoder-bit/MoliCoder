@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from .continuity import build_continuity
 from .domain import ProjectRunStatus
 from .intent import IntentKind, classify_intent
+from .local_actions import requested_folder
 from .storage import ChatStore
 from .tool_queries import query_git
 
@@ -35,13 +36,20 @@ class MainController:
     def can_handle_locally(message: str) -> bool:
         decision = classify_intent(message)
         return (
-            MainController.is_deterministic_question(message)
+            requested_folder(message) is not None
+            or MainController.is_deterministic_question(message)
             or decision.kind == IntentKind.EXECUTION
             and bool(re.match(r"^(?:implement|build)\b", message.strip(), re.IGNORECASE))
         )
 
     def handle(self, message: str, project_id: int | None) -> ControllerResult | None:
         """Handle local retrieval and Build proposals; return None for normal chat."""
+        folder = requested_folder(message)
+        if folder is not None:
+            return ControllerResult(
+                "directory_creation_proposal", f"Create folder {folder}?",
+                evidence=str(folder), action_state="awaiting_approval",
+            )
         decision = classify_intent(message)
         if decision.kind == IntentKind.EXECUTION and re.match(
             r"^(?:implement|build)\b", message.strip(), re.IGNORECASE

@@ -150,6 +150,26 @@ def test_tasks_share_one_worktree_and_success_auto_applies(tmp_path) -> None:
         assert evidence.human_review_status == "not_required"
 
 
+def test_opaque_planner_provider_object_is_saved_as_name(tmp_path) -> None:
+    _root, store, project = _project(tmp_path)
+
+    class WrappedPlanner(Planner):
+        provider = Executor()
+
+    result = SequentialRunOrchestrator(
+        store=store, project=project, planner=WrappedPlanner(), provider=Executor(),
+        validate=lambda _root: "validation passed", worktree_base=tmp_path / "wrapped-worktrees",
+        auto_apply=True,
+    ).run("Make sequential changes", mode="HYBRID")
+
+    assert result.status == "completed"
+    assert store.get_run_plan(result.run_id) is not None
+    assert any(
+        json.loads(event.payload_json).get("provider") == "codex"
+        for event in store.list_events(result.run_id) if event.kind == "plan_created"
+    )
+
+
 def test_unverified_acceptance_criterion_keeps_checkpoint_for_review(tmp_path) -> None:
     root, store, project = _project(tmp_path)
 

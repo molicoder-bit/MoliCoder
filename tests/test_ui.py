@@ -130,6 +130,57 @@ def test_current_task_reply_in_chat_uses_sqlite_without_model(qtbot, tmp_path, m
     assert window.active_bubble is None
 
 
+def test_chat_folder_request_requires_exact_confirmation_and_creates_folder(qtbot, tmp_path, monkeypatch) -> None:
+    store = ChatStore(tmp_path / "folder-ui.sqlite3")
+    window = MainWindow(store, FakeClient(), start_ollama_check=False)
+    qtbot.addWidget(window)
+    folder = tmp_path / "confirmed"
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(
+        "local_model_chat.ui.main_window.ChatWorker.start",
+        lambda _worker: (_ for _ in ()).throw(AssertionError("folder launched model")),
+    )
+
+    window.composer.setPlainText(f'can you create a folder in {tmp_path} called "confirmed"')
+    window._send_message()
+
+    assert folder.is_dir()
+    assert "Created folder:" in store.list_messages(window.current_conversation_id)[-1].content
+
+
+def test_chat_folder_request_declined_does_not_create_folder(qtbot, tmp_path, monkeypatch) -> None:
+    store = ChatStore(tmp_path / "folder-declined.sqlite3")
+    window = MainWindow(store, FakeClient(), start_ollama_check=False)
+    qtbot.addWidget(window)
+    folder = tmp_path / "declined"
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.No)
+    window.composer.setPlainText(f'create a folder in {tmp_path} called "declined"')
+    window._send_message()
+    assert not folder.exists()
+    assert "cancelled" in store.list_messages(window.current_conversation_id)[-1].content
+
+
+def test_build_folder_request_stays_out_of_coding_agent(qtbot, tmp_path, monkeypatch) -> None:
+    window = MainWindow(ChatStore(tmp_path / "build-folder.sqlite3"), FakeClient(), start_ollama_check=False)
+    qtbot.addWidget(window)
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Yes)
+    folder = tmp_path / "build-confirmed"
+    window.build_request.setPlainText(f'create a folder in {tmp_path} called "build-confirmed"')
+    window._run_build()
+    assert folder.is_dir()
+    assert window.orchestration_worker is None
+
+
+def test_open_kandev_board_uses_local_web_origin(qtbot, tmp_path, monkeypatch) -> None:
+    window = MainWindow(ChatStore(tmp_path / "board.sqlite3"), FakeClient(), start_ollama_check=False)
+    qtbot.addWidget(window)
+    monkeypatch.setenv("KANDEV_ENDPOINT", "http://127.0.0.1:38429/mcp")
+    opened = []
+    monkeypatch.setattr("local_model_chat.ui.main_window.QDesktopServices.openUrl", lambda url: opened.append(url.toString()) or True)
+    window.kandev_board_button.click()
+    assert opened == ["http://127.0.0.1:38429/"]
+
+
 def test_implement_request_creates_reviewable_build_proposal(qtbot, tmp_path, monkeypatch) -> None:
     store = ChatStore(tmp_path / "proposal.sqlite3")
     root = tmp_path / "sample"

@@ -98,7 +98,9 @@ KANDEV_REPOSITORY_ID=...
 KANDEV_AGENT_PROFILE_ID=...
 ```
 
-The endpoint must be loopback HTTP. Choose **Kandev (configured local service)** in Build and confirm the agent launch. MoliCoder records ownership before dispatch, requires exact create and launch authorizations, shows pending state, and reconciles by the saved external ID. A [live Windows readiness check](docs/plans/kandev-live-readiness.md) verified an isolated worktree, local acceptance and apply, and restart recovery with Kandev 0.97.0. Its ordinary Windows launcher failed during supervisor socket setup on that host; the check used the verified executable's direct backend entry point.
+The endpoint must be loopback HTTP. In Build, choose **Task owner → Internal Build** or **Task owner → Kandev** for each new request. **Open Kandev board** opens Kandev's own browser UI at the configured endpoint's web origin. The board can open without task ownership settings, but Kandev must be running; the button uses `KANDEV_ENDPOINT`, then `KANDEV_BACKEND_PORT` or `KANDEV_PORT`, then Kandev's default port `38429`. Kandev task ownership still requires all the settings above and a separate launch confirmation. MoliCoder records ownership before dispatch, requires exact create and launch authorizations, shows pending state, and reconciles by the saved external ID. A [live Windows readiness check](docs/plans/kandev-live-readiness.md) verified an isolated worktree, local acceptance and apply, and restart recovery with Kandev 0.97.0. Its ordinary Windows launcher failed during supervisor socket setup on that host; the check used the verified executable's direct backend entry point.
+
+Chat and Build recognize an explicit request to create one local folder, including the phrasing `create a folder in C:/Dev called "Example"`. The app shows the exact resolved destination and creates it only after confirmation. This action works outside a Git project and does not launch a coding agent.
 
 ## Build a Windows app
 

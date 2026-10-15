@@ -350,6 +350,12 @@ The module names below are proposed until P06-04 confirms interfaces. Each check
   - [x] **I18-05b Add verified managed setup options for supported provider CLIs and local runtimes.** V: each new manifest has official source and integrity evidence, user-scope install or a clearly disclosed installer boundary, health check, and repair path; official account sign-in remains user controlled. Evidence: platform manifests, receipt-backed managed repairs, and UI/runtime tests for OpenCode and Ollama on supported desktop platforms (2026-10-15).
 - [ ] **I18-06 Run a capped direct-versus-gateway benchmark from configured accounts.** D: I18-03, I18-04, I16-03a. V: same model/version and prompts, explicit spend ceiling, recorded failures and uncertainty, and no automatic provider purchase.
 
+### I19 — Reported desktop regressions (3 tasks; added 2026-10-15)
+
+- [x] **I19-01 Save the opaque CLI planner's provider name.** V: a provider object with a string `name` survives plan persistence and emits a string in `plan_created`; the reported SQLite binding crash is covered by a sequential Build regression test (447 passed, 6 skipped on 2026-10-15).
+- [x] **I19-02 Confirm and perform explicit local folder requests.** V: Chat and Build recognize the reported folder request, show the exact resolved destination, record authorization, and create only after confirmation; no coding agent starts. Both approval and decline paths are tested (2026-10-15).
+- [x] **I19-03 Expose Kandev ownership and its own board.** V: Build labels the Internal/Kandev task owner choice and opens the local Kandev web UI origin; URL validation and UI routing are tested. The board requires a running Kandev service (2026-10-15).
+
 ## Release gates and completion evidence
 
 - [x] **Gate 0 — Planning complete:** P01–P06 checked, blueprint and dated provider sources available, open decisions identified, implementation milestone approved.

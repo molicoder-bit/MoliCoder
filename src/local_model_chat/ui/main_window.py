@@ -34,7 +34,8 @@ from ..inference.onboarding import (
 from ..inference.policy import InferencePolicy
 from ..inference.pacing import project_pacing
 from ..inference.registry import ProviderRegistry
-from ..kandev.ui_config import configured_kandev_adapter
+from ..kandev.ui_config import configured_kandev_adapter, kandev_board_url
+from ..local_actions import requested_folder
 from ..molicoder.projectstate import read_git_state
 from ..molicoder.registry import ProjectRegistry
 from ..molicoder.runtime import build_orchestrator
@@ -373,11 +374,17 @@ class MainWindow(QMainWindow):
         self.build_provider.currentIndexChanged.connect(self._build_preferences_changed)
         controls.addWidget(self.build_provider)
 
+        controls.addWidget(QLabel("Task owner"))
         self.build_owner = QComboBox()
         self.build_owner.addItem("Internal Build", "internal")
-        self.build_owner.addItem("Kandev (configured local service)", "kandev")
+        self.build_owner.addItem("Kandev", "kandev")
+        self.build_owner.setToolTip("Choose who owns new tasks: MoliCoder Internal Build or Kandev.")
         self.build_owner.currentIndexChanged.connect(self._refresh_build_readiness)
         controls.addWidget(self.build_owner)
+        self.kandev_board_button = QPushButton("Open Kandev board")
+        self.kandev_board_button.setToolTip("Open Kandev's own task board in your browser.")
+        self.kandev_board_button.clicked.connect(self._open_kandev_board)
+        controls.addWidget(self.kandev_board_button)
         controls.addWidget(QLabel("Fallback on provider failure"))
         self.build_fallback_provider = QComboBox()
         self.build_fallback_provider.addItem("None", "")
@@ -1871,6 +1878,9 @@ class MainWindow(QMainWindow):
         ready = False
         if self.orchestration_worker is not None:
             status = "Build is running locally. Follow the event timeline below."
+        elif request and requested_folder(request) is not None:
+            ready = True
+            status = "Ready to confirm a local folder action. No coding agent will run."
         elif project is None:
             status = "Select a project before running a build."
         elif not Path(project.path).is_dir():
@@ -1905,6 +1915,11 @@ class MainWindow(QMainWindow):
 
     def _run_build(self) -> None:
         if self.orchestration_worker is not None:
+            return
+        folder = requested_folder(self.build_request.toPlainText())
+        if folder is not None:
+            result = self._confirm_directory_creation(folder)
+            self.build_status.setText(result.content)
             return
         self._refresh_build_readiness()
         if not self.build_run_button.isEnabled():
@@ -2002,6 +2017,44 @@ class MainWindow(QMainWindow):
         self._build_activity_timer.start()
         self._update_build_activity()
         worker.start()
+
+    def _open_kandev_board(self) -> None:
+        try:
+            url = kandev_board_url()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Kandev board", str(exc))
+            return
+        if not QDesktopServices.openUrl(QUrl(url)):
+            QMessageBox.warning(self, "Kandev board", f"Could not open {url}. Check that Kandev is running.")
+
+    def _confirm_directory_creation(self, folder: Path) -> ControllerResult:
+        if folder.exists():
+            return ControllerResult("directory_creation", f"Folder already exists: {folder}", evidence=str(folder))
+        if QMessageBox.question(
+            self, "Create folder", f"Create this folder on your computer?\n\n{folder}",
+        ) != QMessageBox.StandardButton.Yes:
+            return ControllerResult(
+                "directory_creation", f"Folder creation cancelled: {folder}",
+                evidence=str(folder), action_state="cancelled",
+            )
+        scope = str(folder)
+        self.store.record_action_authorization(
+            project_id=None, action="create_directory", scope=scope,
+            risk=ActionRisk.MUTATION.value, decision="approved",
+            actor="local_user_confirmed_exact_directory",
+            expires_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        )
+        AuthorizationPolicy(self.store).require(ActionRequest(
+            None, "create_directory", scope, ActionRisk.MUTATION,
+        ))
+        try:
+            folder.mkdir()
+        except OSError as exc:
+            return ControllerResult(
+                "directory_creation", f"Could not create folder {folder}: {exc}",
+                evidence=str(folder), action_state="failed",
+            )
+        return ControllerResult("directory_creation", f"Created folder: {folder}", evidence=str(folder))
 
     def _run_kandev_build(self, project: Project, request: str) -> None:
         try:
@@ -2678,6 +2731,8 @@ class MainWindow(QMainWindow):
         if not self.current_attachments:
             result = self.controller.handle(self.composer.toPlainText(), self.current_project_id)
             if result is not None:
+                if result.kind == "directory_creation_proposal" and result.evidence:
+                    result = self._confirm_directory_creation(Path(result.evidence))
                 self._send_controller_reply(content, result)
                 return
         messages_before = self._current_messages()

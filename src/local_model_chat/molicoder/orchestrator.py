@@ -29,6 +29,16 @@ class RepairProvider(Protocol):
     def run(self, objective: str) -> RepairOutcome: ...
 
 
+def _planner_provider_name(planner: PlannerProvider) -> str:
+    provider = getattr(planner, "provider", None)
+    name = provider if isinstance(provider, str) else getattr(provider, "name", None)
+    if not isinstance(name, str) or not name.strip():
+        name = getattr(planner, "name", None)
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("Planner has no provider name")
+    return name.strip()
+
+
 @dataclass(frozen=True, slots=True)
 class OrchestrationResult:
     run_id: int
@@ -103,10 +113,10 @@ class Phase2Orchestrator:
             self._event(run_id, "recon_completed", packet.to_dict())
             plan = self.planner.plan(packet)
             plan_payload = plan.to_dict()
-            self.store.save_plan(run_id, "generated", self.planner.provider, plan_payload)
+            self.store.save_plan(run_id, "generated", _planner_provider_name(self.planner), plan_payload)
             plan_path = self.root / ".molicoder" / "plans" / f"plan-{run_id}.json"
             plan_path.write_text(json.dumps(plan_payload, indent=2) + "\n", encoding="utf-8", newline="")
-            self._event(run_id, "plan_created", {"provider": self.planner.provider, "tasks": len(plan.tasks)})
+            self._event(run_id, "plan_created", {"provider": _planner_provider_name(self.planner), "tasks": len(plan.tasks)})
         except Exception as exc:
             return self._finish(run_id, "failed", 0, 0, str(exc))
 
@@ -267,11 +277,11 @@ class WorktreeOrchestrator(Phase2Orchestrator):
             self._event(run_id, "recon_completed", packet.to_dict())
             plan = self.planner.plan(packet)
             self._record_external(run_id)
-            self.store.save_plan(run_id, "generated", self.planner.provider, plan.to_dict())
+            self.store.save_plan(run_id, "generated", _planner_provider_name(self.planner), plan.to_dict())
             (self.root / ".molicoder" / "plans" / f"plan-{run_id}.json").write_text(
                 json.dumps(plan.to_dict(), indent=2) + "\n", encoding="utf-8", newline=""
             )
-            self._event(run_id, "plan_created", {"provider": self.planner.provider, "tasks": len(plan.tasks)})
+            self._event(run_id, "plan_created", {"provider": _planner_provider_name(self.planner), "tasks": len(plan.tasks)})
             manager = WorktreeManager(self.root, run_id=run_id, base_dir=self.worktree_base)
         except Exception as exc:
             return self._finish_worktree(run_id, "failed", 0, 0, error=str(exc))
@@ -821,11 +831,11 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             plan = self.planner.plan(packet)
             if len(plan.tasks) > 5:
                 raise ValueError("plan exceeds the five-task run limit")
-            self.store.save_plan(run_id, "generated", self.planner.provider, plan.to_dict())
+            self.store.save_plan(run_id, "generated", _planner_provider_name(self.planner), plan.to_dict())
             (self.root / ".molicoder" / "plans" / f"plan-{run_id}.json").write_text(
                 json.dumps(plan.to_dict(), indent=2) + "\n", encoding="utf-8", newline="",
             )
-            self._event(run_id, "plan_created", {"provider": self.planner.provider, "tasks": len(plan.tasks)})
+            self._event(run_id, "plan_created", {"provider": _planner_provider_name(self.planner), "tasks": len(plan.tasks)})
             manager = WorktreeManager(self.root, run_id=run_id, base_dir=self.worktree_base)
             workspace = manager.create_run()
             self.store.update_run_state(
