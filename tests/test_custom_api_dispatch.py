@@ -1,14 +1,21 @@
 import io
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from local_model_chat.inference.adapters.openai_compatible import OpenAICompatibleAdapter
+from local_model_chat.inference.api_dispatch import prepare_custom_chat, preview_custom_chat
+from local_model_chat.inference import eligibility
+from local_model_chat.environment.security import platform_security
+from local_model_chat.inference.budget import BudgetManager
 from local_model_chat.inference.catalog import CatalogRecord, import_catalog_record
 from local_model_chat.inference.contracts import InferencePurpose, InferenceRequest
 from local_model_chat.inference.ledger import InferenceLedger
-from local_model_chat.inference.onboarding import CustomRoute, register_custom_route
+from local_model_chat.inference.onboarding import (
+    CustomRoute, CustomRouteFacts, attest_custom_route_facts,
+    check_custom_connection, register_custom_route,
+)
 from local_model_chat.inference.policy import ControlledGateway, InferencePolicy
 from local_model_chat.inference.registry import ProviderRegistry
 from local_model_chat.storage import ChatStore
@@ -106,3 +113,79 @@ def test_custom_api_cancellation_and_invalid_response(tmp_path) -> None:
         request.messages, "public", (), 10, 10, 5,
     )
     assert adapter.invoke(second).error.value == "invalid_response"
+
+
+def test_paid_custom_api_requires_budget_and_exact_approval_before_dispatch(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(eligibility, "platform_security", lambda: platform_security("Windows"))
+    store = ChatStore(tmp_path / "paid-api.sqlite3")
+    project = store.upsert_project("Example", str(tmp_path), "python")
+    registry = ProviderRegistry(store)
+    offering_id = register_custom_route(store, CustomRoute(
+        "remote-api", "Remote API", "https://api.example.test/v1", "model-a",
+    ))
+    attest_custom_route_facts(store, CustomRouteFacts(
+        offering_id, "https://api.example.test/pricing", "https://api.example.test/terms",
+        "private", 8192, 512, 1.0, 2.0, True,
+    ))
+    registry.update_account_secret(
+        "manual-key:remote-api", "remote-api", "encrypted-local:" + "a" * 64,
+    )
+
+    class Credentials:
+        def get(self, _reference):
+            return "private-token"
+
+    check_custom_connection(
+        store, offering_id, credentials=Credentials(),
+        opener=lambda *_args, **_kwargs: Response({"data": [{"id": "model-a"}]}),
+    )
+    registry.set_offering_state(
+        offering_id, status="eligible", actor="user", reason="verified fixture",
+    )
+    with pytest.raises(PermissionError, match="hard budget"):
+        prepare_custom_chat(registry, project.id, offering_id, "Hi")
+    budget = BudgetManager(store)
+    budget.set_project_limit(project.id, 0.01, actor="user")
+    preview = preview_custom_chat(registry, offering_id, "Hi")
+    assert 0 < preview.worst_case_usd < 0.01
+    request = prepare_custom_chat(registry, project.id, offering_id, "Hi")
+    calls = []
+
+    def open_request(transport_request, *, timeout):
+        calls.append(transport_request.full_url)
+        assert transport_request.get_header("Authorization") == "Bearer private-token"
+        return Response({
+            "choices": [{"message": {"content": "Answer"}}],
+            "usage": {"prompt_tokens": 4, "completion_tokens": 2},
+        })
+
+    gateway = ControlledGateway(
+        InferencePolicy(registry),
+        OpenAICompatibleAdapter(registry, Credentials(), opener=open_request),
+        InferenceLedger(store),
+    )
+    with pytest.raises(PermissionError, match="approval"):
+        gateway.invoke(request)
+    assert calls == []
+    store.record_action_authorization(
+        project_id=project.id, action="inference_route", scope=offering_id,
+        risk="financial", decision="approved", actor="user",
+        expires_at=(datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+    )
+    request = prepare_custom_chat(registry, project.id, offering_id, "Hi")
+    result = gateway.invoke(request)
+    assert result.status == "completed" and result.content == "Answer"
+    assert calls == ["https://api.example.test/v1/chat/completions"]
+    assert [event["status"] for event in InferenceLedger(store).events(request.request_id)] == [
+        "started", "completed",
+    ]
+    with store._connect() as connection:
+        connection.execute(
+            "UPDATE inference_offerings SET price_checked_at = ? WHERE id = ?",
+            ("2020-01-01T00:00:00+00:00", offering_id),
+        )
+        connection.commit()
+    stale_request = prepare_custom_chat(registry, project.id, offering_id, "Hi")
+    with pytest.raises(PermissionError, match="stale"):
+        gateway.invoke(stale_request)
+    assert calls == ["https://api.example.test/v1/chat/completions"]

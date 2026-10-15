@@ -7,6 +7,7 @@ from PySide6.QtCore import QThread, Signal
 from .context import estimate_messages
 from .domain import GenerationMetrics
 from .inference.adapters.ollama import OllamaStreamAdapter, local_offering_id
+from .inference.budget import BudgetManager
 from .inference.contracts import InferenceEventKind, InferencePurpose, InferenceRequest
 from .inference.ledger import InferenceLedger
 from .inference.policy import ControlledGateway, InferencePolicy
@@ -135,6 +136,65 @@ class ManagedInstallWorker(QThread):
                 raise RuntimeError("managed executable failed its version check")
             self.completed.emit(receipt)
         except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class CustomApiWorker(QThread):
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, store, project_id: int, offering_id: str, prompt: str) -> None:
+        super().__init__()
+        self.store = store
+        self.project_id = project_id
+        self.offering_id = offering_id
+        self.prompt = prompt
+        self._cancel_requested = threading.Event()
+        self._adapter = None
+        self._request_id: str | None = None
+
+    def cancel(self) -> None:
+        self._cancel_requested.set()
+        if self._adapter is not None and self._request_id is not None:
+            self._adapter.cancel(self._request_id)
+
+    def run(self) -> None:
+        request = None
+        try:
+            from .config import data_dir
+            from .environment.auth import ProtectedCredentialStore
+            from .inference.adapters.openai_compatible import OpenAICompatibleAdapter
+            from .inference.api_dispatch import prepare_custom_chat
+            from .inference.registry import ProviderRegistry
+
+            if self._cancel_requested.is_set():
+                return
+            registry = ProviderRegistry(self.store)
+            offering = registry.get_offering(self.offering_id)
+            if offering is None:
+                raise ValueError("custom offering is unavailable")
+            credentials = (ProtectedCredentialStore(data_dir() / "credentials")
+                           if offering.account_id else None)
+            adapter = OpenAICompatibleAdapter(registry, credentials)
+            self._adapter = adapter
+            request = prepare_custom_chat(
+                registry, self.project_id, self.offering_id, self.prompt,
+            )
+            self._request_id = request.request_id
+            if self._cancel_requested.is_set():
+                adapter.cancel(request.request_id)
+            result = ControlledGateway(
+                InferencePolicy(registry), adapter, InferenceLedger(self.store),
+            ).invoke(request)
+            if result.status == "completed":
+                self.completed.emit(result)
+            else:
+                self.failed.emit(f"Provider request {result.status}: {result.error or 'unknown'}")
+        except Exception as exc:
+            if request is not None and request.reservation_id:
+                manager = BudgetManager(self.store)
+                if manager.active_amount(request.reservation_id, request.request_id, request.project_id) is not None:
+                    manager.release(request.reservation_id)
             self.failed.emit(str(exc))
 
 

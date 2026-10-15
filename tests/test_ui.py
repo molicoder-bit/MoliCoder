@@ -672,6 +672,7 @@ def test_custom_provider_connection_check_is_available_in_settings(qtbot, tmp_pa
         buttons = [button.text() for button in dialog.findChildren(QPushButton)]
         assert "Check custom provider connection" in buttons
         assert "Configure custom provider facts" in buttons
+        assert "Run capped custom API test" in buttons
         return QDialog.DialogCode.Rejected
 
     monkeypatch.setattr(QDialog, "exec", inspect_dialog)
@@ -687,6 +688,49 @@ def test_custom_provider_connection_check_is_available_in_settings(qtbot, tmp_pa
     window._check_custom_provider_connection(tuple(window.inference_registry.list_offerings()))
     assert captured["offering_id"] == offering_id
     assert "stays inactive" in captured["detail"]
+
+
+def test_custom_api_test_waits_for_exact_user_confirmation(qtbot, tmp_path, monkeypatch) -> None:
+    from local_model_chat.inference.onboarding import (
+        CustomRoute, CustomRouteFacts, attest_custom_route_facts, register_custom_route,
+    )
+    from local_model_chat.workers import CustomApiWorker
+
+    store = ChatStore(tmp_path / "custom-test.sqlite3")
+    root = tmp_path / "project"
+    root.mkdir()
+    project = store.upsert_project("Project", str(root), "python")
+    window = MainWindow(store, FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: window.startup_worker is None)
+    window._load_project_list(select_id=project.id)
+    offering_id = register_custom_route(store, CustomRoute(
+        "local-api", "Local API", "http://127.0.0.1:12345/v1", "model-a",
+    ))
+    attest_custom_route_facts(store, CustomRouteFacts(
+        offering_id, "https://example.test/model", "", "private", 8192, 512,
+        None, None, True,
+    ))
+    window.inference_registry.set_offering_state(
+        offering_id, status="eligible", health_state="healthy", actor="user", reason="fixture",
+    )
+    offering = window.inference_registry.get_offering(offering_id)
+    monkeypatch.setattr(QInputDialog, "getItem", lambda *_args: ("local-api / model-a", True))
+    monkeypatch.setattr(QInputDialog, "getMultiLineText", lambda *_args: ("Hi", True))
+    captured = {}
+    monkeypatch.setattr(CustomApiWorker, "start", lambda worker: captured.update(worker=worker))
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        lambda _parent, _title, detail: (
+            captured.update(detail=detail) or QMessageBox.StandardButton.No
+        ),
+    )
+    window._run_custom_api_test((offering,))
+    assert "worker" not in captured
+    assert offering.route_id in captured["detail"]
+    monkeypatch.setattr(QMessageBox, "question", lambda *_args: QMessageBox.StandardButton.Yes)
+    window._run_custom_api_test((offering,))
+    assert captured["worker"].offering_id == offering_id
 
 
 def test_doctor_refresh_updates_states_and_keeps_chat_available(qtbot, tmp_path, monkeypatch) -> None:

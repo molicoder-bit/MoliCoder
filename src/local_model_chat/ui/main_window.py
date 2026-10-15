@@ -25,6 +25,7 @@ from ..environment.security import platform_security
 from ..context import calculate_budget, estimate_tokens
 from ..domain import Attachment, GenerationMetrics, Message, Project
 from ..inference.adapters.ollama import ensure_local_offering, local_offering_id
+from ..inference.api_dispatch import preview_custom_chat
 from ..inference.onboarding import (
     CustomRoute, CustomRouteFacts, attest_custom_route_facts,
     check_custom_connection, register_custom_route,
@@ -41,7 +42,7 @@ from ..molicoder.providers import AGENT_PROFILES, ProviderUnavailable, agent_pro
 from ..ollama import OllamaClient
 from ..storage import ChatStore
 from ..telemetry import format_bytes, read_nvidia_telemetry
-from ..workers import ChatWorker, DoctorWorker, ManagedInstallWorker, OrchestrationWorker, StartupWorker
+from ..workers import ChatWorker, CustomApiWorker, DoctorWorker, ManagedInstallWorker, OrchestrationWorker, StartupWorker
 from .knowledge_dialog import KnowledgeReviewDialog
 from .widgets import AttachmentChip, ChatBubble, MessageComposer, MetricCard
 
@@ -70,6 +71,7 @@ class MainWindow(QMainWindow):
         self.current_conversation_id: int | None = None
         self.current_attachments: list[Attachment] = []
         self.managed_install_worker: ManagedInstallWorker | None = None
+        self.custom_api_worker: CustomApiWorker | None = None
         self.chat_worker: ChatWorker | None = None
         self.startup_worker: StartupWorker | None = None
         self.doctor_worker: DoctorWorker | None = None
@@ -1238,6 +1240,9 @@ class MainWindow(QMainWindow):
             facts_button = QPushButton("Configure custom provider facts")
             facts_button.clicked.connect(lambda: self._configure_custom_provider_facts(custom_offerings))
             layout.addWidget(facts_button)
+            run_custom = QPushButton("Run capped custom API test")
+            run_custom.clicked.connect(lambda: self._run_custom_api_test(custom_offerings))
+            layout.addWidget(run_custom)
         offerings = self.inference_registry.list_offerings()
         offering_controls: list[tuple[str, QCheckBox, str]] = []
         layout.addWidget(QLabel("Registered inference offerings"))
@@ -1458,6 +1463,78 @@ class MainWindow(QMainWindow):
             self, "Custom provider facts",
             "Facts saved with user-attested provenance. Reopen Provider settings to review and enable this route.",
         )
+
+    def _run_custom_api_test(self, offerings) -> None:
+        project = self.registry.selected()
+        if project is None or self.custom_api_worker is not None:
+            return
+        eligible = tuple(item for item in offerings if item.status == "eligible")
+        if not eligible:
+            QMessageBox.information(self, "Custom API test", "Enable a verified custom route first.")
+            return
+        choices = [f"{item.provider_id} / {item.model_id}" for item in eligible]
+        selected, accepted = QInputDialog.getItem(
+            self, "Custom API test", "Enabled model", choices, 0, False,
+        )
+        if not accepted:
+            return
+        offering = eligible[choices.index(selected)]
+        prompt, accepted = QInputDialog.getMultiLineText(
+            self, "Custom API test", "Short test prompt", "Reply with one short sentence.",
+        )
+        if not accepted:
+            return
+        try:
+            preview = preview_custom_chat(self.inference_registry, offering.id, prompt)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Custom API test", str(exc))
+            return
+        cost = (f"${preview.worst_case_usd:.6f} maximum reserved"
+                if preview.worst_case_usd is not None else "no API price")
+        answer = QMessageBox.question(
+            self, "Approve exact API route",
+            f"Send this prompt to {offering.provider_id} / {offering.model_id}?\n"
+            f"Endpoint: {offering.route_id}\nProject: {project.name}\n"
+            f"Data class: private\nInput cap: {preview.max_input_tokens} tokens; "
+            f"output cap: {preview.max_output_tokens} tokens\n{cost}\n\n"
+            "The project hard limit and provider policy will be checked again before dispatch.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        if offering.offering_class != "local":
+            self.store.record_action_authorization(
+                project_id=project.id, action="inference_route", scope=offering.id,
+                risk="financial" if offering.offering_class in {"metered", "trial"} else "external",
+                decision="approved", actor="user",
+                expires_at=(datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+                reason="approved exact custom API test in Provider settings",
+            )
+        worker = CustomApiWorker(self.store, project.id, offering.id, prompt)
+        self.custom_api_worker = worker
+        progress = QDialog(self)
+        progress.setWindowTitle("Custom API test")
+        progress_layout = QVBoxLayout(progress)
+        progress_layout.addWidget(QLabel("Running a capped test request…"))
+        cancel = QPushButton("Cancel request")
+        cancel.clicked.connect(worker.cancel)
+        progress.rejected.connect(worker.cancel)
+        progress_layout.addWidget(cancel)
+        worker.completed.connect(lambda result: (
+            progress.close(),
+            QMessageBox.information(
+                self, "Custom API response",
+                f"{result.content}\n\nInput tokens: {result.input_tokens if result.input_tokens is not None else 'unknown'}; "
+                f"output tokens: {result.output_tokens if result.output_tokens is not None else 'unknown'}.",
+            ),
+        ))
+        worker.failed.connect(lambda error: (
+            progress.close(), QMessageBox.warning(self, "Custom API test failed", error),
+        ))
+        worker.finished.connect(lambda: (
+            progress.close(), setattr(self, "custom_api_worker", None), worker.deleteLater(),
+        ))
+        worker.start()
+        progress.show()
 
     def _refresh_build_readiness(self) -> None:
         if not hasattr(self, "build_status"):
