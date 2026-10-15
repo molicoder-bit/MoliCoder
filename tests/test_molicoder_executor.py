@@ -1,6 +1,7 @@
 from collections import deque
 
 from local_model_chat.domain import GenerationMetrics
+from local_model_chat.actions.receipts import ActionReviewRequired
 from local_model_chat.molicoder.executor import AgentExecutor
 from local_model_chat.molicoder.gateway import InferenceResponse
 from local_model_chat.molicoder.tools import ToolDispatcher
@@ -62,6 +63,26 @@ def test_executor_stops_on_unsupported_external_action_without_reprompt(tmp_path
     )
     result = executor.run("Deploy the app")
     assert result.status == "review_required" and result.turns == 1
+    assert len(gateway.requests) == 1
+
+
+def test_dispatch_review_stops_remaining_batch_without_reprompt(tmp_path) -> None:
+    class ReviewDispatcher(ToolDispatcher):
+        def dispatch(self, call):
+            raise ActionReviewRequired("external outcome needs reconciliation")
+
+    gateway = FakeGateway([{"content": (
+        '{"name":"read_file","arguments":{"path":"sample.py"}}\n'
+        '{"name":"run_validation","arguments":{}}'
+    )}])
+    executor = AgentExecutor(
+        gateway=gateway,
+        dispatcher=ReviewDispatcher(tmp_path, validation=lambda: "validation passed"),
+        model="molicoder:latest", max_turns=4,
+    )
+    result = executor.run("Inspect the file")
+    assert result.status == "review_required" and result.tool_calls == 1
+    assert "reconciliation" in result.error
     assert len(gateway.requests) == 1
 
 

@@ -96,7 +96,7 @@ KANDEV_REPOSITORY_ID=...
 KANDEV_AGENT_PROFILE_ID=...
 ```
 
-The endpoint must be loopback HTTP. Choose **Kandev (configured local service)** in Build and confirm the agent launch. MoliCoder records ownership before dispatch, requires exact create and launch authorizations, shows pending state, and reconciles by the saved external ID. Live readiness and lifecycle testing against an installed Kandev service remains an [open task](docs/plans/platform-transformation-tracker.md).
+The endpoint must be loopback HTTP. Choose **Kandev (configured local service)** in Build and confirm the agent launch. MoliCoder records ownership before dispatch, requires exact create and launch authorizations, shows pending state, and reconciles by the saved external ID. A [live Windows readiness check](docs/plans/kandev-live-readiness.md) verified an isolated worktree, local acceptance and apply, and restart recovery with Kandev 0.97.0. Its ordinary Windows launcher failed during supervisor socket setup on that host; the check used the verified executable's direct backend entry point.
 
 ## Build a Windows app
 
@@ -129,4 +129,4 @@ $env:QT_QPA_PLATFORM = "offscreen"
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-The no-cost suite uses fixtures for provider and Kandev behavior. Live Ollama and CLI tests are opt-in; a live Kandev readiness test remains planned. The [platform transformation tracker](docs/plans/platform-transformation-tracker.md) shows completed work and remaining tasks, including measured routing economics and macOS/Linux support. Issues and feedback are welcome; include reproduction steps and avoid posting credentials or private run logs.
+The no-cost suite uses fixtures for provider and Kandev behavior. Live Ollama and CLI tests are opt-in; an isolated Kandev readiness check is documented separately. The [platform transformation tracker](docs/plans/platform-transformation-tracker.md) shows completed work and remaining tasks, including measured routing economics and optional remote workers. Issues and feedback are welcome; include reproduction steps and avoid posting credentials or private run logs.

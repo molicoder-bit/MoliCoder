@@ -170,6 +170,9 @@ class AgentExecutor:
                 failed = False
                 try:
                     output = self.dispatcher.dispatch(call)
+                except ActionReviewRequired as exc:
+                    trace.append(f"{call.name} requires review: {exc}")
+                    return result("review_required", content, turn, str(exc))
                 except (OSError, ValueError) as exc:
                     output = f"Tool error: {exc}"
                     failed = True

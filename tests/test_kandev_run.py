@@ -137,7 +137,7 @@ def test_remote_completion_records_only_a_verified_git_worktree(tmp_path):
     ).run("Build parser")
     task = next(iter(api.tasks.values()))
     task.update({"state": "COMPLETED", "worktree_path": str(worktree),
-                 "worktree_branch": "feature/task", "base_commit_sha": base,
+                 "worktree_branch": "feature/task",
                  "repository_id": "repo-1"})
     reviewed = KandevRunOrchestrator(store=store, project=project, adapter=adapter).resume(result.run_id)
     assert reviewed.status == "needs_attention"

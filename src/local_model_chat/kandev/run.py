@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
@@ -53,11 +54,15 @@ class KandevRunOrchestrator:
         })
         accepted = False
         if state == "verifying":
+            selected_base = str((self.store.get_run(ref.run_id) or {}).get("base_commit") or "")
+            # Kandev 0.97.0's live task-session response omits base_commit_sha.
+            # Use the base we recorded before launch, then prove ancestry in Git.
+            if not snapshot.base_commit_sha and selected_base:
+                snapshot = replace(snapshot, base_commit_sha=selected_base)
             expected_repository_id = str(getattr(getattr(self.adapter.api, "config", None), "repository_id", ""))
             check = verify_kandev_worktree(
                 self.root, snapshot, expected_repository_id=expected_repository_id,
             )
-            selected_base = str((self.store.get_run(ref.run_id) or {}).get("base_commit") or "")
             if check.valid and check.base_commit != selected_base:
                 detail = "Kandev worktree base differs from the selected project revision"
                 self._event(ref, "kandev_worktree_review_required", {"reason": detail})
@@ -237,6 +242,8 @@ class KandevRunOrchestrator:
             run_id, task.id, f"molicoder:project:{self.project.id}:run:{run_id}:task:{task.id}",
         )
         snapshot = self.adapter.reconcile(ref)
+        if not snapshot.base_commit_sha:
+            snapshot = replace(snapshot, base_commit_sha=base)
         check = verify_kandev_worktree(
             self.root, snapshot,
             expected_repository_id=str(getattr(getattr(self.adapter.api, "config", None), "repository_id", "")),

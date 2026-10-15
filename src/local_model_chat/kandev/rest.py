@@ -122,6 +122,9 @@ class KandevRestTaskApi:
             "title": "MoliCoder task",
             "description": objective,
             "external_id": external_id,
+            # The pinned API defaults to a local checkout when executor_id is
+            # omitted. Build acceptance needs an isolated Git worktree.
+            "executor_id": "exec-worktree",
             "repositories": [{"repository_id": self.config.repository_id}],
             "agent_profile_id": self.config.agent_profile_id,
             "start_agent": start_agent,

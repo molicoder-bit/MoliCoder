@@ -58,6 +58,7 @@ def test_pinned_rest_create_lookup_and_read_use_exact_endpoint_and_identity(tmp_
     body = json.loads(create.data)
     assert body["external_id"] == "run:1"
     assert body["repositories"] == [{"repository_id": "repo-1"}]
+    assert body["executor_id"] == "exec-worktree"
     assert body["agent_profile_id"] == "profile-1"
     assert body["start_agent"] is False and body["prepare_session"] is False
     assert create.get_header("Authorization") == "Bearer secret-pat"
