@@ -14,7 +14,7 @@ from ..storage import ChatStore
 from .artifacts import ArtifactFile, CandidateManifest, stage_candidate
 from .leases import LeaseConflict, RemoteLeaseStore
 from .messages import RemoteMessageStore
-from .revisions import review_candidate_revision
+from .revisions import CandidateConflict, review_candidate_revision
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +117,15 @@ class RemoteCandidateCoordinator:
                 connection.commit()
             return CandidateReview(manifest.task_id, manifest.candidate_commit,
                                    staged, int(cursor.lastrowid))
+        except CandidateConflict as exc:
+            shutil.rmtree(staged)
+            self.store.add_event(row["run_id"], "remote_candidate_conflict", {
+                "message_id": envelope["message_id"], "worker_id": lease.worker_id,
+                "epoch": lease.epoch, "base_commit": manifest.base_commit,
+                "candidate_commit": manifest.candidate_commit,
+                "reason": str(exc)[:500],
+            }, manifest.task_id)
+            raise
         except Exception:
             shutil.rmtree(staged)
             raise

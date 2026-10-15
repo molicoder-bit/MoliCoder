@@ -114,6 +114,7 @@ def test_signed_candidate_review_rejects_tamper_and_changed_checkout(tmp_path):
         )
     assert not list((tmp_path / "staging").glob("candidate-*"))
     assert not any(event.kind == "remote_candidate_reviewed" for event in store.list_events(1))
+    assert any(event.kind == "remote_candidate_conflict" for event in store.list_events(1))
 
 
 def test_signed_candidate_review_requires_selected_project(tmp_path):

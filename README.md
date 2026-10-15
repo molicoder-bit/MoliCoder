@@ -66,6 +66,8 @@ For an unsigned macOS Intel or Linux x64 package, run `.venv/bin/python scripts/
 3. In **Build**, enter a small request with a checkable outcome. Choose **Local offline** to keep model work on Ollama, or choose an external agent deliberately.
 4. Review **Task evidence** and **Usage and budgets** after the run. Inspect the diff before pushing it.
 
+For more routes, open **Environment readiness** to install supported official CLIs and local runtimes from inside the app. Each managed install shows the release, source, integrity check, destination, and rollback before you approve it. Open **Provider settings** to add a custom OpenAI-compatible endpoint and model, or choose an API preset. On Windows, you can enter a protected API key, check the connection without an inference call, review price and privacy facts, and set a project spend cap before enabling a metered route. Provider sign-in and account creation still happen in the provider's official flow; MoliCoder does not create accounts or buy credits for you.
+
 New Python starter projects create an isolated virtual environment and install the pinned test runner from PyPI. That setup needs network access but no model provider account.
 
 ## Build routes and safeguards
