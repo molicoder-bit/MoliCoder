@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import pytest
 
 from PySide6.QtWidgets import QMessageBox
 
@@ -93,3 +94,16 @@ def test_folder_permission_failure_preserves_truth(qtbot,tmp_path,monkeypatch):
     result=w._confirm_directory_creation(target)
     assert result.action_state == 'failed' and not target.exists()
     assert w.store.list_local_actions()[0]['outcome'] == 'failed'
+
+
+@pytest.mark.parametrize('status,reason,title', [('waiting_auth','Authentication expired','Account connection needed'),('waiting_quota','Provider quota exhausted','Usage limit reached')])
+def test_waiting_provider_state_has_visible_recovery(qtbot,tmp_path,status,reason,title):
+    store=ChatStore(tmp_path/'waiting.db')
+    project=store.upsert_project('Fixture',str(tmp_path),'python')
+    run=store.create_run(project.id,'Fixture','HYBRID',provider='codex')
+    store.update_run_state(run,status,recovery_reason=reason)
+    store.finish_run(run,status)
+    w=MainWindow(store,start_ollama_check=False);qtbot.addWidget(w)
+    w._load_project_list(select_id=project.id);w._set_view('build')
+    assert title in w.work_feedback.text() and not w.work_feedback.isHidden()
+    assert w.failure_recovery.text() in {'Models & providers','Usage & limits'}

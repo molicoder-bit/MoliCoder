@@ -255,7 +255,7 @@ def refresh_workspace(w):
             snapshot = w.workspace_state.work
             verified = sum(task.status == 'completed' for task in status.tasks)
             w.context_summary.setText(f'Run #{status.run_id} · {verified}/{len(status.tasks)} tasks verified · {snapshot.phase} · {project.name}')
-            failed = snapshot.outcome in {'failed', 'needs_attention', 'interrupted'}
+            failed = snapshot.phase in {'failed', 'needs_attention', 'interrupted', 'waiting_auth', 'waiting_quota', 'waiting_approval', 'review_required'}
             w.work_feedback.setVisible(failed)
             if failed:
                 present_failure(w, snapshot.reason or 'Open Activity for details.')

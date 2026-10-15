@@ -9,6 +9,8 @@ def failure_feedback(reason):
         return 'Usage limit reached', 'The request stopped. Review the limit or wait before choosing to retry.', 'Usage & limits'
     if any(word in text for word in ('auth', 'sign-in', 'login', 'credential')):
         return 'Account connection needed', 'Connect or sign in to the selected provider, then review the request again.', 'Models & providers'
+    if any(word in text for word in ('approval', 'trust')):
+        return 'Project permission needed', 'Review the project and provider permission before continuing.', 'Models & providers'
     if any(word in text for word in ('permission', 'access denied', 'denied')):
         return 'Permission denied', 'The requested change was not verified. Choose an accessible target or review project permission.', 'Edit request'
     if any(word in text for word in ('unavailable', 'not installed', 'connection', 'endpoint')):

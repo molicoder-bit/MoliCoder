@@ -635,7 +635,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             base_commit=workspace.base_commit if workspace else None,
             final_commit=final_commit or None,
             worktree=str(workspace.path) if workspace else None,
-            recovery_reason=error if status in {"needs_attention", "ready_to_apply"} else "",
+            recovery_reason=error if status != "completed" else "",
         )
         self.store.finish_run(run_id, status)
         payload = {
