@@ -186,6 +186,11 @@ class KandevRunOrchestrator:
         tasks = self.store.list_run_tasks(run_id)
         if len(tasks) != 1:
             raise ValueError("Kandev-owned Build has an invalid local task record")
+        if run["status"] == "completed":
+            return OrchestrationResult(
+                run_id, "completed", 1, 1, "", Path(str(run["worktree"])),
+                tasks[0].branch, str(run["base_commit"]), str(run["final_commit"]),
+            )
         task_id = tasks[0].id
         selection = next((json.loads(event.payload_json) for event in self.store.list_events(run_id)
                           if event.task_id == task_id and event.kind == "kandev_owner_selected"), None)

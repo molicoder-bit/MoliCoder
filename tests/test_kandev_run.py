@@ -151,5 +151,6 @@ def test_remote_completion_records_only_a_verified_git_worktree(tmp_path):
     assert git(root, "rev-parse", "HEAD") == accepted.final_commit
     again = KandevRunOrchestrator(store=store, project=project, adapter=adapter).apply(result.run_id)
     assert again.status == "completed"
+    assert KandevRunOrchestrator(store=store, project=project, adapter=adapter).resume(result.run_id).status == "completed"
     assert len([event for event in store.list_events(result.run_id)
                 if event.kind == "kandev_changes_applied"]) == 1
