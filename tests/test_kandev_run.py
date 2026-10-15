@@ -87,6 +87,26 @@ def test_selected_build_is_bound_to_kandev_before_dispatch_and_recovers(tmp_path
     assert store.list_run_tasks(result.run_id)[0].status == "verifying"
 
 
+def test_kandev_launch_authorizer_receives_persisted_owner_before_dispatch(tmp_path):
+    store, project, connection, api, adapter = _service(tmp_path)
+    observed = []
+
+    def authorize(ref):
+        run = store.get_run(ref.run_id)
+        events = store.list_events(ref.run_id)
+        observed.append((run["provider"], ref.external_id, events[-1].kind))
+
+    result = build_orchestrator(
+        store=store, project=project, kandev_connection=connection,
+        kandev_adapter=adapter, kandev_authorize_launch=authorize,
+    ).run("Build parser")
+    assert result.status == "running" and api.launches == 1
+    assert observed == [(
+        "kandev", f"molicoder:project:{project.id}:run:{result.run_id}:task:1",
+        "kandev_owner_selected",
+    )]
+
+
 def test_missing_remote_task_keeps_kandev_ownership_and_requires_review(tmp_path):
     store, project, connection, api, adapter = _service(tmp_path)
     result = build_orchestrator(

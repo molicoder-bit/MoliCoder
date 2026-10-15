@@ -27,6 +27,7 @@ from ..inference.adapters.ollama import ensure_local_offering, local_offering_id
 from ..inference.policy import InferencePolicy
 from ..inference.pacing import project_pacing
 from ..inference.registry import ProviderRegistry
+from ..kandev.ui_config import configured_kandev_adapter
 from ..molicoder.projectstate import read_git_state
 from ..molicoder.registry import ProjectRegistry
 from ..molicoder.runtime import build_orchestrator
@@ -71,6 +72,7 @@ class MainWindow(QMainWindow):
         self.last_integration_path: Path | None = None
         self.last_run_log_path: Path | None = None
         self.recoverable_run_id: int | None = None
+        self.last_run_id: int | None = None
         self._installed_model_names: set[str] = set()
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setSingleShot(True)
@@ -347,6 +349,12 @@ class MainWindow(QMainWindow):
         self.build_provider.addItem("Copilot", "copilot")
         self.build_provider.currentIndexChanged.connect(self._build_preferences_changed)
         controls.addWidget(self.build_provider)
+
+        self.build_owner = QComboBox()
+        self.build_owner.addItem("Internal Build", "internal")
+        self.build_owner.addItem("Kandev (configured local service)", "kandev")
+        self.build_owner.currentIndexChanged.connect(self._refresh_build_readiness)
+        controls.addWidget(self.build_owner)
         controls.addWidget(QLabel("Fallback on provider failure"))
         self.build_fallback_provider = QComboBox()
         self.build_fallback_provider.addItem("None", "")
@@ -407,6 +415,10 @@ class MainWindow(QMainWindow):
         self.build_status.setObjectName("muted")
         self.build_status.setWordWrap(True)
         status_layout.addWidget(self.build_status)
+        self.build_ownership_status = QLabel("")
+        self.build_ownership_status.setObjectName("muted")
+        self.build_ownership_status.setWordWrap(True)
+        status_layout.addWidget(self.build_ownership_status)
         self.build_activity = QLabel("Idle")
         self.build_activity.setStyleSheet("color: #22D3EE; font-weight: 650;")
         status_layout.addWidget(self.build_activity)
@@ -819,24 +831,60 @@ class MainWindow(QMainWindow):
 
     def _refresh_recovery_actions(self, project: Project | None = None) -> None:
         project = project or self.registry.selected()
-        run = self.store.latest_recoverable_run(project.id) if project else None
+        run = self._recoverable_build_run(project)
         path = Path(str(run.get("worktree", ""))).resolve() if run and run.get("worktree") else None
-        available = bool(path and path.is_dir())
+        kandev_owned = bool(run and run.get("provider") == "kandev")
+        available = bool(kandev_owned or (path and path.is_dir()))
         self.recoverable_run_id = int(run["id"]) if run and available else None
         self.build_resume_button.setEnabled(available and self.orchestration_worker is None)
-        self.build_open_worktree_button.setEnabled(available)
-        self.build_discard_button.setEnabled(available and self.orchestration_worker is None)
+        self.build_resume_button.setText("Reconcile Kandev run" if kandev_owned else "Resume preserved run")
+        self.build_open_worktree_button.setEnabled(bool(path and path.is_dir()))
+        self.build_discard_button.setEnabled(available and not kandev_owned and self.orchestration_worker is None)
+        self.build_ownership_status.setText(
+            f"Kandev owns run {run['id']} · {run['status']} · reconcile by saved external ID before further action."
+            if kandev_owned else ""
+        )
+        if kandev_owned and run["status"] == "ready_to_apply" and path and path.is_dir():
+            tasks = self.store.list_run_tasks(int(run["id"]))
+            if len(tasks) == 1 and tasks[0].status == "completed" and tasks[0].branch:
+                self.last_run_id = int(run["id"])
+                self.last_integration_branch = tasks[0].branch
+                self.last_integration_path = path
+                self.build_merge_button.setText("Apply accepted Kandev result")
+                self.build_merge_button.setEnabled(self.orchestration_worker is None)
+        elif self.last_run_id is not None:
+            last = self.store.get_run(self.last_run_id)
+            if last and last["provider"] == "kandev":
+                self.build_merge_button.setEnabled(False)
+                self.build_merge_button.setText("Apply ready result")
+
+    def _recoverable_build_run(self, project: Project | None) -> dict | None:
+        if project is None:
+            return None
+        for run in self.store.list_project_runs(project.id):
+            if run["provider"] == "kandev" and run["status"] in {
+                "running", "needs_attention", "ready_to_apply", "cancelled", "failed",
+            }:
+                return run
+            if (run["provider"] != "kandev" and run["status"] in {
+                "needs_attention", "ready_to_apply", "cancelled", "failed",
+            } and run.get("worktree") and Path(str(run["worktree"])).is_dir()):
+                return run
+        return None
 
     def _open_preserved_worktree(self) -> None:
         project = self.registry.selected()
-        run = self.store.latest_recoverable_run(project.id) if project else None
+        run = self._recoverable_build_run(project)
         if run and run.get("worktree") and Path(str(run["worktree"])).is_dir():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(run["worktree"])))
 
     def _resume_preserved_run(self) -> None:
         project = self.registry.selected()
-        run = self.store.latest_recoverable_run(project.id) if project else None
+        run = self._recoverable_build_run(project)
         if project is None or run is None or self.orchestration_worker is not None:
+            return
+        if run["provider"] == "kandev":
+            self._reconcile_kandev_run(project, run)
             return
         provider_name = str(self.build_provider.currentData() or run.get("provider") or "codex")
         preferences = self.store.get_project_preferences(project.id)
@@ -876,6 +924,7 @@ class MainWindow(QMainWindow):
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
         self.orchestration_worker = worker
         self.build_request.setEnabled(False)
+        self.build_owner.setEnabled(False)
         self.build_mode.setEnabled(False)
         self.build_provider.setEnabled(False)
         self.build_fallback_provider.setEnabled(False)
@@ -886,10 +935,44 @@ class MainWindow(QMainWindow):
         self._refresh_recovery_actions(project)
         worker.start()
 
+    def _reconcile_kandev_run(self, project: Project, run: dict) -> None:
+        try:
+            adapter = configured_kandev_adapter(self.store)
+            orchestrator = build_orchestrator(
+                store=self.store, project=project, client=self.client,
+                kandev_connection=adapter.connection, kandev_adapter=adapter,
+            )
+        except (OSError, ValueError, ProviderUnavailable) as exc:
+            QMessageBox.warning(self, "Kandev recovery", str(exc))
+            return
+        worker = OrchestrationWorker(
+            orchestrator, str(run["request"]), str(run["mode"]), resume_run_id=int(run["id"]),
+        )
+        orchestrator.on_event = worker.relay_event
+        worker.event.connect(self._build_event)
+        worker.completed.connect(self._build_completed)
+        worker.failed.connect(self._build_failed)
+        worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
+        self.orchestration_worker = worker
+        self.build_request.setEnabled(False)
+        self.build_owner.setEnabled(False)
+        self.build_mode.setEnabled(False)
+        self.build_provider.setEnabled(False)
+        self.build_fallback_provider.setEnabled(False)
+        self.build_pause_button.setEnabled(False)
+        self.build_cancel_button.setEnabled(False)
+        self._build_started_at = time.monotonic()
+        self._build_activity_timer.start()
+        self._refresh_recovery_actions(project)
+        worker.start()
+
     def _discard_preserved_run(self) -> None:
         project = self.registry.selected()
-        run = self.store.latest_recoverable_run(project.id) if project else None
+        run = self._recoverable_build_run(project)
         if project is None or run is None or self.orchestration_worker is not None:
+            return
+        if run["provider"] == "kandev":
+            QMessageBox.warning(self, "Kandev-owned run", "Reconcile the Kandev task before changing its worktree.")
             return
         path = Path(str(run.get("worktree") or "")).resolve()
         managed_root = (data_dir() / "worktrees").resolve()
@@ -1091,13 +1174,24 @@ class MainWindow(QMainWindow):
     def _refresh_build_readiness(self) -> None:
         if not hasattr(self, "build_status"):
             return
-        profile = agent_profile(str(self.build_provider.currentData() or "codex"))
-        route = "Strict local gateway preview" if profile.route_class == "local_gateway_preview" else "Opaque subscription CLI"
-        self.build_agent_info.setText(
-            f"{profile.provider.title()}: {route}. {profile.sandbox} "
-            f"{profile.limitation} Sign-in and entitlement are checked before Build starts; "
-            "open Provider settings for installation and sign-in status."
-        )
+        kandev_selected = self.build_owner.currentData() == "kandev"
+        internal_controls = not kandev_selected and self.orchestration_worker is None
+        self.build_provider.setEnabled(internal_controls)
+        self.build_fallback_provider.setEnabled(internal_controls)
+        self.build_strategy.setEnabled(internal_controls)
+        if kandev_selected:
+            self.build_agent_info.setText(
+                "Kandev owns the task and agent session. MoliCoder keeps local acceptance and apply control. "
+                "A pending task is reconciled by its saved external ID; it never switches to Internal Build."
+            )
+        else:
+            profile = agent_profile(str(self.build_provider.currentData() or "codex"))
+            route = "Strict local gateway preview" if profile.route_class == "local_gateway_preview" else "Opaque subscription CLI"
+            self.build_agent_info.setText(
+                f"{profile.provider.title()}: {route}. {profile.sandbox} "
+                f"{profile.limitation} Sign-in and entitlement are checked before Build starts; "
+                "open Provider settings for installation and sign-in status."
+            )
         project = self.registry.selected()
         request = self.build_request.toPlainText().strip()
         ready = False
@@ -1117,6 +1211,14 @@ class MainWindow(QMainWindow):
                 status = "Commit or stash current changes first; Build mode requires a clean working tree."
             elif not request:
                 status = "Ready for a request on this protected project branch."
+            elif kandev_selected:
+                try:
+                    configured_kandev_adapter(self.store)
+                except ValueError as exc:
+                    status = str(exc)
+                else:
+                    ready = True
+                    status = "Kandev selected · local settings valid · endpoint and task capabilities checked on launch."
             elif self.build_strategy.currentData() == "LOCAL_OFFLINE" and self._installed_model_names and "molicoder:latest" not in self._installed_model_names:
                 status = "The molicoder:latest model is not installed in Ollama."
             else:
@@ -1136,6 +1238,9 @@ class MainWindow(QMainWindow):
         project = self.registry.selected()
         request = self.build_request.toPlainText().strip()
         if project is None or not request:
+            return
+        if self.build_owner.currentData() == "kandev":
+            self._run_kandev_build(project, request)
             return
         mode = str(self.build_strategy.currentData() or "HYBRID")
         provider_name = str(self.build_provider.currentData() or "codex")
@@ -1211,6 +1316,7 @@ class MainWindow(QMainWindow):
         self.build_log_button.setEnabled(False)
         self.build_merge_button.setEnabled(False)
         self.build_request.setEnabled(False)
+        self.build_owner.setEnabled(False)
         self.build_mode.setEnabled(False)
         self.build_provider.setEnabled(False)
         self.build_fallback_provider.setEnabled(False)
@@ -1221,6 +1327,65 @@ class MainWindow(QMainWindow):
         self._build_activity_frame = 0
         self._build_activity_timer.start()
         self._update_build_activity()
+        worker.start()
+
+    def _run_kandev_build(self, project: Project, request: str) -> None:
+        try:
+            adapter = configured_kandev_adapter(self.store)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Kandev configuration", str(exc))
+            return
+        if QMessageBox.question(
+            self, "Start Kandev-owned Build",
+            f"Create and launch a Kandev task for {project.name} through {adapter.connection.endpoint}? "
+            "Kandev will own the agent session. Review its result before applying changes.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        config = adapter.api.config
+
+        def authorize_launch(ref) -> None:
+            expiry = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+            for action, scope in (
+                ("kandev_task_create", f"{config.workspace_id}:{ref.external_id}"),
+                ("kandev_agent_launch", f"{config.workspace_id}:{ref.external_id}:{config.agent_profile_id}"),
+            ):
+                self.store.record_action_authorization(
+                    project_id=None, action=action, scope=scope, risk=ActionRisk.EXTERNAL.value,
+                    decision="approved", actor="local_user_kandev_build_button", expires_at=expiry,
+                )
+
+        try:
+            orchestrator = build_orchestrator(
+                store=self.store, project=project, client=self.client,
+                mode=str(self.build_strategy.currentData() or "HYBRID"),
+                kandev_connection=adapter.connection, kandev_adapter=adapter,
+                kandev_authorize_launch=authorize_launch,
+            )
+        except (OSError, ValueError, ProviderUnavailable) as exc:
+            QMessageBox.critical(self, "Kandev Build configuration", str(exc))
+            return
+        worker = OrchestrationWorker(orchestrator, request, str(self.build_strategy.currentData() or "HYBRID"))
+        orchestrator.on_event = worker.relay_event
+        worker.event.connect(self._build_event)
+        worker.completed.connect(self._build_completed)
+        worker.failed.connect(self._build_failed)
+        worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
+        self.orchestration_worker = worker
+        self.build_events.clear()
+        self.build_details.clear()
+        self.last_run_log_path = None
+        self.build_log_button.setEnabled(False)
+        self.build_merge_button.setEnabled(False)
+        self.build_request.setEnabled(False)
+        self.build_owner.setEnabled(False)
+        self.build_mode.setEnabled(False)
+        self.build_provider.setEnabled(False)
+        self.build_fallback_provider.setEnabled(False)
+        self.build_pause_button.setEnabled(False)
+        self.build_cancel_button.setEnabled(False)
+        self._build_started_at = time.monotonic()
+        self._build_activity_timer.start()
+        self._refresh_build_readiness()
         worker.start()
 
     def _update_build_activity(self) -> None:
@@ -1398,6 +1563,9 @@ class MainWindow(QMainWindow):
         self.build_status.setText("Stopping the active provider process and preserving the isolated worktree…")
 
     def _build_completed(self, result) -> None:
+        self.last_run_id = result.run_id
+        recorded_run = self.store.get_run(result.run_id)
+        kandev_owned = bool(recorded_run and recorded_run.get("provider") == "kandev")
         project = self.registry.selected()
         metrics = RunAnalytics(self.store).project_summary(project.id) if project else None
         usage = (
@@ -1418,14 +1586,20 @@ class MainWindow(QMainWindow):
             self.last_integration_branch = result.integration_branch
             self.last_integration_path = result.integration_path
             self.build_merge_button.setEnabled(bool(result.integration_branch))
+            self.build_merge_button.setText("Apply accepted Kandev result" if kandev_owned else "Apply ready result")
             self.build_status.setText(
-                f"Run {result.run_id} passed validation but the checkout changed. Review and apply when ready. {result.error}{usage}"
+                (f"Kandev run {result.run_id} passed local validation. Review and apply when ready. {result.error}{usage}"
+                 if kandev_owned else
+                 f"Run {result.run_id} passed validation but the checkout changed. Review and apply when ready. {result.error}{usage}")
             )
             self._show_integration_diff(result.integration_path, result.base_commit)
         else:
             self.build_status.setText(
-                f"Run {result.run_id} stopped · {result.completed_tasks}/{result.total_tasks} tasks completed. {result.error}{usage}"
+                (f"Kandev owns run {result.run_id} · {result.status}. Reconcile its saved external ID to refresh the outcome. "
+                 f"{result.error}{usage}" if kandev_owned else
+                 f"Run {result.run_id} stopped · {result.completed_tasks}/{result.total_tasks} tasks completed. {result.error}{usage}")
             )
+        self._refresh_recovery_actions(project)
 
     def _build_failed(self, error: str) -> None:
         self.build_status.setText(f"Build worker failed: {error}")
@@ -1436,6 +1610,7 @@ class MainWindow(QMainWindow):
         if self.orchestration_worker is worker:
             self.orchestration_worker = None
         self.build_request.setEnabled(self.registry.selected() is not None)
+        self.build_owner.setEnabled(True)
         self.build_mode.setEnabled(True)
         self.build_provider.setEnabled(True)
         self.build_fallback_provider.setEnabled(True)
@@ -1476,6 +1651,28 @@ class MainWindow(QMainWindow):
 
     def _merge_last_build(self) -> None:
         project = self.registry.selected()
+        recorded_run = self.store.get_run(self.last_run_id) if self.last_run_id else None
+        if project and recorded_run and recorded_run.get("provider") == "kandev":
+            if recorded_run["project_id"] != project.id or recorded_run["status"] != "ready_to_apply":
+                return
+            if QMessageBox.question(
+                self, "Apply accepted Kandev result",
+                f"Fast-forward the locally validated checkpoint from Kandev run {self.last_run_id}?",
+            ) != QMessageBox.StandardButton.Yes:
+                return
+            try:
+                adapter = configured_kandev_adapter(self.store)
+                orchestrator = build_orchestrator(
+                    store=self.store, project=project, client=self.client,
+                    kandev_connection=adapter.connection, kandev_adapter=adapter,
+                )
+                result = orchestrator.apply(self.last_run_id)
+            except (OSError, ValueError, RuntimeError, ProviderUnavailable) as exc:
+                QMessageBox.critical(self, "Kandev apply failed", str(exc))
+                return
+            self._build_completed(result)
+            self._load_project_list(select_id=project.id)
+            return
         branch = self.last_integration_branch
         if project is None or not branch:
             return

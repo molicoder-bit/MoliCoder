@@ -168,6 +168,7 @@ def build_orchestrator(
     on_event: Callable[[str, dict], None] | None = None,
     kandev_connection: KandevConnection | None = None,
     kandev_adapter: KandevTaskAdapter | None = None,
+    kandev_authorize_launch: Callable | None = None,
 ) -> SequentialRunOrchestrator | KandevRunOrchestrator:
     connection = kandev_connection or KandevConnection()
     if connection.mode != KandevMode.DISABLED:
@@ -178,6 +179,7 @@ def build_orchestrator(
             )
         return KandevRunOrchestrator(
             store=store, project=project, adapter=kandev_adapter, on_event=on_event,
+            authorize_launch=kandev_authorize_launch,
             validate=lambda worktree: build_validator(
                 worktree, environment_root=Path(project.path).resolve(),
             ).run_and_summarize(),

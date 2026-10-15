@@ -33,6 +33,19 @@ The app talks only to Ollama on `http://127.0.0.1:11434`. Conversations are stor
 
 ## Local Build mode
 
+### Optional Kandev owner
+
+Build defaults to **Internal Build**. To select a Kandev-owned task, configure a local Kandev
+0.97.0 service and set `KANDEV_ENDPOINT`, `KANDEV_VERSION`, `KANDEV_WORKSPACE_ID`,
+`KANDEV_WORKFLOW_ID`, `KANDEV_WORKFLOW_STEP_ID`, `KANDEV_REPOSITORY_ID`, and
+`KANDEV_AGENT_PROFILE_ID` in the app process environment. The endpoint must be loopback HTTP
+(for example, `http://127.0.0.1:38429/mcp`). Select **Kandev (configured local service)** in
+Build and confirm the task launch. MoliCoder records Kandev ownership before dispatch and
+requires a separate exact create and agent-launch authorization. A pending run can be
+reconciled by its saved external ID; an accepted checkpoint can be applied from Build after
+local validation. Kandev availability and the live task lifecycle still require a configured
+running service and the opt-in readiness test.
+
 For a new application, click **New** beside **Projects**, choose a parent folder, enter a
 project name, and select Python, Node.js, or Flutter. MoliCoder creates the folder, language
 marker, local metadata, Git repository, and initial commit, then opens a build-ready project.

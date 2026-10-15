@@ -21,6 +21,7 @@ class KandevRunOrchestrator:
         self, *, store: ChatStore, project: Project, adapter: KandevTaskAdapter,
         on_event: Callable[[str, dict], None] | None = None,
         validate: Callable[[Path], str] | None = None,
+        authorize_launch: Callable[[KandevTaskRef], None] | None = None,
     ) -> None:
         self.store = store
         self.project = project
@@ -28,6 +29,7 @@ class KandevRunOrchestrator:
         self.adapter = adapter
         self.on_event = on_event
         self.validate = validate
+        self.authorize_launch = authorize_launch
         if not self.root.is_dir():
             raise ValueError("project folder does not exist")
 
@@ -169,6 +171,8 @@ class KandevRunOrchestrator:
             "base_commit": base,
         })
         try:
+            if self.authorize_launch is not None:
+                self.authorize_launch(ref)
             snapshot = self.adapter.create_task(ref, request)
         except Exception:
             # The create may have reached Kandev. Keep the local task bound to

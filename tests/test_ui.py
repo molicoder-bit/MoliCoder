@@ -2,9 +2,11 @@ from local_model_chat.storage import ChatStore
 from local_model_chat.ui.main_window import MainWindow
 from local_model_chat.ui.widgets import ChatBubble
 from local_model_chat.molicoder.providers import ProviderStatus
+from local_model_chat.kandev.contracts import KandevTaskRef
 from PySide6.QtWidgets import QCheckBox, QDialog, QLabel, QMessageBox, QPushButton, QTextBrowser
 import subprocess
 import hashlib
+from types import SimpleNamespace
 
 
 class FakeClient:
@@ -34,6 +36,7 @@ def test_main_window_starts_and_creates_initial_chat(qtbot, tmp_path) -> None:
     qtbot.waitUntil(lambda: window.startup_worker is None)
     assert window.current_conversation_id is not None
     assert window.model_combo.count() == 2
+    assert window.build_owner.currentData() == "internal"
     assert window.preset.name == "molicoder:latest"
     assert "16,384" in window.model_badge.text()
     assert "reserved output" in window.context_label.text()
@@ -231,6 +234,139 @@ def test_build_button_records_exact_authorization_before_worker_launch(qtbot, tm
     assert record["risk"] == "mutation"
     assert record["actor"] == "local_user_build_button"
     assert observed == ["started"]
+
+
+def test_kandev_build_selection_authorizes_exact_remote_task_and_never_uses_internal_owner(qtbot, tmp_path, monkeypatch) -> None:
+    store = ChatStore(tmp_path / "kandev-build.sqlite3")
+    root = tmp_path / "sample"
+    root.mkdir()
+    project = store.upsert_project("Sample", str(root), "python")
+    window = MainWindow(store, FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: window.startup_worker is None)
+    window._load_project_list(select_id=project.id)
+    window.build_owner.setCurrentIndex(window.build_owner.findData("kandev"))
+    assert not window.build_provider.isEnabled()
+    window.build_request.setPlainText("Build parser")
+    adapter = SimpleNamespace(
+        connection=SimpleNamespace(endpoint="http://127.0.0.1:38429/mcp"),
+        api=SimpleNamespace(config=SimpleNamespace(workspace_id="workspace-1", agent_profile_id="agent-1")),
+    )
+    captured = {}
+    monkeypatch.setattr("local_model_chat.ui.main_window.configured_kandev_adapter", lambda _store: adapter)
+    monkeypatch.setattr(window, "_refresh_build_readiness", lambda: window.build_run_button.setEnabled(True))
+    monkeypatch.setattr(QMessageBox, "question", lambda *_args: QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(
+        "local_model_chat.ui.main_window.build_orchestrator",
+        lambda **kwargs: (captured.update(kwargs) or SimpleNamespace(on_event=None)),
+    )
+    monkeypatch.setattr("local_model_chat.ui.main_window.OrchestrationWorker.start", lambda _worker: None)
+
+    window._run_build()
+
+    assert captured["kandev_adapter"] is adapter
+    assert captured["kandev_connection"] is adapter.connection
+    ref = KandevTaskRef(4, 5, "molicoder:project:1:run:4:task:5")
+    captured["kandev_authorize_launch"](ref)
+    create = store.latest_action_authorization(
+        project_id=None, action="kandev_task_create", scope=f"workspace-1:{ref.external_id}",
+    )
+    launch = store.latest_action_authorization(
+        project_id=None, action="kandev_agent_launch", scope=f"workspace-1:{ref.external_id}:agent-1",
+    )
+    assert create and launch
+    assert create["actor"] == launch["actor"] == "local_user_kandev_build_button"
+
+
+def test_pending_kandev_run_reconciles_by_owner_without_internal_resume(qtbot, tmp_path, monkeypatch) -> None:
+    store = ChatStore(tmp_path / "kandev-recovery.sqlite3")
+    root = tmp_path / "sample"
+    root.mkdir()
+    project = store.upsert_project("Sample", str(root), "python")
+    run_id = store.create_run(project.id, "Build parser", "HYBRID", provider="kandev")
+    store.update_run_state(run_id, "needs_attention", recovery_reason="create outcome unknown")
+    window = MainWindow(store, FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: window.startup_worker is None)
+    window._load_project_list(select_id=project.id)
+    assert window.build_resume_button.isEnabled()
+    assert "Kandev owns run" in window.build_ownership_status.text()
+    assert not window.build_discard_button.isEnabled()
+    adapter = SimpleNamespace(connection=SimpleNamespace(endpoint="http://127.0.0.1:38429/mcp"))
+    captured = {}
+    monkeypatch.setattr("local_model_chat.ui.main_window.configured_kandev_adapter", lambda _store: adapter)
+    monkeypatch.setattr(
+        "local_model_chat.ui.main_window.build_orchestrator",
+        lambda **kwargs: (captured.update(kwargs) or SimpleNamespace(on_event=None)),
+    )
+    monkeypatch.setattr("local_model_chat.ui.main_window.OrchestrationWorker.start", lambda _worker: None)
+
+    window._resume_preserved_run()
+
+    assert captured["kandev_adapter"] is adapter
+    assert window.orchestration_worker.resume_run_id == run_id
+    assert window.orchestration_worker.orchestrator.on_event == window.orchestration_worker.relay_event
+
+
+def test_accepted_kandev_run_restores_apply_action_after_restart(qtbot, tmp_path) -> None:
+    store = ChatStore(tmp_path / "kandev-apply.sqlite3")
+    root = tmp_path / "sample"
+    root.mkdir()
+    worktree = tmp_path / "kandev-worktree"
+    worktree.mkdir()
+    project = store.upsert_project("Sample", str(root), "python")
+    run_id = store.create_run(project.id, "Build parser", "HYBRID", provider="kandev")
+    task_id = store.create_run_task(run_id, "K1", "Kandev Build task", "Build parser", "high")
+    store.update_run_task(task_id, "completed", 0)
+    store.update_task_workspace(task_id, worktree=str(worktree), branch="feature/task", base_commit="base")
+    store.update_run_state(run_id, "ready_to_apply", worktree=str(worktree), base_commit="base", final_commit="head")
+
+    window = MainWindow(store, FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: window.startup_worker is None)
+    window._load_project_list(select_id=project.id)
+
+    assert window.last_run_id == run_id
+    assert window.build_merge_button.isEnabled()
+    assert window.build_merge_button.text() == "Apply accepted Kandev result"
+
+
+def test_kandev_apply_button_uses_fenced_backend_operation(qtbot, tmp_path, monkeypatch) -> None:
+    store = ChatStore(tmp_path / "kandev-apply-route.sqlite3")
+    root = tmp_path / "sample"
+    root.mkdir()
+    worktree = tmp_path / "kandev-worktree"
+    worktree.mkdir()
+    project = store.upsert_project("Sample", str(root), "python")
+    run_id = store.create_run(project.id, "Build parser", "HYBRID", provider="kandev")
+    task_id = store.create_run_task(run_id, "K1", "Kandev Build task", "Build parser", "high")
+    store.update_run_task(task_id, "completed", 0)
+    store.update_task_workspace(task_id, worktree=str(worktree), branch="feature/task", base_commit="base")
+    store.update_run_state(run_id, "ready_to_apply", worktree=str(worktree), base_commit="base", final_commit="head")
+    window = MainWindow(store, FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: window.startup_worker is None)
+    window._load_project_list(select_id=project.id)
+    adapter = SimpleNamespace(connection=SimpleNamespace(endpoint="http://127.0.0.1:38429/mcp"))
+    applied = []
+
+    class FakeOrchestrator:
+        def apply(self, selected_run_id):
+            applied.append(selected_run_id)
+            store.finish_run(selected_run_id, "completed")
+            return SimpleNamespace(
+                run_id=selected_run_id, status="completed", completed_tasks=1, total_tasks=1,
+                integration_branch="feature/task", integration_path=worktree, base_commit="base", error="",
+            )
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *_args: QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr("local_model_chat.ui.main_window.configured_kandev_adapter", lambda _store: adapter)
+    monkeypatch.setattr("local_model_chat.ui.main_window.build_orchestrator", lambda **_kwargs: FakeOrchestrator())
+
+    window._merge_last_build()
+
+    assert applied == [run_id]
+    assert store.get_run(run_id)["status"] == "completed"
 
 
 def test_build_button_authorizes_only_explicit_selected_fallback(qtbot, tmp_path, monkeypatch) -> None:
