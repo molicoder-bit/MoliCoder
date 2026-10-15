@@ -1,0 +1,47 @@
+name: macOS and Linux platform smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: MoliCoder-Linux-x64
+          - os: macos-15-intel
+            artifact: MoliCoder-macOS-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install Linux Qt runtime libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon-x11-0
+      - name: Install dependencies
+        run: |
+          python -m pip install -r requirements.lock
+          python -m pip install --no-deps -e .
+      - name: Test Chat, Build, doctor and platform behavior
+        run: python -m pytest -q
+      - name: Read-only doctor smoke
+        run: python -m local_model_chat.molicoder.cli doctor --json
+      - name: Build and inspect distribution
+        run: python scripts/build_unix.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/MoliCoder/

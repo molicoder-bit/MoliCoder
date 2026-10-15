@@ -14,6 +14,7 @@ def test_frontier_plan_schema_is_declared_as_package_data() -> None:
 
     package_data = config["tool"]["setuptools"]["package-data"]
     assert "molicoder/planner/plan.schema.json" in package_data["local_model_chat"]
+    assert "environment/manifests/releases.json" in package_data["local_model_chat"]
 
 
 def test_package_health_check_exits_before_creating_the_ui(monkeypatch) -> None:

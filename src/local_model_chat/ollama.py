@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -54,13 +56,17 @@ class OllamaClient:
     def ensure_running(self, wait_seconds: float = 15.0) -> bool:
         if self.is_available():
             return True
-        executable = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"
-        if not executable.exists():
+        if sys.platform == "win32":
+            installed = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"
+            executable = str(installed) if installed.is_file() else shutil.which("ollama")
+        else:
+            executable = shutil.which("ollama")
+        if not executable:
             return False
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
             self._server_process = subprocess.Popen(
-                [str(executable), "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                [executable, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 creationflags=creationflags,
             )
         except OSError:

@@ -17,7 +17,8 @@ def main() -> int:
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("molicoder-bit")
     app.setStyle("Fusion")
-    app.setFont(QFont("Segoe UI Variable", 10))
+    if sys.platform == "win32":
+        app.setFont(QFont("Segoe UI Variable", 10))
     app.setStyleSheet(APP_STYLESHEET)
     window = MainWindow()
     window.show()

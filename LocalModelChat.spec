@@ -4,7 +4,10 @@ a = Analysis(
     ["run_app.py"],
     pathex=["src"],
     binaries=[],
-    datas=[("src/local_model_chat/molicoder/planner/plan.schema.json", "local_model_chat/molicoder/planner")],
+    datas=[
+        ("src/local_model_chat/molicoder/planner/plan.schema.json", "local_model_chat/molicoder/planner"),
+        ("src/local_model_chat/environment/manifests/releases.json", "local_model_chat/environment/manifests"),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -17,7 +20,7 @@ a = Analysis(
 # Codex and document-tool runtimes can add their own ICU builds to PATH. Qt on
 # Windows uses the operating system ICU ABI, so packaging a PATH-provided ICU
 # can make QtGui fail at import time with ERROR_PROC_NOT_FOUND.
-excluded_host_binaries = {"icuuc.dll", "icuin.dll", "icudt.dll"}
+excluded_host_binaries = {"icuuc.dll", "icuin.dll", "icudt.dll"} if "windows" in __import__("platform").system().lower() else set()
 a.binaries = [
     binary
     for binary in a.binaries

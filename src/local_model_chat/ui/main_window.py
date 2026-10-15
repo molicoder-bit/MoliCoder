@@ -1793,12 +1793,12 @@ class MainWindow(QMainWindow):
         moved = QFile.moveToTrash(str(path))
         success = bool(moved[0]) if isinstance(moved, tuple) else bool(moved)
         if not success:
-            QMessageBox.critical(self, "Recycle failed", f"Windows could not move this folder to the Recycle Bin:\n{path}")
+            QMessageBox.critical(self, "Trash failed", f"The system could not move this folder to Trash:\n{path}")
             return
         self.registry.remove(project.id)
         self.current_project_id = None
         self._load_project_list(select_saved=True)
-        QMessageBox.information(self, "Project recycled", "The folder was moved to the Recycle Bin and can be restored from Windows.")
+        QMessageBox.information(self, "Project moved to Trash", "The folder was moved to the system Trash and can be restored there.")
 
     def _clear_project_history(self) -> None:
         project = self.registry.selected()
