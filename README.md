@@ -1,154 +1,116 @@
 # MoliCoder
 
-A local-first Windows desktop coding orchestrator and chat UI for two Ollama models:
+**A local-first desktop chat and coding workspace for people who want to see and control where their tokens go.**
 
-- **MoliCoder** — `molicoder:latest` (Qwen 2.5 Coder 7B, Q4_K_M)
-- **Reasoning** — `local-reasoning:latest` (DeepSeek R1 0528 Qwen3 8B, Q4_K_M)
+MoliCoder combines Ollama chat, project-aware answers, and a guarded Build workflow. You can keep routine work on local models, set visible context and output limits, and choose when an external coding agent is worth using. The app records what it can measure and labels unknown subscription usage as unknown.
 
-The app talks only to Ollama on `http://127.0.0.1:11434`. Conversations are stored locally in SQLite under `%LOCALAPPDATA%\LocalModelChat`; no cloud model or Codex involvement is required.
+> **Current platform:** Windows 11. macOS and Linux packaging and smoke tests are still on the [project tracker](docs/plans/platform-transformation-tracker.md).
 
-## Features
+## Why token control matters
 
-- Streaming chat with separate, collapsed reasoning output
-- Clean final-answer callouts for DeepSeek's boxed LaTeX prose
-- Persistent conversations, rename/delete, Markdown and JSON export
-- Conservative context estimate, 80% warning, and 95% hard safety limit
-- No silent history trimming
-- Live NVIDIA VRAM/utilization, Ollama residency, token, and speed metrics
-- Safe text/code attachments (UTF-8 allowlist, 1 MB each, 4 MB per message)
-- Per-model generation controls and automatic model switching via a new chat
-- Keyboard-first composing: Enter sends; Shift+Enter inserts a new line
-- Bounded local executor with a serialized inference lane and mandatory validation gate
-- Tolerant Ollama tool parsing, including Qwen's bare, fenced, and function-style variants
-- Worktree-confined file tools, sensitive-path denial, and fixed validation commands
-- Persistent local-project registry with Python, Node, and Flutter detection
-- Per-project `.molicoder` metadata, evidence, plans, task records, and run history
-- Functional local-only Build workspace with guarded branches, detailed failures, and a live event timeline
-- Local Qwen multi-task planning with schema repair and dependency ordering
-- Dependency-aware validated execution with fresh-context repair and failure fingerprinting
-- Isolated Git task worktrees, dependency scheduling, integration merging, and conflict repair
-- Optional read-only Codex CLI planning, rescue, and integration review with local fallback
-- Adaptive CPU/GPU overlap, reusable project skills, and run-effectiveness analytics
-- Pause/resume, cooperative cancellation, diff inspection, and explicit validated-branch merge
+Long chat histories, oversized prompts, unnecessary model calls, and automatic retries can consume context or paid allowance without improving the result. MoliCoder gives you a way to inspect those decisions before and after a run:
 
-## Local Build mode
+| Control | What it helps with | Important limit |
+| --- | --- | --- |
+| Context meter and reserved output tokens | See the estimated prompt size before sending; get a warning near 80% of the configured context window and a block at the 95% safety threshold. Chat history is never trimmed silently. | The pre-send count is an estimate; Ollama reports the actual count after generation. |
+| Local Ollama route | Use your own hardware for chat and local Build tasks without metered API token charges. | Local work still uses compute, memory, and electricity; model quality depends on your setup. |
+| Source-backed project answers | Ask about the current task, version, or changed files using Git and saved run state without another inference call. | Only questions the deterministic handler recognizes take this path. |
+| Explicit external Build selection | Choose a provider and strategy, review the route, and authorize an external agent run. Call and time ceilings bound MoliCoder's CLI launches. | A subscription CLI can make internal calls MoliCoder cannot count or price. The ceiling is **not** a hard token or spend cap inside that CLI. |
+| Usage and budget records | Inspect input/output tokens, route reasons, recorded requests, and actual, estimated, or unknown costs separately. Project and task reservations guard registered metered API requests. | Provider subscription balances and opaque agent costs may be unavailable. Unknown is never shown as zero. |
+| Validation and recovery evidence | See task checkpoints, failed attempts, model handoffs, and validation results before relying on generated changes. | Passing tests do not prove every behavior; review changes before pushing. |
 
-### Optional Kandev owner
+The goal is more predictable use of local hardware and paid services, with fewer needless model calls and clearer evidence about what happened. Savings depend on your workload and provider terms; MoliCoder does not promise a fixed reduction in tokens or cost. The metered API policy layer is separate from the default desktop routes and cannot cap internal usage inside a subscription CLI.
 
-Build defaults to **Internal Build**. To select a Kandev-owned task, configure a local Kandev
-0.97.0 service and set `KANDEV_ENDPOINT`, `KANDEV_VERSION`, `KANDEV_WORKSPACE_ID`,
-`KANDEV_WORKFLOW_ID`, `KANDEV_WORKFLOW_STEP_ID`, `KANDEV_REPOSITORY_ID`, and
-`KANDEV_AGENT_PROFILE_ID` in the app process environment. The endpoint must be loopback HTTP
-(for example, `http://127.0.0.1:38429/mcp`). Select **Kandev (configured local service)** in
-Build and confirm the task launch. MoliCoder records Kandev ownership before dispatch and
-requires a separate exact create and agent-launch authorization. A pending run can be
-reconciled by its saved external ID; an accepted checkpoint can be applied from Build after
-local validation. Kandev availability and the live task lifecycle still require a configured
-running service and the opt-in readiness test.
+For example, a question such as “What task are we on?” can be answered from the saved run record without sending a model prompt. A small code change can run through Local offline Build. If that route cannot handle the task, you can deliberately choose an external agent, inspect the result, and see which usage figures are known. This keeps the decision to spend external allowance with you.
 
-For a new application, click **New** beside **Projects**, choose a parent folder, enter a
-project name, and select Python, Node.js, or Flutter. MoliCoder creates the folder, language
-marker, local metadata, Git repository, and initial commit, then opens a build-ready project.
-Python projects also receive an isolated `.venv` with the pinned test runner; this one-time setup
-downloads `pytest` from PyPI but requires no account or API key.
+## What works today
 
-To work on an existing repository, click **Add** and select it. Existing projects must start from
-a clean, named Git branch.
-Enter a small, mechanically verifiable request and MoliCoder will
-collect evidence, produce a validated plan, execute dependency-ready tasks with safe overlap, run the
-project's fixed validation commands, and retry bounded failures with fresh context. Task edits
-occur in isolated `molicoder/run-*/...` branches; the current checkout is changed only when you
-explicitly confirm **Merge integration branch**.
+- **Chat:** stream replies from local Ollama models; adjust output length, temperature, and top-p; inspect prompt/output metrics; keep conversations and export Markdown or JSON.
+- **Project context:** select a local Git project, inspect authoritative run status and project knowledge, and get source-backed answers to supported status questions.
+- **Build:** plan and execute tasks in isolated Git worktrees, run fixed validation commands, preserve failed work for review, and record task evidence.
+- **Routes:** choose Local offline, Hybrid, or Frontier only. External CLI agents require project trust and an explicit Build authorization.
+- **Visibility:** inspect provider state, environment doctor results, usage and budgets, event timelines, worktrees, and a privacy-filtered trace export.
+- **Optional Kandev ownership:** explicitly assign a Build task to a configured local Kandev service and reconcile it by its saved external ID.
 
-Every build writes a structured JSONL audit trail to
-`.molicoder/logs/run-<id>.jsonl`. Select a failed event to see its model replies, tool calls,
-token usage, validation error, and worktree in the app, or click **Open run log** for the full
-timeline. Validation command output is stored beside it in the active task worktree.
-
-Build modes:
-
-- `LOCAL_ONLY`: local Qwen planning and execution; no subscription usage.
-- `AUTO`: local by default, Codex planning for security/auth/payment/migration ambiguity, with local fallback.
-- `FRONTIER_PLAN`: Codex plans and reviews; local Qwen implements and repairs.
-- `MANUAL_PLAN`: paste a plan JSON object matching `.molicoder`'s plan schema.
-
-External modes ask for confirmation before spending subscription quota. Codex runs read-only,
-has hard per-run call ceilings, and never edits the repository.
-
-Reusable project guidance can be stored in `.molicoder/skills/<name>.md`. The first line is
-`<!-- keywords: pytest, testing -->`; matching skills are injected only into relevant tasks.
-
-The guarded executor command remains available for a single hand-written task:
-
-```powershell
-git switch -c molicoder/example-task
-.\.venv\Scripts\molicoder-exec.exe --project . --yes "A small, explicit, testable task"
-```
-
-The single-task CLI still requires a dedicated `molicoder/<task>` branch. The desktop Build
-workspace accepts `main` because all autonomous edits occur in isolated worktrees. Both refuse
-dirty or detached checkouts and projects without a fixed validation allowlist. The model never
-chooses shell commands.
+Local Ollama chat needs no cloud account. Optional external agents and services have their own installation, authentication, quota, and data-sharing rules.
 
 ## Run from source
 
-Requirements: Windows 11, Python 3.13+, Ollama, and the two aliases above.
+Requirements: Windows 11, Python 3.13+, Git, and Ollama. The Chat presets expect Ollama model names `molicoder:latest` and `local-reasoning:latest`; make those aliases available in your Ollama installation. MoliCoder does not download or replace model weights automatically.
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python -m pip install -r requirements.lock
-.\.venv\Scripts\python run_app.py
+git clone https://github.com/molicoder-bit/MoliCoder.git
+cd MoliCoder
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.lock
+ollama list
+.\.venv\Scripts\python.exe run_app.py
 ```
 
-The app attempts to start Ollama if it is installed but not running. It never downloads or replaces models automatically.
+The app connects to Ollama on `http://127.0.0.1:11434` and tries to start the local Ollama service if it is installed but stopped. `ollama list` should show the expected aliases before you start a model-backed chat or Local offline Build.
 
-## Build and install
+### First steps
+
+1. Open **Chat** for local conversation. Watch the context meter and choose an output limit before sending a large request.
+2. Add an existing Git repository under **Projects**, or create a Python, Node.js, or Flutter starter project. An existing repository needs a clean, named branch for Build.
+3. In **Build**, enter a small request with a checkable outcome. Choose **Local offline** to keep model work on Ollama, or choose an external agent deliberately.
+4. Review **Task evidence** and **Usage and budgets** after the run. Inspect the diff before pushing it.
+
+New Python starter projects create an isolated virtual environment and install the pinned test runner from PyPI. That setup needs network access but no model provider account.
+
+## Build routes and safeguards
+
+| Strategy | Execution path | Token and cost visibility |
+| --- | --- | --- |
+| **Local offline** | Local Ollama planning and bounded local execution. | Ollama usage is recorded when reported; no metered inference API charge. |
+| **Hybrid** | A selected external CLI plans; bounded local execution can handle eligible low-risk edits, with provider takeover when needed. | Local usage is measurable; the CLI's internal subscription use remains opaque. |
+| **Frontier only** | The selected external CLI plans and executes in the isolated worktree. | MoliCoder records observed calls and any usage the CLI reports; exact internal cost may be unknown. |
+
+Build supports Codex, Claude, and Copilot CLI profiles when installed, authenticated, and eligible. An optional fallback provider must be selected and trusted separately. External agents can edit files in the isolated worktree; their own native tools may have side effects outside MoliCoder's controlled tool path. After an uncertain opaque-agent outcome, MoliCoder stops automatic retry and asks for review.
+
+Internal Build starts from a clean named branch. It validates and checkpoints changes in an isolated worktree, then fast-forwards the checkout automatically **only when its safety checks allow it**. Otherwise, it preserves the result for review and a separate apply action. Kandev-owned tasks require local acceptance and an explicit apply. No Build route pushes commits to a remote repository.
+
+The desktop exposes current run status, validation output, and recovery actions. Project-local `.molicoder` files hold plans and run logs; the local SQLite database holds authoritative run and task state.
+
+### Optional Kandev owner
+
+Build defaults to **Internal Build**. To select Kandev ownership, configure a local Kandev 0.97.0 service and set these environment variables for the app process:
+
+```text
+KANDEV_ENDPOINT=http://127.0.0.1:38429/mcp
+KANDEV_VERSION=0.97.0
+KANDEV_WORKSPACE_ID=...
+KANDEV_WORKFLOW_ID=...
+KANDEV_WORKFLOW_STEP_ID=...
+KANDEV_REPOSITORY_ID=...
+KANDEV_AGENT_PROFILE_ID=...
+```
+
+The endpoint must be loopback HTTP. Choose **Kandev (configured local service)** in Build and confirm the agent launch. MoliCoder records ownership before dispatch, requires exact create and launch authorizations, shows pending state, and reconciles by the saved external ID. Live readiness and lifecycle testing against an installed Kandev service remains an [open task](docs/plans/platform-transformation-tracker.md).
+
+## Build a Windows app
 
 ```powershell
 .\scripts\build.ps1
 .\scripts\install.ps1
 ```
 
-The build is written to `dist\MoliCoder`. Installation copies it to `%LOCALAPPDATA%\Programs\MoliCoder` and creates a desktop shortcut.
-Launch the installed app from the **MoliCoder** desktop shortcut or run:
+The build is written to `dist\MoliCoder`. The installer copies it to `%LOCALAPPDATA%\Programs\MoliCoder` and creates a desktop shortcut. Run from source first if you want to inspect behavior before installing.
 
-```powershell
-& "$env:LOCALAPPDATA\Programs\MoliCoder\MoliCoder.exe"
-```
-
-The build performs a packaged-import health check before it can succeed. Its PyInstaller
-configuration also excludes unrelated ICU DLLs inherited from developer-tool `PATH` entries,
-which would otherwise conflict with Qt's Windows system interface.
-
-## Privacy and storage
+## Privacy and local data
 
 - Chat database: `%LOCALAPPDATA%\LocalModelChat\chats.sqlite3`
 - Default exports: `%LOCALAPPDATA%\LocalModelChat\exports`
-- API endpoint: loopback only (`127.0.0.1`)
 - Task worktrees: `%LOCALAPPDATA%\LocalModelChat\worktrees`
-- Build audit logs: `<project>\.molicoder\logs\run-<id>.jsonl`
-- Attached files are embedded as text in the prompt and saved with the message.
+- Project run logs: `<project>\.molicoder\logs\run-<id>.jsonl`
 
-Deleting chats is permanent. Back up the SQLite file if the history matters.
+Local Ollama requests stay on the loopback service. Selecting an external CLI or Kandev route sends task context to that service under its own terms. Attached text and run evidence may contain sensitive project content; review exports and logs before sharing them. Deleting a chat is permanent, so back up the SQLite file if the history matters.
 
-## Tests
+## Tests and project status
 
 ```powershell
 $env:QT_QPA_PLATFORM = "offscreen"
-.\.venv\Scripts\python -m pytest
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Real Ollama tests are opt-in and operate only in temporary repositories:
-
-```powershell
-$env:MOLICODER_REAL_MODEL = "1"
-.\.venv\Scripts\python -m pytest tests\test_molicoder_real_model.py
-```
-
-The full frontier workflow additionally requires explicit quota authorization:
-
-```powershell
-$env:MOLICODER_REAL_MODEL = "1"
-$env:MOLICODER_REAL_CODEX = "1"
-.\.venv\Scripts\python -m pytest tests\test_molicoder_real_model.py
-```
+The no-cost suite uses fixtures for provider and Kandev behavior. Live Ollama and CLI tests are opt-in; a live Kandev readiness test remains planned. The [platform transformation tracker](docs/plans/platform-transformation-tracker.md) shows completed work and remaining tasks, including measured routing economics and macOS/Linux support. Issues and feedback are welcome; include reproduction steps and avoid posting credentials or private run logs.
