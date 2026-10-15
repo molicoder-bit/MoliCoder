@@ -72,3 +72,8 @@ Tasks are checked only after verification. Existing execution and authorization 
 - [x] UI09-04 Move Ollama health into Performance, label the Chat context estimate, and name the provider/model in custom API test progress and results.
 - [x] UI09-05 Verify theme persistence, selected versus live routes, connected Ollama with external GPT-4 configured, local Build's independent model, fallback identity, Kandev unknown identity and API test identity. Focused UI/theme/workspace/provider/package suite: **77 passed**; native Matrix and Light screenshots refreshed and compact 1020 × 680 layout inspected. Preview screens use fixture project/model settings, with no inference calls.
 - [x] UI09-06 Document, package and install **1.2.2** at the existing user executable path. Packaged desktop and embedded-browser startup smoke checks passed; previous installation preserved.
+
+## UI10 — Default theme and public preview (2026-10-15)
+
+- [x] UI10-01 Confirm Matrix is selected on a fresh launch and saved Light preferences still restore. Theme suite: **3 passed**, including explicit fresh-launch assertions.
+- [x] UI10-02 Embed the current Matrix screenshot in the README's desktop workspace section and document Matrix as the first-launch default. Verified the tracked screenshot path and updated the preview caption.

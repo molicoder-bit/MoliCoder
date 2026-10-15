@@ -8,6 +8,8 @@ def test_theme_switch_is_immediate_and_preserves_drafts(qtbot, tmp_path):
     store = ChatStore(tmp_path/'theme.db')
     window = MainWindow(store, start_ollama_check=False)
     qtbot.addWidget(window)
+    assert QApplication.instance().property('molicoderTheme') == 'matrix'
+    assert window.theme_selector.currentData() == 'matrix'
     assert [window.theme_selector.itemText(i) for i in range(window.theme_selector.count())] == ['Matrix', 'Light']
     window.composer.setPlainText('Keep this chat draft')
     window.build_request.setPlainText('Keep this build draft')

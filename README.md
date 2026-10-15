@@ -36,13 +36,13 @@ Local Ollama chat needs no cloud account. Optional external agents and services 
 
 ## Desktop workspace
 
-The supplied MoliCode logo anchors a charcoal workspace with mint Chat and copper Build controls. Projects are selected in the header; **History** contains projects, conversations, and Build runs. **Settings** brings together connections, installation, budgets, trust, and Kandev.
+Matrix is the default theme: black surfaces, green accents, and monospace text, with the supplied MoliCode logo in the header. Projects are selected in the header; **History** contains projects, conversations, and Build runs. **Settings** brings together connections, installation, budgets, trust, and Kandev.
 
 Context estimates and reserved output stay visible above the workspace. The bottom drawer opens Activity, Changes, Validation, Usage, Knowledge, or Performance without permanent side panels. Build controls are grouped and its content scrolls vertically on smaller windows. Project switching is locked while a Build owns a worktree; Chat/Build switching preserves drafts.
 
-![Chat workspace](docs/images/workspace-chat.png)
+![MoliCoder in the default Matrix theme, showing the theme selector and provider/model banner](docs/images/theme-matrix.png)
 
-The screenshot uses a demonstration conversation and makes no inference call. The [UI tracker](docs/plans/ui-redesign-tracker.md) records implementation and verification.
+The screenshot uses a demonstration workspace and makes no inference call. The [UI tracker](docs/plans/ui-redesign-tracker.md) records implementation and verification.
 
 ### Provider and model identity
 
@@ -50,7 +50,7 @@ The persistent model banner shows the selected Chat or Build provider and model.
 
 ### Matrix and Light themes
 
-Use the **Theme** selector in the header to choose **Matrix** or **Light** instantly. The selector always shows the current theme. Matrix uses black surfaces, bright green accents, thin borders and monospace text; Light uses warm white surfaces and dark text. The preference is saved locally and restored on launch. Chat, Build, dialogs, attachments, and detail drawers follow the selected theme. Kandev's embedded web content keeps its own appearance settings.
+**Matrix is the default on first launch.** Use the **Theme** selector in the header to choose **Matrix** or **Light** instantly. The selector always shows the current theme. Matrix uses black surfaces, bright green accents, thin borders and monospace text; Light uses warm white surfaces and dark text. The preference is saved locally and restored on launch. Chat, Build, dialogs, attachments, and detail drawers follow the selected theme. Kandev's embedded web content keeps its own appearance settings.
 
 [Matrix preview](docs/images/theme-matrix.png) · [Light preview](docs/images/theme-light.png)
 
