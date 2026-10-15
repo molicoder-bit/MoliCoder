@@ -496,7 +496,7 @@ class MainWindow(QMainWindow):
                 if manifest.system == report.environment.system
                 and manifest.architecture == report.environment.architecture
                 and manifest.install_kind == "archive"
-                and manifest.source_url.endswith(".tar.gz")
+                and manifest.source_url.endswith((".tar.gz", ".zip"))
             )
             managed_install.setEnabled(bool(installable) and self.managed_install_worker is None)
             dashboard = readiness_dashboard(report)
@@ -543,7 +543,7 @@ class MainWindow(QMainWindow):
                 if manifest.system == latest_report.environment.system
                 and manifest.architecture == latest_report.environment.architecture
                 and manifest.install_kind == "archive"
-                and manifest.source_url.endswith(".tar.gz")
+                and manifest.source_url.endswith((".tar.gz", ".zip"))
             )
             if not candidates:
                 return

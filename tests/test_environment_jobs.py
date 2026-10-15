@@ -15,7 +15,8 @@ def _plans(store):
         (DiscoveredTool("ollama", None, None, "missing"),
          DiscoveredTool("kandev", None, None, "missing")), (),
     )
-    manifests = [item for item in load_manifests() if item.system == "Windows"]
+    manifests = [item for item in load_manifests()
+                 if item.system == "Windows" and item.tool_id in {"ollama", "kandev"}]
     return [plan_setup(store, inventory, item) for item in manifests]
 
 

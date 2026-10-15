@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import stat
 import shutil
 import tarfile
 import tempfile
 import time
 import urllib.request
+import zipfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,6 +59,28 @@ def _extract_safe(archive: Path, destination: Path, maximum_bytes: int) -> None:
         contents.extractall(destination, filter="data")
 
 
+def _extract_zip_safe(archive: Path, destination: Path, maximum_bytes: int) -> None:
+    root = destination.resolve()
+    with zipfile.ZipFile(archive) as contents:
+        members = contents.infolist()
+        if sum(member.file_size for member in members) > maximum_bytes:
+            raise ValueError("archive exceeds the approved extracted size")
+        for member in members:
+            target = (root / member.filename).resolve()
+            mode = member.external_attr >> 16
+            if (not target.is_relative_to(root) or member.filename.startswith(("/", "\\"))
+                    or "\\" in member.filename or stat.S_ISLNK(mode)):
+                raise ValueError("archive contains an unsafe path or link")
+        for member in members:
+            target = root / member.filename
+            if member.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with contents.open(member) as source, target.open("wb") as output:
+                shutil.copyfileobj(source, output)
+
+
 def install_managed_archive(
     store: ChatStore, plan: SetupPlan, manifest: InstallManifest,
     managed_root: Path, *, downloader: Callable[[str, Path, int, float], None] = _download,
@@ -64,6 +88,8 @@ def install_managed_archive(
 ) -> InstallReceipt:
     if plan.action != "install_managed" or manifest.install_kind != "archive":
         raise ValueError("only an approved managed archive install is supported")
+    if not manifest.source_url.endswith((".tar.gz", ".zip")):
+        raise ValueError("managed archive format is unsupported")
     if (plan.tool_id, plan.version, plan.sha256, plan.source_url) != (
         manifest.tool_id, manifest.version, manifest.sha256, manifest.source_url,
     ):
@@ -95,7 +121,7 @@ def install_managed_archive(
     if not temporary.is_relative_to(root):
         raise ValueError("temporary install path escapes managed root")
     try:
-        archive = temporary / "asset.tar.gz"
+        archive = temporary / ("asset.zip" if manifest.source_url.endswith(".zip") else "asset.tar.gz")
         downloader(manifest.source_url, archive, manifest.size_bytes, timeout_seconds)
         with archive.open("rb") as asset:
             digest = hashlib.file_digest(asset, "sha256").hexdigest()
@@ -103,10 +129,15 @@ def install_managed_archive(
             raise ValueError("download SHA-256 does not match the official manifest")
         staging = temporary / "staging"
         staging.mkdir()
-        _extract_safe(archive, staging, manifest.size_bytes * 12)
+        if manifest.source_url.endswith(".zip"):
+            _extract_zip_safe(archive, staging, manifest.size_bytes * 12)
+        else:
+            _extract_safe(archive, staging, manifest.size_bytes * 12)
         matches = list(staging.rglob(manifest.expected_executable))
         if len(matches) != 1 or not matches[0].is_file():
             raise ValueError("expected executable was not found exactly once")
+        if manifest.system != "Windows":
+            matches[0].chmod(0o700)
         executable = str(destination / matches[0].relative_to(staging))
         receipt = InstallReceipt(
             manifest.tool_id, manifest.version, manifest.sha256, str(destination), executable,

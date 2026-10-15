@@ -1,6 +1,7 @@
 import hashlib
 import io
 import tarfile
+import zipfile
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
@@ -20,6 +21,46 @@ def _archive(path, *, name="package/kandev.exe") -> bytes:
         info.size = len(data)
         archive.addfile(info, io.BytesIO(data))
     return path.read_bytes()
+
+
+def test_pinned_zip_install_extracts_only_safe_managed_files(tmp_path) -> None:
+    archive_path = tmp_path / "opencode.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("package/opencode.exe", b"fixture executable")
+    asset = archive_path.read_bytes()
+    store = ChatStore(tmp_path / "zip-install.sqlite3")
+    base = next(item for item in load_manifests()
+                if item.tool_id == "opencode" and item.system == "Windows")
+    manifest = replace(base, sha256=hashlib.sha256(asset).hexdigest(), size_bytes=len(asset))
+    inventory = EnvironmentReport(
+        1, "Windows", "x86_64", 8, 16 * 1024**3, 100 * 1024**3,
+        "unknown", "fixture", (DiscoveredTool("opencode", None, None, "missing"),), (),
+    )
+    plan = plan_setup(store, inventory, manifest)
+    store.record_action_authorization(
+        project_id=None, action="setup", scope=plan.scope, risk="mutation",
+        decision="approved", actor="user",
+        expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+    )
+    receipt = install_managed_archive(
+        store, plan, manifest, tmp_path / "managed",
+        downloader=lambda _url, target, _size, _timeout: target.write_bytes(asset),
+    )
+    assert (tmp_path / "managed" / "opencode-1.19.0" / "package" / "opencode.exe").is_file()
+    assert receipt.sha256 == manifest.sha256
+
+
+def test_zip_extraction_rejects_path_escape(tmp_path) -> None:
+    from local_model_chat.environment.install import _extract_zip_safe
+
+    archive_path = tmp_path / "unsafe.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("../outside.txt", b"bad")
+    target = tmp_path / "staging"
+    target.mkdir()
+    with pytest.raises(ValueError, match="unsafe"):
+        _extract_zip_safe(archive_path, target, 100)
+    assert not (tmp_path / "outside.txt").exists()
 
 
 def _approved_plan(tmp_path, asset: bytes):

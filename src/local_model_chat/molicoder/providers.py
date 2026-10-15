@@ -230,7 +230,13 @@ class CliFrontierProvider:
         if self._explicit_binary:
             return self._explicit_binary if self._explicit_binary.is_file() else None
         found = shutil.which(self.name, path=self.search_path)
-        return Path(found).resolve() if found else None
+        if found:
+            return Path(found).resolve()
+        if self.name == "opencode" and self.search_path is None:
+            from ..environment.managed_tools import managed_executable
+
+            return managed_executable("opencode")
+        return None
 
     def version_command(self, binary: Path) -> list[str]:
         return [str(binary), "--version"]
@@ -742,4 +748,5 @@ def create_provider(
 
 
 def probe_all_providers() -> tuple[ProviderStatus, ...]:
-    return tuple(create_provider(name).probe() for name in ("codex", "claude", "copilot"))
+    return (*tuple(create_provider(name).probe() for name in ("codex", "claude", "copilot")),
+            OpenCodeProvider().probe())

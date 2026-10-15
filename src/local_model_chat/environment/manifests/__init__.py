@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 _OFFICIAL_RELEASE_PREFIX = {
     "ollama": "https://github.com/ollama/ollama/releases/download/",
     "kandev": "https://github.com/kdlbs/kandev/releases/download/",
+    "opencode": "https://github.com/anomalyco/opencode/releases/download/",
 }
 
 
