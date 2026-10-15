@@ -7,6 +7,32 @@ WAITING = frozenset({'paused', 'waiting_auth', 'waiting_quota', 'awaiting_extern
 
 
 @dataclass(frozen=True)
+class RouteIdentity:
+    provider_id: str
+    provider_name: str
+    requested_model: str = ''
+    reported_model: str = ''
+    alias: str = ''
+    display_label: str = ''
+    evidence_source: str = 'unknown'
+    call_id: str = ''
+
+    @classmethod
+    def from_receipt(cls, receipt):
+        provider = receipt.get('provider', 'unknown')
+        return cls(provider, {'ollama': 'Local (Ollama)', 'none': 'No AI model used'}.get(provider, provider),
+                   receipt.get('requested_model', ''), receipt.get('reported_model', ''),
+                   receipt.get('alias', receipt.get('requested_model', '')), receipt.get('display_label', ''),
+                   receipt.get('model_source', 'unknown'), receipt.get('request_id', ''))
+
+    def render(self):
+        if self.evidence_source == 'no_inference':
+            return 'No AI model used'
+        model = self.reported_model or self.requested_model or 'Model not reported'
+        return f'{self.provider_name} · {model} ({self.evidence_source})'
+
+
+@dataclass(frozen=True)
 class WorkSnapshot:
     operation_id: str
     mode: str

@@ -832,6 +832,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             provider=self.provider.name, model=self.provider.model, log_version=2,
         )
         self._active_run_id = run_id
+        self.store.record_run_owner(run_id)
         if self.inference_gateway is not None:
             self.inference_gateway.run_id = run_id
             self.inference_gateway.task_id = None
@@ -1219,6 +1220,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         workspace = TaskWorkspace("workspace", path, branch, str(run.get("base_commit") or ""))
         manager = WorktreeManager(self.root, run_id=run_id, base_dir=path.parent.parent)
         self._active_run_id = run_id
+        self.store.record_run_owner(run_id)
         if self.inference_gateway is not None:
             self.inference_gateway.run_id = run_id
         tasks = self.store.list_run_tasks(run_id)

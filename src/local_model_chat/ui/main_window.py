@@ -348,6 +348,9 @@ class MainWindow(QMainWindow):
         self.build_project_meta.setObjectName("muted")
         self.build_project_meta.setWordWrap(True)
         layout.addWidget(self.build_project_meta)
+        self.change_project_button = QPushButton('Change project')
+        self.change_project_button.clicked.connect(lambda: self.project_switch.showPopup())
+        layout.addWidget(self.change_project_button)
         self.project_actions = QWidget()
         project_actions_layout = QHBoxLayout(self.project_actions)
         project_actions_layout.setContentsMargins(0, 0, 0, 0)
@@ -1225,6 +1228,7 @@ class MainWindow(QMainWindow):
             self._project_selected(selected_item, None)
         else:
             self.current_project_id = None
+            self.registry.clear_selection()
             self._update_build_project(None)
 
     def _project_selected(self, current: QListWidgetItem | None, _previous) -> None:
@@ -1234,6 +1238,10 @@ class MainWindow(QMainWindow):
         if self.orchestration_worker is not None and project_id != self.current_project_id:
             self._load_project_list(select_id=self.current_project_id)
             return
+        if not hasattr(self, "_conversation_drafts"):
+            self._conversation_drafts = {}
+        if self.current_conversation_id is not None and self.store.get_conversation_project_id(self.current_conversation_id) == self.current_project_id:
+            self._conversation_drafts[self.current_conversation_id] = (self.composer.toPlainText(), list(self.current_attachments))
         previous_id = self.current_project_id
         self.workspace_state.drafts[previous_id] = (self.composer.toPlainText(), self.build_request.toPlainText(), list(self.current_attachments))
         if previous_id != project_id:
@@ -1252,7 +1260,12 @@ class MainWindow(QMainWindow):
             self._update_pending_build_card()
 
     def _update_build_project(self, project: Project | None) -> None:
+        if hasattr(self, '_settings_dialog') and self._settings_dialog.isVisible():
+            from .settings_window import show_settings_window, CATEGORIES
+            show_settings_window(self, CATEGORIES[max(0, self._settings_nav.currentRow())])
         self.project_actions.setVisible(project is None)
+        self.change_project_button.setVisible(project is not None)
+        self.change_project_button.setEnabled(self.orchestration_worker is None)
         if project is None:
             self.build_project_title.setText("No project selected")
             self.build_project_meta.setText("Choose a project for repository work, or enter an explicit local folder action.")
@@ -1943,6 +1956,7 @@ class MainWindow(QMainWindow):
         self._refresh_route_identity()
         if not hasattr(self, "build_status"):
             return
+        self.change_project_button.setEnabled(self.orchestration_worker is None)
         kandev_selected = self.build_owner.currentData() == "kandev"
         internal_controls = not kandev_selected and self.orchestration_worker is None
         self.build_provider.setEnabled(internal_controls)
@@ -2768,7 +2782,7 @@ class MainWindow(QMainWindow):
     def _new_chat(self, model: str | None = None) -> None:
         if not hasattr(self, "_conversation_drafts"):
             self._conversation_drafts = {}
-        if self.current_conversation_id is not None:
+        if self.current_conversation_id is not None and self.store.get_conversation_project_id(self.current_conversation_id) == self.current_project_id:
             self._conversation_drafts[self.current_conversation_id] = (self.composer.toPlainText(), list(self.current_attachments))
         if self.chat_worker:
             worker = self.chat_worker
@@ -2798,8 +2812,9 @@ class MainWindow(QMainWindow):
             return
         if not hasattr(self, "_conversation_drafts"):
             self._conversation_drafts = {}
-        if self.current_conversation_id != conversation.id:
-            if self.current_conversation_id is not None:
+        conversation_changed = self.current_conversation_id != conversation.id
+        if conversation_changed:
+            if self.current_conversation_id is not None and self.store.get_conversation_project_id(self.current_conversation_id) == self.current_project_id:
                 self._conversation_drafts[self.current_conversation_id] = (self.composer.toPlainText(), list(self.current_attachments))
             draft, attachments = self._conversation_drafts.get(conversation.id, ("", []))
             self.composer.setPlainText(draft)
@@ -2814,6 +2829,11 @@ class MainWindow(QMainWindow):
                 select_project(self)
         if linked_project_id is not None and linked_project_id != self.current_project_id:
             self._load_project_list(select_id=linked_project_id)
+        if conversation_changed:
+            draft, attachments = self._conversation_drafts.get(conversation.id, ('', []))
+            self.composer.setPlainText(draft)
+            self.current_attachments = list(attachments)
+            self._render_attachment_chips()
         index = self.model_combo.findData(conversation.model)
         if index >= 0:
             self.model_combo.blockSignals(True)
@@ -2832,7 +2852,8 @@ class MainWindow(QMainWindow):
             elif receipt.get("model_source") == "no_inference":
                 origin = "No AI model used · " + receipt.get("operation", "Local action")
             else:
-                origin = f"{receipt.get('provider', 'Unknown provider')} · {receipt.get('requested_model', 'Model not reported')} ({receipt.get('model_source', 'unknown')})"
+                from ..work_state import RouteIdentity
+                origin = RouteIdentity.from_receipt(receipt).render()
             label = QLabel(origin)
             label.setWordWrap(True)
             label.setTextFormat(Qt.PlainText)
@@ -2847,7 +2868,7 @@ class MainWindow(QMainWindow):
                 widget.hide()
                 widget.deleteLater()
         if not messages:
-            welcome = QLabel("A clearer path from question to working code.\n\nAsk a question. Inspect your project. Build with control.")
+            welcome = QLabel("Start a conversation below, or choose Build to work on a project.")
             welcome.setWordWrap(True); welcome.setObjectName("welcome")
             self.transcript_layout.insertWidget(0, welcome)
         for message in messages:
@@ -3006,6 +3027,7 @@ class MainWindow(QMainWindow):
             self.client, self.preset.name, api_messages, options,
             self.inference_policy, chat_project_id,
         )
+        self._pending_receipt['request_id'] = getattr(self.chat_worker, 'request_id', f'conversation:{self.current_conversation_id}')
         self.chat_worker.content_delta.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._append_content(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
         self.chat_worker.thinking_delta.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._append_thinking(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
         self.chat_worker.completed.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._generation_finished(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)

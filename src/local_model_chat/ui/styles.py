@@ -152,7 +152,7 @@ def stylesheet_for_theme(theme: str) -> str:
 
 APP_STYLESHEET += r'''
 QLabel#messageAuthor { font-weight: 700; }
-QLabel#welcome { font-size: 22px; color: #A2B2A6; padding: 36px; }
+QLabel#welcome { font-size: 17px; color: #A2B2A6; padding: 18px; }
 QLabel#projectHeading { font-size: 24px; font-weight: 750; }
 QLabel#modelBadge, QLabel#buildActivity { color: #9AE6BE; font-weight: 650; }
 QFrame#attachmentChip { background: #26312B; border: 1px solid #3B4940; border-radius: 7px; }

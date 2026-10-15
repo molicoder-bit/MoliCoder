@@ -80,8 +80,9 @@ def observe_build_route(w, kind, payload):
     elif kind == 'local_attempt_started':
         w._active_build_route = f'Ollama (local) · {LOCAL_BUILD_MODEL}'
     elif kind == 'provider_output' and isinstance(payload.get('event'), dict):
-        from ..molicoder.providers import _usage_from_events
-        _, _, model = _usage_from_events([payload['event']])
+        event = payload['event']
+        candidates = [event, event.get('result'), event.get('message')]
+        model = next((item['model'] for item in reversed(candidates) if isinstance(item, dict) and isinstance(item.get('model'), str)), '')
         if model:
             w._active_build_route = f"Calling: {str(payload.get('provider', 'Unknown')).title()} · {_model_label(model, 'reported')}"
     elif kind in {'provider_started', 'provider_attempt_started', 'provider_takeover', 'provider_finished'}:

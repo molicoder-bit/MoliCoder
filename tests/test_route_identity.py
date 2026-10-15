@@ -91,3 +91,13 @@ def test_api_test_identity_overrides_local_chat_header(window, monkeypatch):
     window.custom_api_worker = None
     window._refresh_route_identity()
     assert window.route_identity.text().startswith('Chat selected · Ollama (local)')
+
+
+def test_runtime_facts_and_live_model_reports_use_evidence(window):
+    window._ollama_ready(True, [{'name':'molicoder:latest','details':{'family':'fixture-family','parameter_size':'7B'}}])
+    assert 'runtime family: fixture-family 7B' in window.route_identity.text()
+    window._set_view('build')
+    window.orchestration_worker=SimpleNamespace(isRunning=lambda:False)
+    observe_build_route(window,'run_started',{'strategy':'FRONTIER_ONLY'})
+    observe_build_route(window,'provider_output',{'provider':'codex','event':{'model':'reported-now','usage':{'input_tokens':'unparseable'}}})
+    assert 'reported-now (reported)' in window.route_identity.text()

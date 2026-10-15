@@ -37,14 +37,37 @@ def main() -> int:
         from .storage import ChatStore
 
         with tempfile.TemporaryDirectory(prefix="molicoder-smoke-") as temporary:
+            import sqlite3
+            from contextlib import closing
+            from .domain import Message
+            database = Path(temporary) / 'smoke.sqlite3'
+            legacy = ChatStore(database)
+            conversation = legacy.create_conversation('legacy-fixture-model')
+            legacy.add_message(Message(None, conversation.id, 'user', 'Preserve this fixture history'))
+            project = legacy.upsert_project('Legacy fixture', temporary, 'python')
+            run_id = legacy.create_run(project.id, 'Interrupted fixture', 'HYBRID', provider='codex')
+            task_id = legacy.create_run_task(run_id, 'fixture', 'Fixture', 'Fixture', 'low')
+            legacy.update_run_task(task_id, 'running', 0)
+            with closing(sqlite3.connect(database)) as connection:
+                connection.execute('DROP TABLE message_receipts')
+                connection.execute('DROP TABLE local_action_results')
+                connection.execute('PRAGMA user_version=14')
+                connection.commit()
+            upgraded = ChatStore(database)
             window = MainWindow(
-                store=ChatStore(Path(temporary) / "smoke.sqlite3"),
+                store=upgraded,
                 start_ollama_check=False,
             )
             window.show()
             app.processEvents()
             if not window.composer or not window.build_request:
                 raise RuntimeError("Chat or Build view failed to initialize")
+            if upgraded.list_messages(conversation.id)[0].content != 'Preserve this fixture history':
+                raise RuntimeError('Legacy chat history did not survive migration')
+            if upgraded.get_run(run_id)['status'] != 'needs_attention':
+                raise RuntimeError('Interrupted fixture was not reconciled')
+            if not list(Path(temporary).glob('smoke.sqlite3.pre-v15-*.bak')):
+                raise RuntimeError('Legacy schema backup was not created')
             doctor_report(discover_environment(), load_manifests())
             window.close()
         return 0

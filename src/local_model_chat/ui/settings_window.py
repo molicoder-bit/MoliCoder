@@ -46,6 +46,7 @@ def show_settings_window(w, category='General'):
                 theme = QComboBox(); theme.addItems(['Matrix', 'Light'])
                 theme.setCurrentIndex(w.theme_selector.currentIndex())
                 theme.currentIndexChanged.connect(w.theme_selector.setCurrentIndex)
+                w._settings_theme_selector = theme
                 body.addWidget(QLabel('Appearance')); body.addWidget(theme)
                 size = QSpinBox(); size.setRange(12, 20); size.setSuffix(' px')
                 try:
@@ -69,6 +70,7 @@ def show_settings_window(w, category='General'):
                 action('Install or inspect local models', w._show_environment_doctor)
                 action('Connect an account or configure Build models', w._provider_settings)
                 health = QLabel(w.connection_label.text()); body.addWidget(health)
+                w._settings_local_health = health
                 provider_labels = {}
                 model_fields = {}
                 scope_label = QLabel('Project model overrides · Select a project first')
@@ -128,6 +130,9 @@ def show_settings_window(w, category='General'):
                 action('Add custom API connection', w._add_custom_provider)
                 action('Add API connection from a preset', w._add_api_preset)
                 body.addWidget(QLabel('API connections support capped tests; they do not change the local Chat route.'))
+                from ..environment.security import platform_security
+                security = platform_security()
+                security_note = QLabel(security.reason); security_note.setWordWrap(True); body.addWidget(security_note)
                 for account in w.inference_registry.list_account_statuses():
                     account_label = QLabel(f'{account.provider_id} · {account.auth_status} · API tests'); account_label.setWordWrap(True); body.addWidget(account_label)
                 w._settings_model_fields, w._settings_scope_label = model_fields, scope_label
@@ -148,6 +153,7 @@ def show_settings_window(w, category='General'):
                 action('Project knowledge and decisions', w._open_knowledge_review)
                 explanation = QLabel('Local offline uses your local model for eligible edits. Hybrid can hand work to your chosen external agent. Frontier only uses that external agent. Build asks for the required project permission before an agent runs.'); explanation.setWordWrap(True); body.addWidget(explanation)
             elif name == 'Usage & limits':
+                explanation = QLabel('Measured tokens are shown when the provider reports them. Estimates are labeled separately; missing measurements remain unknown. A metered API hard limit can block spending, while subscription-agent call/time limits cannot cap the agent’s internal token usage.'); explanation.setWordWrap(True); body.addWidget(explanation)
                 action('Review project usage and set limits', w._show_usage_budgets)
             elif name == 'Kandev':
                 state = QLabel(w.kandev_panel.status.text()); state.setWordWrap(True); body.addWidget(state)
@@ -163,8 +169,12 @@ def show_settings_window(w, category='General'):
         nav.currentRowChanged.connect(pages.setCurrentIndex)
         w._settings_dialog, w._settings_nav = dialog, nav
     w._settings_nav.setCurrentRow(CATEGORIES.index(category) if category in CATEGORIES else 0)
+    w._settings_theme_selector.blockSignals(True)
+    w._settings_theme_selector.setCurrentIndex(w.theme_selector.currentIndex())
+    w._settings_theme_selector.blockSignals(False)
     project = w.registry.selected()
     w._settings_scope_id = project.id if project else None
+    w._settings_local_health.setText(w.connection_label.text())
     w._settings_kandev_status.setText(w.kandev_panel.status.text())
     w._settings_project_summary.setText(f'Project: {project.name}\n{project.path}' if project else 'No project selected')
     w._settings_scope_label.setText(f'Project model overrides: {project.name}\n{project.path}' if project else 'No project · Choose a project before saving a Build model')

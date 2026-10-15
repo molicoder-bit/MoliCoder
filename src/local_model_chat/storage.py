@@ -1137,6 +1137,11 @@ class ChatStore:
             connection.commit()
         return True
 
+    def record_run_owner(self, run_id):
+        import os
+        from .process_owner import process_birth
+        self.add_event(run_id, "run_owner", {"pid": os.getpid(), "birth": process_birth(os.getpid())})
+
     def recover_interrupted_runs(self) -> tuple[int, ...]:
         now = datetime.now().isoformat(timespec="microseconds")
         with closing(self._connect()) as connection:
@@ -1145,13 +1150,23 @@ class ChatStore:
             rows = connection.execute(
                 f"SELECT id FROM runs WHERE status IN ({placeholders}) AND provider != 'kandev' ORDER BY id", active
             ).fetchall()
-            ids = tuple(int(row[0]) for row in rows)
+            from .process_owner import process_birth
+            recoverable = []
+            for row in rows:
+                owner = connection.execute("SELECT payload_json FROM events WHERE run_id=? AND kind='run_owner' ORDER BY id DESC LIMIT 1", (row[0],)).fetchone()
+                if owner:
+                    identity = json.loads(owner[0])
+                    birth = process_birth(identity['pid'])
+                    if birth is None or birth and (not identity.get('birth') or birth == identity.get('birth')):
+                        continue
+                recoverable.append(int(row[0]))
+            ids = tuple(recoverable)
             if ids:
                 connection.execute(
                     f"""UPDATE runs SET status = 'needs_attention', ended_at = ?,
                            recovery_reason = CASE WHEN recovery_reason = '' THEN 'application closed during run' ELSE recovery_reason END
-                       WHERE status IN ({placeholders}) AND provider != 'kandev'""",
-                    (now, *active),
+                       WHERE id IN ({','.join('?' for _ in ids)})""",
+                    (now, *ids),
                 )
                 task_rows = connection.execute(
                     f"""SELECT id, run_id, status, attempts FROM tasks

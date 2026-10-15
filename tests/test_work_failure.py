@@ -61,3 +61,16 @@ def test_selected_run_snapshot_does_not_reuse_another_run_identity(tmp_path):
     assert two.last_completed_call is None
     assert two.provider == 'claude'
     assert not two.accepts(one.operation_id)
+
+
+def test_recovery_checks_local_process_birth_and_preserves_uncertainty(tmp_path, monkeypatch):
+    store=ChatStore(tmp_path/'owners.db')
+    project=store.upsert_project('Fixture',str(tmp_path),'python')
+    run=store.create_run(project.id,'owned','HYBRID',provider='codex')
+    monkeypatch.setattr('local_model_chat.process_owner.process_birth',lambda pid:'original')
+    store.record_run_owner(run)
+    assert store.recover_interrupted_runs() == ()
+    monkeypatch.setattr('local_model_chat.process_owner.process_birth',lambda pid:None)
+    assert store.recover_interrupted_runs() == ()
+    monkeypatch.setattr('local_model_chat.process_owner.process_birth',lambda pid:'reused-pid-new-process')
+    assert store.recover_interrupted_runs() == (run,)

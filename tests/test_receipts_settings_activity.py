@@ -49,7 +49,25 @@ def test_activity_is_visible_across_modes_and_stops_at_failure(qtbot,tmp_path):
     w.orchestration_worker=SimpleNamespace(paused=False,isRunning=lambda:False)
     refresh_activity(w)
     assert w.busy_indicator.timer.isActive()
+    original_angle=w.busy_indicator.angle
+    qtbot.waitUntil(lambda:w.busy_indicator.angle != original_angle)
     assert w.return_to_build.isVisible()
+    import time
+    w._last_build_event_at=time.monotonic()-45
+    refresh_activity(w)
+    assert 'No recent update' in w.current_activity.text() or 'no recent update' in w.current_activity.text()
+    old_event=w._last_build_event_at
+    w.busy_indicator.advance()
+    assert w._last_build_event_at == old_event
+    w.orchestration_worker.pause_state='pause_requested'
+    refresh_activity(w)
+    assert 'Pause requested' in w.current_activity.text() and w.busy_indicator.timer.isActive()
+    w.orchestration_worker.pause_state='paused'
+    refresh_activity(w)
+    assert 'Paused' in w.current_activity.text() and not w.busy_indicator.timer.isActive()
+    w.orchestration_worker.pause_state='cancelling'
+    refresh_activity(w)
+    assert 'Cancelling' in w.current_activity.text()
     w.store.set_setting('ui.reduce_motion','true')
     refresh_activity(w)
     assert not w.busy_indicator.timer.isActive()
@@ -75,4 +93,32 @@ def test_provider_cards_report_readiness_without_sending_inference(qtbot,tmp_pat
     qtbot.waitUntil(lambda:getattr(w,'_provider_check_worker',None) is None)
     text='\n'.join(label.text() for label in w._settings_dialog.findChildren(QLabel))
     assert 'Sign-in required' in text and 'Not installed' in text and 'Ready' in text
+    w._settings_dialog.close()
+
+
+def test_worker_pause_is_confirmed_only_at_execution_boundary(qtbot):
+    import threading
+    from local_model_chat.workers import OrchestrationWorker
+    worker=OrchestrationWorker(SimpleNamespace(), 'fixture', 'HYBRID')
+    worker.pause()
+    assert worker.pause_state == 'pause_requested'
+    thread=threading.Thread(target=worker.wait_if_paused,daemon=True)
+    thread.start()
+    try:
+        qtbot.waitUntil(lambda:worker.pause_state == 'paused')
+        worker.cancel()
+        thread.join(timeout=2)
+        assert not thread.is_alive() and worker.pause_state == 'cancelling'
+    finally:
+        worker._resume.set();thread.join(timeout=2)
+
+
+def test_settings_exposes_platform_limits_without_network_calls(qtbot,tmp_path,monkeypatch):
+    from PySide6.QtWidgets import QLabel
+    monkeypatch.setattr('local_model_chat.environment.security.platform_security',lambda:SimpleNamespace(reason='Fixture: encrypted API credentials unavailable on this platform',credential_backend=None))
+    w=MainWindow(ChatStore(tmp_path/'platform.db'),start_ollama_check=False);qtbot.addWidget(w)
+    show_settings(w,'Models & providers')
+    text='\n'.join(label.text() for label in w._settings_dialog.findChildren(QLabel))
+    assert 'credentials unavailable' in text and 'Build only' in text
+    assert getattr(w,'_provider_check_worker',None) is None
     w._settings_dialog.close()

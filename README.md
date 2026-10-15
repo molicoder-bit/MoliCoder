@@ -36,25 +36,37 @@ Local Ollama chat needs no cloud account. Optional external agents and services 
 
 ## Desktop workspace
 
-Matrix is the default theme: black surfaces, green accents, and monospace text, with the supplied MoliCode logo in the header. Projects are selected in the header; **History** contains projects, conversations, and Build runs. **Settings** brings together connections, installation, budgets, trust, and Kandev.
+Matrix is the default theme: black surfaces, green accents, and monospace text, with the supplied MoliCode logo in the header. Use **New chat** to start a conversation in one click from Chat or Build. **Chat** supports conversation and read-only planning; **Build** starts explicitly reviewed execution. Switching between them preserves drafts.
 
-Windows packages use the MoliCode logo for the executable, shortcut, and app window icons. The icon includes sizes from 16 to 256 pixels with a light tile for visibility on dark taskbars. To regenerate it from the supplied logo, run `.venv\Scripts\python.exe scripts\build_windows_icon.py` before packaging.
+![MoliCoder Chat in the default Matrix theme](docs/images/usability/chat-matrix.png)
 
-Context estimates and reserved output stay visible above the workspace. The bottom drawer opens Activity, Changes, Validation, Usage, Knowledge, or Performance without permanent side panels. Build controls are grouped and its content scrolls vertically on smaller windows. Project switching is locked while a Build owns a worktree; Chat/Build switching preserves drafts.
+Screenshots use demonstration records and make no inference calls. [Light theme](docs/images/usability/chat-light.png) · [Active Build](docs/images/usability/build-active-matrix.png) · [Visible failure](docs/images/usability/build-failed-light.png) · [Settings](docs/images/usability/settings-light.png).
 
-![MoliCoder in the default Matrix theme, showing the theme selector and provider/model banner](docs/images/theme-matrix.png)
+### Current work and model identity
 
-The screenshot uses a demonstration workspace and makes no inference call. The [UI tracker](docs/plans/ui-redesign-tracker.md) records implementation and verification.
+The readable identity area distinguishes the **last reply/call** from the model selected for the **next** request. Replies retain their recorded provider and model in history. Requested/configured models and provider-reported models are labeled separately. Local runtime metadata can identify a model family, but an alias is not proof of its underlying weights. Opaque CLI and Kandev models remain unknown when no supported report is available. Project-status answers and folder actions say **No AI model used**.
 
-### Provider and model identity
+**Change model** opens Settings at Models & providers. The old model toolbar and permanent Chat token meter have been removed from the work area. **Context details** shows the recorded conversation turns and attachments actually included in a reply; selecting a project does not imply its entire repository was sent. **Usage** and **Performance** retain detailed measurements, context estimates, generation controls, and local runtime health. Context-limit warnings remain visible near Send.
 
-The persistent model banner shows the selected Chat or Build provider and model. Chat names its local Ollama model; Hybrid Build names both its external route and the local model available for eligible steps. During Build, the banner follows provider calls and local handoffs. Model IDs are labeled **configured** or **reported**; CLI defaults and Kandev models remain **not reported** until identity is available. Custom API tests name their provider and model in the banner and result dialog. Ollama connection health lives in **Performance** and does not identify the active external route.
+### Choose the target explicitly
 
-### Matrix and Light themes
+The app starts in general Chat with **No project**. Choose a folder for repository work, or enable **Settings → General → Remember last workspace** to restore the last explicit selection. Build shows its target folder and offers Open folder / Create project without a History detour. Opening an existing project conversation shows its saved association. An active Build keeps its target while New chat remains available.
 
-**Matrix is the default on first launch.** Use the **Theme** selector in the header to choose **Matrix** or **Light** instantly. The selector always shows the current theme. Matrix uses black surfaces, bright green accents, thin borders and monospace text; Light uses warm white surfaces and dark text. The preference is saved locally and restored on launch. Chat, Build, dialogs, attachments, and detail drawers follow the selected theme. Kandev's embedded web content keeps its own appearance settings.
+Explicit simple folder requests use a local confirmation showing the exact path, including destinations outside a Git project. Missing or invalid destinations produce clarification. Created, already-existing, cancelled, and failed actions are recorded under **History → Local actions**. Coding agents still cannot escape their worktree scope.
 
-[Matrix preview](docs/images/theme-matrix.png) · [Light preview](docs/images/theme-light.png)
+### Activity, failures, and recovery
+
+A graphical activity indicator stays above scrolling Build content, with the current stage, elapsed time, and age of the last real update. Chat shows an affordance to return to an active Build. Pause requested, Paused, Cancelling, and terminal outcomes are distinct; reduced motion is available in General settings. Animation does not claim a percentage or prove model progress.
+
+Failures remain visible with their effect and a relevant recovery action, including after reopening history. Unexpected errors finalize the saved run and active task, block untouched tasks, and preserve completed work and worktree evidence. Startup checks local process ownership before reconciling an interrupted run; Kandev sessions require external reconciliation.
+
+### Settings and appearance
+
+Settings stays open while navigating **General**, **Models & providers**, **Projects & Build**, **Usage & limits**, **Kandev**, and **Diagnostics**. Model cards separate installation, sign-in, model choice, and readiness. Connection checks make no inference request; paid test messages keep their separate approval and cap. API connections currently support capped tests, while main Chat uses local Ollama models. Project model overrides offer an explicit Provider default choice.
+
+Use **Theme** in the header to choose **Matrix** or **Light**, or change appearance and text size in General. Preferences save immediately; project model overrides have their own Save action. Kandev's embedded web content keeps its own appearance settings. Windows packages use the supplied logo for executable, shortcut, and window icons; regenerate the multi-resolution icon with `.venv\Scripts\python.exe scripts\build_windows_icon.py` before packaging.
+
+The [workspace usability tracker](docs/plans/workspace-usability-plan.md) records implementation and verification; the [earlier UI tracker](docs/plans/ui-redesign-tracker.md) preserves historical milestones.
 
 ## Run from source
 
