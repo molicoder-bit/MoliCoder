@@ -106,6 +106,38 @@ class DoctorWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class ManagedInstallWorker(QThread):
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, store, plan, manifest, managed_root) -> None:
+        super().__init__()
+        self.store = store
+        self.plan = plan
+        self.manifest = manifest
+        self.managed_root = managed_root
+
+    def run(self) -> None:
+        try:
+            import subprocess
+
+            from .environment.install import install_managed_archive
+
+            receipt = install_managed_archive(
+                self.store, self.plan, self.manifest, self.managed_root,
+            )
+            result = subprocess.run(
+                [receipt.executable, "--version"], capture_output=True, text=True,
+                timeout=10, check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if result.returncode != 0 or self.manifest.version not in (result.stdout + result.stderr):
+                raise RuntimeError("managed executable failed its version check")
+            self.completed.emit(receipt)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class OrchestrationWorker(QThread):
     event = Signal(str, object)
     completed = Signal(object)

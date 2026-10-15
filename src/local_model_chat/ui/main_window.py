@@ -38,7 +38,7 @@ from ..molicoder.providers import AGENT_PROFILES, ProviderUnavailable, agent_pro
 from ..ollama import OllamaClient
 from ..storage import ChatStore
 from ..telemetry import format_bytes, read_nvidia_telemetry
-from ..workers import ChatWorker, DoctorWorker, OrchestrationWorker, StartupWorker
+from ..workers import ChatWorker, DoctorWorker, ManagedInstallWorker, OrchestrationWorker, StartupWorker
 from .knowledge_dialog import KnowledgeReviewDialog
 from .widgets import AttachmentChip, ChatBubble, MessageComposer, MetricCard
 
@@ -66,6 +66,7 @@ class MainWindow(QMainWindow):
         self.pending_build_request: tuple[int | None, str] | None = None
         self.current_conversation_id: int | None = None
         self.current_attachments: list[Attachment] = []
+        self.managed_install_worker: ManagedInstallWorker | None = None
         self.chat_worker: ChatWorker | None = None
         self.startup_worker: StartupWorker | None = None
         self.doctor_worker: DoctorWorker | None = None
@@ -477,12 +478,27 @@ class MainWindow(QMainWindow):
         layout.addWidget(report_view)
         refresh = QPushButton("Refresh checks")
         layout.addWidget(refresh)
+        managed_install = QPushButton("Install supported managed tool")
+        managed_install.setEnabled(False)
+        layout.addWidget(managed_install)
         self.doctor_dialog = dialog
+        latest_report = None
 
         def show_report(report) -> None:
+            nonlocal latest_report
             from ..environment.doctor import render_human
+            from ..environment.manifests import load_manifests
             from ..environment.readiness import readiness_dashboard
 
+            latest_report = report
+            installable = tuple(
+                manifest for manifest in load_manifests()
+                if manifest.system == report.environment.system
+                and manifest.architecture == report.environment.architecture
+                and manifest.install_kind == "archive"
+                and manifest.source_url.endswith(".tar.gz")
+            )
+            managed_install.setEnabled(bool(installable) and self.managed_install_worker is None)
             dashboard = readiness_dashboard(report)
             summary = (
                 f"Chat shell ready · local generation: {'ready' if dashboard.local_chat_ready else 'limited'} · "
@@ -516,6 +532,77 @@ class MainWindow(QMainWindow):
             worker.start()
 
         refresh.clicked.connect(check_again)
+        def begin_managed_install() -> None:
+            from ..environment.manifests import load_manifests
+            from ..environment.policy import plan_setup
+
+            if latest_report is None or self.managed_install_worker is not None:
+                return
+            candidates = tuple(
+                manifest for manifest in load_manifests()
+                if manifest.system == latest_report.environment.system
+                and manifest.architecture == latest_report.environment.architecture
+                and manifest.install_kind == "archive"
+                and manifest.source_url.endswith(".tar.gz")
+            )
+            if not candidates:
+                return
+            choices = [f"{item.tool_id} {item.version}" for item in candidates]
+            selected, accepted = QInputDialog.getItem(
+                dialog, "Managed setup", "Supported tool", choices, 0, False,
+            )
+            if not accepted:
+                return
+            manifest = candidates[choices.index(selected)]
+            try:
+                plan = plan_setup(self.store, latest_report.environment, manifest)
+            except ValueError as exc:
+                QMessageBox.warning(dialog, "Managed setup", str(exc))
+                return
+            if plan.action != "install_managed":
+                QMessageBox.information(
+                    dialog, "Managed setup",
+                    "An existing installation was found. Review its ownership before changing it.",
+                )
+                return
+            answer = QMessageBox.question(
+                dialog, "Approve managed install",
+                f"Install {manifest.tool_id} {manifest.version} for this user?\n\n"
+                f"Download: {plan.download_bytes / 1_000_000:.1f} MB from {manifest.source_url}\n"
+                f"SHA-256: {manifest.sha256}\n"
+                f"Destination: {data_dir() / 'tools'}\n\n"
+                "The archive will be verified before extraction. Its executable will be checked after install.\n"
+                f"Rollback: {manifest.rollback}",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            self.store.record_action_authorization(
+                project_id=None, action="setup", scope=plan.scope, risk="mutation",
+                decision="approved", actor="user",
+                expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+                reason="approved in Environment readiness",
+            )
+            approved_plan = plan_setup(self.store, latest_report.environment, manifest)
+            worker = ManagedInstallWorker(self.store, approved_plan, manifest, data_dir() / "tools")
+            self.managed_install_worker = worker
+            managed_install.setEnabled(False)
+            progress.setText(f"Installing {manifest.tool_id} {manifest.version}…")
+            worker.completed.connect(lambda receipt: (
+                QMessageBox.information(dialog, "Managed setup", f"Verified installation: {receipt.executable}"),
+                check_again(),
+            ))
+            worker.failed.connect(lambda error: (
+                QMessageBox.warning(dialog, "Managed setup failed", error),
+                progress.setText("Managed install failed; review the receipt or retry."),
+            ))
+            worker.finished.connect(lambda: (
+                setattr(self, "managed_install_worker", None),
+                managed_install.setEnabled(True),
+                worker.deleteLater(),
+            ))
+            worker.start()
+
+        managed_install.clicked.connect(begin_managed_install)
         dialog.finished.connect(lambda: setattr(self, "doctor_dialog", None))
         check_again()
         dialog.show()

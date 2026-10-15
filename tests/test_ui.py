@@ -727,6 +727,52 @@ def test_doctor_refresh_updates_states_and_keeps_chat_available(qtbot, tmp_path,
     dialog.close()
 
 
+def test_managed_install_button_records_exact_in_app_approval(qtbot, tmp_path, monkeypatch) -> None:
+    from local_model_chat.environment.discovery import DiscoveredTool, EnvironmentReport
+    from local_model_chat.environment.doctor import doctor_report
+    from local_model_chat.environment.manifests import load_manifests
+    from local_model_chat.workers import DoctorWorker, ManagedInstallWorker
+
+    environment = EnvironmentReport(
+        1, "Windows", "x86_64", 4, 8 * 1024**3, 10 * 1024**3, "unknown", "fixture",
+        (DiscoveredTool("kandev", None, None, "missing"),), (),
+    )
+    monkeypatch.setattr(
+        DoctorWorker, "run",
+        lambda worker: worker.ready.emit(doctor_report(environment, load_manifests())),
+    )
+    captured = {}
+    monkeypatch.setattr(QInputDialog, "getItem", lambda *_args: ("kandev 0.97.0", True))
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        lambda _dialog, _title, detail: (
+            captured.update(detail=detail) or QMessageBox.StandardButton.Yes
+        ),
+    )
+    monkeypatch.setattr(
+        ManagedInstallWorker, "start",
+        lambda worker: captured.update(plan=worker.plan, manifest=worker.manifest),
+    )
+    store = ChatStore(tmp_path / "setup-ui.sqlite3")
+    window = MainWindow(store, FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: window.startup_worker is None)
+    window._show_environment_doctor()
+    dialog = window.doctor_dialog
+    button = next(item for item in dialog.findChildren(QPushButton)
+                  if item.text() == "Install supported managed tool")
+    qtbot.waitUntil(button.isEnabled)
+    button.click()
+    assert captured["plan"].authorized
+    assert captured["manifest"].tool_id == "kandev"
+    assert captured["manifest"].sha256 in captured["detail"]
+    approval = store.latest_action_authorization(
+        project_id=None, action="setup", scope=captured["plan"].scope,
+    )
+    assert approval["decision"] == "approved" and approval["actor"] == "user"
+    dialog.close()
+
+
 def test_usage_dialog_shows_source_aware_project_report(qtbot, tmp_path) -> None:
     store = ChatStore(tmp_path / "usage-ui.sqlite3")
     root = tmp_path / "sample"
