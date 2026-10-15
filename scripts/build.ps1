@@ -11,6 +11,10 @@ if (-not (Test-Path -LiteralPath $python)) {
 & $python -m pytest (Join-Path $projectRoot "tests")
 & $python -m PyInstaller --noconfirm --clean (Join-Path $projectRoot "LocalModelChat.spec") --distpath (Join-Path $projectRoot "dist") --workpath (Join-Path $projectRoot "build")
 
+$distribution = Join-Path $projectRoot "dist\MoliCoder"
+Copy-Item -LiteralPath (Join-Path $projectRoot "LICENSE") -Destination (Join-Path $distribution "LICENSE")
+Copy-Item -LiteralPath (Join-Path $projectRoot "NOTICE") -Destination (Join-Path $distribution "NOTICE")
+
 $builtExecutable = Join-Path $projectRoot "dist\MoliCoder\MoliCoder.exe"
 $healthProcess = Start-Process -FilePath $builtExecutable -ArgumentList "--package-health-check" -WindowStyle Hidden -PassThru
 if (-not $healthProcess.WaitForExit(15000)) {

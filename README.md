@@ -106,6 +106,12 @@ The build is written to `dist\MoliCoder`. The installer copies it to `%LOCALAPPD
 
 Local Ollama requests stay on the loopback service. Selecting an external CLI or Kandev route sends task context to that service under its own terms. Attached text and run evidence may contain sensitive project content; review exports and logs before sharing them. Deleting a chat is permanent, so back up the SQLite file if the history matters.
 
+## Open-source license
+
+MoliCoder's source code is licensed under the [Apache License 2.0](LICENSE). You can use, modify, and distribute it, including in commercial projects, under that license's terms. It includes an express patent grant and requires preservation of applicable license and attribution notices. The [NOTICE](NOTICE) file identifies this project.
+
+The license covers this repository's MoliCoder code and documentation. Ollama, PySide6/Qt, optional coding agents, Kandev, model weights, and other external dependencies keep their own licenses and terms; check those separately when distributing a packaged app or models.
+
 ## Tests and project status
 
 ```powershell
