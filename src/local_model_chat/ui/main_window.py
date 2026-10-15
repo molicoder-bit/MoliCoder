@@ -1,30 +1,42 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import QDir, QFile, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QColor, QDesktopServices
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
     QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMainWindow,
-    QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSpinBox,
+    QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSpinBox,
     QSplitter, QStackedWidget, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from ..attachments import MAX_MESSAGE_BYTES, AttachmentError, load_attachment, render_attachments
-from ..config import APP_NAME, MODEL_PRESETS, ModelPreset, export_dir
+from ..authorization import ActionRequest, ActionRisk, AuthorizationPolicy
+from ..config import APP_NAME, MODEL_PRESETS, ModelPreset, data_dir, export_dir
+from ..controller import ControllerResult, MainController
+from ..environment.auth import CredentialUnavailable, ProtectedCredentialStore, store_provider_key
 from ..context import calculate_budget, estimate_tokens
 from ..domain import Attachment, GenerationMetrics, Message, Project
+from ..inference.adapters.ollama import ensure_local_offering, local_offering_id
+from ..inference.policy import InferencePolicy
+from ..inference.pacing import project_pacing
+from ..inference.registry import ProviderRegistry
 from ..molicoder.projectstate import read_git_state
 from ..molicoder.registry import ProjectRegistry
 from ..molicoder.runtime import build_orchestrator
 from ..molicoder.metrics import RunAnalytics
+from ..molicoder.providers import AGENT_PROFILES, ProviderUnavailable, agent_profile, create_provider, probe_all_providers
 from ..ollama import OllamaClient
 from ..storage import ChatStore
 from ..telemetry import format_bytes, read_nvidia_telemetry
-from ..workers import ChatWorker, OrchestrationWorker, StartupWorker
+from ..workers import ChatWorker, DoctorWorker, OrchestrationWorker, StartupWorker
+from .knowledge_dialog import KnowledgeReviewDialog
 from .widgets import AttachmentChip, ChatBubble, MessageComposer, MetricCard
 
 
@@ -33,23 +45,41 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.store = store or ChatStore()
         self.store.recover_interrupted_runs()
+        self.controller = MainController(self.store)
+        self.inference_registry = ProviderRegistry(self.store)
+        self.inference_policy = InferencePolicy(self.inference_registry)
+        for preset in MODEL_PRESETS.values():
+            ensure_local_offering(
+                self.inference_registry, preset.name,
+                context_window=preset.context_window,
+                max_output_tokens=preset.max_output_tokens,
+            )
         self.registry = ProjectRegistry(self.store)
         self.client = client or OllamaClient()
         self.current_project_id: int | None = None
+        self.pending_build_request: tuple[int | None, str] | None = None
         self.current_conversation_id: int | None = None
         self.current_attachments: list[Attachment] = []
         self.chat_worker: ChatWorker | None = None
         self.startup_worker: StartupWorker | None = None
+        self.doctor_worker: DoctorWorker | None = None
+        self.doctor_dialog: QDialog | None = None
         self.orchestration_worker: OrchestrationWorker | None = None
         self.active_bubble: ChatBubble | None = None
         self.last_metrics = GenerationMetrics()
         self.last_integration_branch: str | None = None
         self.last_integration_path: Path | None = None
         self.last_run_log_path: Path | None = None
+        self.recoverable_run_id: int | None = None
         self._installed_model_names: set[str] = set()
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setSingleShot(True)
         self._scroll_timer.timeout.connect(self._perform_scroll_to_bottom)
+        self._build_started_at = 0.0
+        self._build_activity_frame = 0
+        self._build_activity_timer = QTimer(self)
+        self._build_activity_timer.setInterval(1000)
+        self._build_activity_timer.timeout.connect(self._update_build_activity)
 
         self.setWindowTitle(APP_NAME)
         self.resize(1420, 880)
@@ -142,10 +172,16 @@ class MainWindow(QMainWindow):
         self.project_list.setMaximumHeight(180)
         self.project_list.currentItemChanged.connect(self._project_selected)
         layout.addWidget(self.project_list)
-        remove_project = QPushButton("Remove project")
+        project_actions = QHBoxLayout()
+        remove_project = QPushButton("Remove")
         remove_project.setObjectName("ghost")
         remove_project.clicked.connect(self._remove_project)
-        layout.addWidget(remove_project)
+        project_actions.addWidget(remove_project)
+        recycle_project = QPushButton("Recycle folder")
+        recycle_project.setObjectName("danger")
+        recycle_project.clicked.connect(self._recycle_project)
+        project_actions.addWidget(recycle_project)
+        layout.addLayout(project_actions)
 
         new_button = QPushButton("＋  New chat")
         new_button.setObjectName("primary")
@@ -197,6 +233,10 @@ class MainWindow(QMainWindow):
         self.model_badge.setStyleSheet("color: #22D3EE; font-weight: 650;")
         model_row.addWidget(self.model_badge)
         model_row.addStretch()
+        knowledge_button = QPushButton("Project knowledge")
+        knowledge_button.setObjectName("ghost")
+        knowledge_button.clicked.connect(self._open_knowledge_review)
+        model_row.addWidget(knowledge_button)
         undo_button = QPushButton("Remove last exchange")
         undo_button.setObjectName("ghost")
         undo_button.clicked.connect(self._remove_last_exchange)
@@ -221,6 +261,21 @@ class MainWindow(QMainWindow):
         self.attachment_layout.addStretch()
         self.attachment_container.setVisible(False)
         layout.addWidget(self.attachment_container)
+
+        self.pending_build_card = QFrame()
+        self.pending_build_card.setObjectName("metricCard")
+        pending_layout = QHBoxLayout(self.pending_build_card)
+        self.pending_build_label = QLabel()
+        self.pending_build_label.setWordWrap(True)
+        pending_layout.addWidget(self.pending_build_label, 1)
+        self.pending_build_review = QPushButton("Review in Build")
+        self.pending_build_review.clicked.connect(self._review_pending_build)
+        pending_layout.addWidget(self.pending_build_review)
+        self.pending_build_cancel = QPushButton("Cancel")
+        self.pending_build_cancel.clicked.connect(self._cancel_pending_build)
+        pending_layout.addWidget(self.pending_build_cancel)
+        self.pending_build_card.setVisible(False)
+        layout.addWidget(self.pending_build_card)
 
         composer_frame = QFrame()
         composer_frame.setObjectName("metricCard")
@@ -285,17 +340,50 @@ class MainWindow(QMainWindow):
         self.build_request.send_requested.connect(self._run_build)
         request_layout.addWidget(self.build_request)
         controls = QHBoxLayout()
-        controls.addWidget(QLabel("Mode"))
-        self.build_mode = QComboBox()
-        self.build_mode.addItems(["LOCAL_ONLY", "AUTO", "FRONTIER_PLAN", "MANUAL_PLAN"])
-        controls.addWidget(self.build_mode)
+        controls.addWidget(QLabel("Provider"))
+        self.build_provider = QComboBox()
+        self.build_provider.addItem("Codex", "codex")
+        self.build_provider.addItem("Claude", "claude")
+        self.build_provider.addItem("Copilot", "copilot")
+        self.build_provider.currentIndexChanged.connect(self._build_preferences_changed)
+        controls.addWidget(self.build_provider)
+        controls.addWidget(QLabel("Fallback on provider failure"))
+        self.build_fallback_provider = QComboBox()
+        self.build_fallback_provider.addItem("None", "")
+        self.build_fallback_provider.addItem("Codex", "codex")
+        self.build_fallback_provider.addItem("Claude", "claude")
+        self.build_fallback_provider.addItem("Copilot", "copilot")
+        self.build_fallback_provider.setToolTip(
+            "Optional for new Build runs. Uses one remaining task attempt only after a provider failure."
+        )
+        controls.addWidget(self.build_fallback_provider)
+        controls.addWidget(QLabel("Strategy"))
+        self.build_strategy = QComboBox()
+        self.build_strategy.addItem("Hybrid", "HYBRID")
+        self.build_strategy.addItem("Frontier only", "FRONTIER_ONLY")
+        self.build_strategy.addItem("Local offline", "LOCAL_OFFLINE")
+        self.build_strategy.currentIndexChanged.connect(self._build_preferences_changed)
+        self.build_mode = self.build_strategy
+        controls.addWidget(self.build_strategy)
+        provider_settings = QPushButton("Provider settings")
+        provider_settings.clicked.connect(self._provider_settings)
+        controls.addWidget(provider_settings)
+        self.doctor_button = QPushButton("Environment doctor")
+        self.doctor_button.clicked.connect(self._show_environment_doctor)
+        controls.addWidget(self.doctor_button)
+        usage_button = QPushButton("Usage and budgets")
+        usage_button.clicked.connect(self._show_usage_budgets)
+        controls.addWidget(usage_button)
+        evidence_button = QPushButton("Task evidence")
+        evidence_button.clicked.connect(self._show_task_evidence)
+        controls.addWidget(evidence_button)
         controls.addStretch()
         self.build_run_button = QPushButton("Run build")
         self.build_run_button.setObjectName("primary")
         self.build_run_button.setEnabled(False)
         self.build_run_button.clicked.connect(self._run_build)
         controls.addWidget(self.build_run_button)
-        self.build_pause_button = QPushButton("Pause")
+        self.build_pause_button = QPushButton("Pause after step")
         self.build_pause_button.setEnabled(False)
         self.build_pause_button.clicked.connect(self._toggle_build_pause)
         controls.addWidget(self.build_pause_button)
@@ -305,6 +393,10 @@ class MainWindow(QMainWindow):
         self.build_cancel_button.clicked.connect(self._cancel_build)
         controls.addWidget(self.build_cancel_button)
         request_layout.addLayout(controls)
+        self.build_agent_info = QLabel()
+        self.build_agent_info.setObjectName("muted")
+        self.build_agent_info.setWordWrap(True)
+        request_layout.addWidget(self.build_agent_info)
         layout.addWidget(request_card)
 
         status_card = QFrame()
@@ -315,6 +407,9 @@ class MainWindow(QMainWindow):
         self.build_status.setObjectName("muted")
         self.build_status.setWordWrap(True)
         status_layout.addWidget(self.build_status)
+        self.build_activity = QLabel("Idle")
+        self.build_activity.setStyleSheet("color: #22D3EE; font-weight: 650;")
+        status_layout.addWidget(self.build_activity)
         self.build_events = QListWidget()
         self.build_events.setMinimumHeight(180)
         self.build_events.currentItemChanged.connect(self._build_event_selected)
@@ -327,12 +422,154 @@ class MainWindow(QMainWindow):
         self.build_log_button.setEnabled(False)
         self.build_log_button.clicked.connect(self._open_build_log)
         status_layout.addWidget(self.build_log_button)
-        self.build_merge_button = QPushButton("Merge integration branch")
+        recovery_row = QHBoxLayout()
+        self.build_resume_button = QPushButton("Resume preserved run")
+        self.build_resume_button.setEnabled(False)
+        self.build_resume_button.clicked.connect(self._resume_preserved_run)
+        recovery_row.addWidget(self.build_resume_button)
+        self.build_open_worktree_button = QPushButton("Open worktree")
+        self.build_open_worktree_button.setEnabled(False)
+        self.build_open_worktree_button.clicked.connect(self._open_preserved_worktree)
+        recovery_row.addWidget(self.build_open_worktree_button)
+        self.build_discard_button = QPushButton("Discard worktree")
+        self.build_discard_button.setObjectName("danger")
+        self.build_discard_button.setEnabled(False)
+        self.build_discard_button.clicked.connect(self._discard_preserved_run)
+        recovery_row.addWidget(self.build_discard_button)
+        status_layout.addLayout(recovery_row)
+        self.build_merge_button = QPushButton("Apply ready result")
         self.build_merge_button.setEnabled(False)
         self.build_merge_button.clicked.connect(self._merge_last_build)
         status_layout.addWidget(self.build_merge_button)
         layout.addWidget(status_card, 1)
         return center
+
+    def _show_environment_doctor(self) -> None:
+        if self.doctor_dialog is not None:
+            self.doctor_dialog.show()
+            self.doctor_dialog.raise_()
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Environment readiness")
+        dialog.resize(700, 460)
+        layout = QVBoxLayout(dialog)
+        progress = QLabel("Checking installed tools and hardware…")
+        layout.addWidget(progress)
+        report_view = QTextBrowser(dialog)
+        layout.addWidget(report_view)
+        refresh = QPushButton("Refresh checks")
+        layout.addWidget(refresh)
+        self.doctor_dialog = dialog
+
+        def show_report(report) -> None:
+            from ..environment.doctor import render_human
+            from ..environment.readiness import readiness_dashboard
+
+            dashboard = readiness_dashboard(report)
+            summary = (
+                f"Chat shell ready · local generation: {'ready' if dashboard.local_chat_ready else 'limited'} · "
+                f"local Build: {'ready' if dashboard.local_build_ready else 'limited'}\n\n"
+            )
+            report_view.setPlainText(summary + render_human(report))
+            counts = {state: sum(item.state == state for item in dashboard.components) for state in (
+                "ready", "limited", "login_needed", "permission_needed", "failed", "unsupported", "update_available",
+            )}
+            progress.setText(
+                "Installed/ready: {ready} · Ready with limits: {limited} · Waiting login: {login_needed} · "
+                "Waiting permission: {permission_needed} · Failed: {failed} · Unsupported: {unsupported} · "
+                "Update available: {update_available}".format(**counts)
+            )
+
+        def check_again() -> None:
+            if self.doctor_worker is not None:
+                return
+            progress.setText("Checking installed tools and hardware…")
+            refresh.setEnabled(False)
+            worker = DoctorWorker()
+            self.doctor_worker = worker
+            worker.ready.connect(show_report)
+            worker.failed.connect(lambda error: (
+                progress.setText("Doctor failed"),
+                report_view.setPlainText(f"Read-only doctor failed: {error}"),
+            ))
+            worker.finished.connect(lambda: (
+                setattr(self, "doctor_worker", None), refresh.setEnabled(True),
+            ))
+            worker.start()
+
+        refresh.clicked.connect(check_again)
+        dialog.finished.connect(lambda: setattr(self, "doctor_dialog", None))
+        check_again()
+        dialog.show()
+
+    def _show_usage_budgets(self) -> None:
+        project = self.registry.selected()
+        if project is None:
+            QMessageBox.information(self, "Usage and budgets", "Select a project first.")
+            return
+        from ..inference.usage_view import render_usage_report
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Usage and budgets")
+        dialog.resize(720, 480)
+        layout = QVBoxLayout(dialog)
+        report = QTextBrowser(dialog)
+        layout.addWidget(report)
+        refresh = QPushButton("Refresh usage")
+        refresh.clicked.connect(lambda: report.setPlainText(
+            render_usage_report(self.store, self.inference_registry, project.id)
+        ))
+        layout.addWidget(refresh)
+        refresh.click()
+        dialog.show()
+
+    def _show_task_evidence(self) -> None:
+        project = self.registry.selected()
+        if project is None:
+            QMessageBox.information(self, "Task evidence", "Select a project first.")
+            return
+        runs = self.store.list_project_runs(project.id)
+        if not runs:
+            QMessageBox.information(self, "Task evidence", "No Build runs have been recorded for this project.")
+            return
+        from ..molicoder.evidence_view import render_task_evidence
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Task evidence")
+        dialog.resize(720, 480)
+        layout = QVBoxLayout(dialog)
+        run_choice = QComboBox(dialog)
+        for run in runs:
+            run_choice.addItem(f"Run {run['id']} · {run['status']}", run["id"])
+        layout.addWidget(run_choice)
+        report = QTextBrowser(dialog)
+        layout.addWidget(report)
+        export_trace = QPushButton("Export privacy-safe trace")
+
+        def export_selected_trace() -> None:
+            from ..observability import TraceExporter
+
+            try:
+                path = TraceExporter(self.store).export_run(int(run_choice.currentData()))
+            except (OSError, ValueError, PermissionError) as exc:
+                QMessageBox.warning(dialog, "Trace export failed", str(exc))
+                return
+            QMessageBox.information(dialog, "Trace exported", str(path))
+
+        export_trace.clicked.connect(export_selected_trace)
+        layout.addWidget(export_trace)
+        run_choice.currentIndexChanged.connect(lambda: report.setPlainText(
+            render_task_evidence(self.store, int(run_choice.currentData()))
+        ))
+        report.setPlainText(render_task_evidence(self.store, int(run_choice.currentData())))
+        dialog.show()
+
+    def _open_knowledge_review(self) -> None:
+        if self.current_project_id is None:
+            QMessageBox.information(self, "Project knowledge", "Select a project first.")
+            return
+        dialog = KnowledgeReviewDialog(self.store, self.current_project_id, self)
+        dialog.exec()
 
     def _build_inspector(self) -> QWidget:
         inspector = QFrame()
@@ -357,6 +594,10 @@ class MainWindow(QMainWindow):
         self.context_notice.setObjectName("muted")
         self.context_notice.setWordWrap(True)
         layout.addWidget(self.context_notice)
+        self.pacing_label = QLabel("Paid API pacing: select a project.")
+        self.pacing_label.setObjectName("muted")
+        self.pacing_label.setWordWrap(True)
+        layout.addWidget(self.pacing_label)
 
         self.model_card = MetricCard("Model", "—")
         self.residency_card = MetricCard("Residency", "Not loaded")
@@ -417,6 +658,16 @@ class MainWindow(QMainWindow):
         exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
+        project_menu = self.menuBar().addMenu("Project")
+        provider_action = QAction("Provider settings", self)
+        provider_action.triggered.connect(self._provider_settings)
+        project_menu.addAction(provider_action)
+        clear_history = QAction("Clear build history", self)
+        clear_history.triggered.connect(self._clear_project_history)
+        project_menu.addAction(clear_history)
+        clean_worktrees = QAction("Clean failed run worktrees", self)
+        clean_worktrees.triggered.connect(self._clean_failed_worktrees)
+        project_menu.addAction(clean_worktrees)
 
     def _start_ollama_check(self) -> None:
         self.startup_worker = StartupWorker(self.client)
@@ -428,6 +679,14 @@ class MainWindow(QMainWindow):
 
     def _ollama_ready(self, available: bool, models: list[dict]) -> None:
         self._installed_model_names = {str(model.get("name", "")) for model in models}
+        for preset in MODEL_PRESETS.values():
+            present = available and preset.name in self._installed_model_names
+            self.inference_registry.set_offering_state(
+                local_offering_id(preset.name),
+                status="eligible" if present else "unavailable",
+                health_state="healthy" if present else "unavailable",
+                actor="local-ollama-discovery", reason="model found in local Ollama tags" if present else "local model unavailable",
+            )
         if available:
             self.connection_label.setText("● Ollama connected")
             self.connection_label.setStyleSheet("color: #34D399; font-weight: 650;")
@@ -451,7 +710,7 @@ class MainWindow(QMainWindow):
     def _update_model_availability(self) -> None:
         model = self.preset.name
         missing = bool(self._installed_model_names) and model not in self._installed_model_names
-        self.send_button.setEnabled(not missing and self.chat_worker is None)
+        self._refresh_context_meter()
         if missing:
             self.model_card.set_value(f"{self.preset.label}\nMissing from Ollama")
         else:
@@ -517,12 +776,16 @@ class MainWindow(QMainWindow):
             return
         self.current_project_id = project.id
         self._update_build_project(project)
+        self._refresh_pacing()
+        if self.pending_build_request is not None:
+            self._update_pending_build_card()
 
     def _update_build_project(self, project: Project | None) -> None:
         if project is None:
             self.build_project_title.setText("No project selected")
             self.build_project_meta.setText("Add a local project from the sidebar to begin.")
             self.build_request.setEnabled(False)
+            self._refresh_recovery_actions(None)
             self._refresh_build_readiness()
             return
         path = Path(project.path)
@@ -541,12 +804,300 @@ class MainWindow(QMainWindow):
         self.build_project_meta.setText(
             f"{project.kind.title()} · {repository}\n{project.path}"
         )
+        preferences = self.store.get_project_preferences(project.id)
+        self.build_provider.blockSignals(True)
+        self.build_strategy.blockSignals(True)
+        provider_index = self.build_provider.findData(preferences.provider)
+        strategy_index = self.build_strategy.findData(preferences.strategy)
+        self.build_provider.setCurrentIndex(max(0, provider_index))
+        self.build_strategy.setCurrentIndex(max(0, strategy_index))
+        self.build_provider.blockSignals(False)
+        self.build_strategy.blockSignals(False)
         self.build_request.setEnabled(True)
+        self._refresh_recovery_actions(project)
         self._refresh_build_readiness()
+
+    def _refresh_recovery_actions(self, project: Project | None = None) -> None:
+        project = project or self.registry.selected()
+        run = self.store.latest_recoverable_run(project.id) if project else None
+        path = Path(str(run.get("worktree", ""))).resolve() if run and run.get("worktree") else None
+        available = bool(path and path.is_dir())
+        self.recoverable_run_id = int(run["id"]) if run and available else None
+        self.build_resume_button.setEnabled(available and self.orchestration_worker is None)
+        self.build_open_worktree_button.setEnabled(available)
+        self.build_discard_button.setEnabled(available and self.orchestration_worker is None)
+
+    def _open_preserved_worktree(self) -> None:
+        project = self.registry.selected()
+        run = self.store.latest_recoverable_run(project.id) if project else None
+        if run and run.get("worktree") and Path(str(run["worktree"])).is_dir():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(run["worktree"])))
+
+    def _resume_preserved_run(self) -> None:
+        project = self.registry.selected()
+        run = self.store.latest_recoverable_run(project.id) if project else None
+        if project is None or run is None or self.orchestration_worker is not None:
+            return
+        provider_name = str(self.build_provider.currentData() or run.get("provider") or "codex")
+        preferences = self.store.get_project_preferences(project.id)
+        if provider_name not in preferences.trusted_providers:
+            QMessageBox.information(self, "Provider permission required", "Trust the selected provider in Provider settings before resuming.")
+            return
+        model = preferences.model_overrides.get(provider_name, "")
+        mode = str(run.get("mode") or "HYBRID")
+        request = str(run.get("request") or "")
+        scope = (
+            f"project:{project.id}:provider:{provider_name}:mode:{mode}:"
+            f"resume:{run['id']}:request:{hashlib.sha256(request.encode('utf-8')).hexdigest()}"
+        )
+        self.store.record_action_authorization(
+            project_id=project.id, action="build_run", scope=scope,
+            risk=(ActionRisk.MUTATION if mode == "LOCAL_OFFLINE" else ActionRisk.EXTERNAL).value,
+            decision="approved", actor="local_user_resume_button",
+            expires_at=(datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+        )
+        try:
+            orchestrator = build_orchestrator(
+                store=self.store, project=project, client=self.client,
+                mode=mode, provider_name=provider_name, model=model,
+                authorization_scope=scope,
+            )
+        except (OSError, ValueError, ProviderUnavailable) as exc:
+            QMessageBox.critical(self, "Resume configuration error", str(exc))
+            return
+        worker = OrchestrationWorker(
+            orchestrator, str(run.get("request") or ""), str(run.get("mode") or "HYBRID"),
+            resume_run_id=int(run["id"]),
+        )
+        orchestrator.on_event = worker.relay_event
+        worker.event.connect(self._build_event)
+        worker.completed.connect(self._build_completed)
+        worker.failed.connect(self._build_failed)
+        worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
+        self.orchestration_worker = worker
+        self.build_request.setEnabled(False)
+        self.build_mode.setEnabled(False)
+        self.build_provider.setEnabled(False)
+        self.build_fallback_provider.setEnabled(False)
+        self.build_pause_button.setEnabled(True)
+        self.build_cancel_button.setEnabled(True)
+        self._build_started_at = time.monotonic()
+        self._build_activity_timer.start()
+        self._refresh_recovery_actions(project)
+        worker.start()
+
+    def _discard_preserved_run(self) -> None:
+        project = self.registry.selected()
+        run = self.store.latest_recoverable_run(project.id) if project else None
+        if project is None or run is None or self.orchestration_worker is not None:
+            return
+        path = Path(str(run.get("worktree") or "")).resolve()
+        managed_root = (data_dir() / "worktrees").resolve()
+        try:
+            path.relative_to(managed_root)
+        except ValueError:
+            QMessageBox.critical(self, "Unsafe worktree path", f"Refusing to remove an unmanaged path:\n{path}")
+            return
+        if QMessageBox.question(
+            self, "Discard preserved worktree",
+            f"Permanently remove the isolated worktree for run {run['id']}?\n{path}\nThe real project checkout is not changed.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        branch = f"molicoder/run-{run['id']}"
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.run(
+            ["git", "-C", project.path, "worktree", "remove", "--force", str(path)],
+            capture_output=True, check=False, creationflags=creationflags,
+        )
+        if path.exists():
+            QDir(str(path)).removeRecursively()
+        subprocess.run(
+            ["git", "-C", project.path, "branch", "-D", branch],
+            capture_output=True, check=False, creationflags=creationflags,
+        )
+        self.store.update_run_state(int(run["id"]), "failed", worktree="", recovery_reason="discarded by user")
+        self.store.finish_run(int(run["id"]), "failed")
+        self._refresh_recovery_actions(project)
+
+    def _build_preferences_changed(self) -> None:
+        project = self.registry.selected()
+        if project is None:
+            return
+        existing = self.store.get_project_preferences(project.id)
+        self.store.set_project_preferences(
+            project.id,
+            provider=str(self.build_provider.currentData() or "codex"),
+            strategy=str(self.build_strategy.currentData() or "HYBRID"),
+            trusted_providers=existing.trusted_providers,
+            model_overrides=existing.model_overrides,
+        )
+        self._refresh_build_readiness()
+
+    def _provider_settings(self) -> None:
+        project = self.registry.selected()
+        if project is None:
+            QMessageBox.information(self, "Provider settings", "Select a project first.")
+            return
+        statuses = {status.provider: status for status in probe_all_providers()}
+        preferences = self.store.get_project_preferences(project.id)
+        selected = str(self.build_provider.currentData() or preferences.provider)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Frontier provider settings")
+        dialog.setMinimumWidth(560)
+        layout = QVBoxLayout(dialog)
+        intro = QLabel("Subscription CLIs are used only by Build. Chat stays local through Ollama.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        for profile in AGENT_PROFILES:
+            status = statuses.get(profile.provider)
+            if status is None:
+                availability = "Not probed"
+            elif not status.installed:
+                availability = "Unavailable: CLI is not installed"
+            elif status.auth_verified:
+                availability = "Sign-in verified" if status.authenticated else "Sign-in required"
+            else:
+                availability = "Installed; sign-in and entitlement unverified"
+            if not profile.selectable:
+                availability = f"Build selection unavailable: {profile.limitation}"
+            route = "Local gateway preview" if profile.route_class == "local_gateway_preview" else "Opaque subscription CLI"
+            detail = status.detail if status is not None else ""
+            label = QLabel(
+                f"{'OpenCode' if profile.provider == 'opencode' else profile.provider.title()} — {route}\n"
+                f"   {availability}\n"
+                f"   {detail}\n"
+                f"   Permissions: {profile.permission_model}; cancellation: {profile.cancellation}.\n"
+                f"   Sandbox: {profile.sandbox}\n"
+                f"   Capabilities: {', '.join(profile.capabilities)}.\n"
+                f"   {profile.limitation}"
+            )
+            label.setStyleSheet(
+                "color: #34D399;" if status and status.installed and status.auth_verified
+                and status.authenticated and profile.selectable else "color: #F59E0B;"
+            )
+            label.setWordWrap(True)
+            layout.addWidget(label)
+        opencode_guide = QPushButton("Open official OpenCode provider guide")
+        opencode_guide.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(agent_profile("opencode").auth_guide))
+        )
+        layout.addWidget(opencode_guide)
+        form = QFormLayout()
+        model_edit = QLineEdit(preferences.model_overrides.get(selected, ""))
+        model_edit.setPlaceholderText("Leave blank to use the CLI default")
+        form.addRow(f"{selected.title()} model override", model_edit)
+        trusted = QCheckBox(f"Trust {selected.title()} for this project")
+        trusted.setChecked(selected in preferences.trusted_providers)
+        form.addRow("Project permission", trusted)
+        layout.addLayout(form)
+        setup = QPushButton(f"Open official {selected.title()} setup and sign-in guide")
+        setup.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(agent_profile(selected).auth_guide)))
+        layout.addWidget(setup)
+        terms = QPushButton(f"Open {selected.title()} account terms")
+        terms.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(agent_profile(selected).terms_url)))
+        layout.addWidget(terms)
+        api_providers = tuple(
+            item for item in self.inference_registry.list_providers()
+            if item[0] not in {"ollama", "codex", "claude", "copilot"}
+        )
+        if api_providers:
+            key_button = QPushButton("Store API key for a registered provider")
+            key_button.clicked.connect(lambda: self._store_provider_key(api_providers))
+            layout.addWidget(key_button)
+        offerings = self.inference_registry.list_offerings()
+        offering_controls: list[tuple[str, QCheckBox, str]] = []
+        layout.addWidget(QLabel("Registered inference offerings"))
+        if not offerings:
+            layout.addWidget(QLabel("No inference offerings are registered."))
+        for offering in offerings:
+            auth = (self.inference_registry.get_account_status(offering.account_id)
+                    if offering.account_id else "not required" if offering.offering_class == "local" else "unknown")
+            capabilities = ", ".join(
+                f"{key}={value}" for key, value in sorted(offering.capabilities.items())
+            ) or "unknown"
+            quota = ", ".join(
+                f"{key}={value}" for key, value in sorted(offering.quota.items())
+            ) or "unknown"
+            details = QLabel(
+                f"{offering.provider_id} / {offering.model_id} ({offering.id}) — {offering.offering_class}\n"
+                f"   Auth: {auth}; health: {offering.health_state}; status: {offering.status}\n"
+                f"   Capabilities: {capabilities}; privacy: {offering.privacy_class}; quota: {quota}\n"
+                f"   Price checked: {offering.price_checked_at or 'unknown'}; "
+                f"terms checked: {offering.terms_checked_at or 'unknown'}\n"
+                f"   Source: {offering.source_url or 'unknown'}"
+            )
+            details.setWordWrap(True)
+            layout.addWidget(details)
+            enabled = QCheckBox(f"Enable {offering.id}")
+            enabled.setChecked(offering.status == "eligible")
+            offering_controls.append((offering.id, enabled, offering.status))
+            layout.addWidget(enabled)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        for offering_id, enabled, previous_status in offering_controls:
+            desired_status = "eligible" if enabled.isChecked() else "disabled"
+            if desired_status != previous_status and (enabled.isChecked() or previous_status == "eligible"):
+                self.inference_registry.set_offering_state(
+                    offering_id, status=desired_status, actor="user", reason="provider settings",
+                )
+        models = dict(preferences.model_overrides)
+        override = model_edit.text().strip()
+        if override:
+            models[selected] = override
+        else:
+            models.pop(selected, None)
+        trusted_providers = set(preferences.trusted_providers)
+        if trusted.isChecked():
+            trusted_providers.add(selected)
+        else:
+            trusted_providers.discard(selected)
+        self.store.set_project_preferences(
+            project.id, provider=selected,
+            strategy=str(self.build_strategy.currentData() or "HYBRID"),
+            trusted_providers=tuple(sorted(trusted_providers)), model_overrides=models,
+        )
+        self._refresh_build_readiness()
+
+    def _store_provider_key(self, providers: tuple[tuple[str, str], ...]) -> None:
+        choices = [f"{name} ({provider_id})" for provider_id, name in providers]
+        selected, accepted = QInputDialog.getItem(
+            self, "Store provider key", "Registered provider", choices, 0, False,
+        )
+        if not accepted:
+            return
+        provider_id = providers[choices.index(selected)][0]
+        secret, accepted = QInputDialog.getText(
+            self, "Store provider key", "API key", QLineEdit.EchoMode.Password,
+        )
+        if not accepted or not secret:
+            return
+        try:
+            store_provider_key(
+                self.inference_registry, ProtectedCredentialStore(data_dir() / "credentials"),
+                provider_id, secret,
+            )
+        except (CredentialUnavailable, OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Provider key", str(exc))
+            return
+        QMessageBox.information(
+            self, "Provider key stored",
+            "The key is encrypted for this Windows user. The provider remains inactive until an eligible route is configured.",
+        )
 
     def _refresh_build_readiness(self) -> None:
         if not hasattr(self, "build_status"):
             return
+        profile = agent_profile(str(self.build_provider.currentData() or "codex"))
+        route = "Strict local gateway preview" if profile.route_class == "local_gateway_preview" else "Opaque subscription CLI"
+        self.build_agent_info.setText(
+            f"{profile.provider.title()}: {route}. {profile.sandbox} "
+            f"{profile.limitation} Sign-in and entitlement are checked before Build starts; "
+            "open Provider settings for installation and sign-in status."
+        )
         project = self.registry.selected()
         request = self.build_request.toPlainText().strip()
         ready = False
@@ -566,11 +1117,13 @@ class MainWindow(QMainWindow):
                 status = "Commit or stash current changes first; Build mode requires a clean working tree."
             elif not request:
                 status = "Ready for a request on this protected project branch."
-            elif self._installed_model_names and "molicoder:latest" not in self._installed_model_names:
+            elif self.build_strategy.currentData() == "LOCAL_OFFLINE" and self._installed_model_names and "molicoder:latest" not in self._installed_model_names:
                 status = "The molicoder:latest model is not installed in Ollama."
             else:
                 ready = True
-                status = "Ready · local planning, sequential execution, validation, and repair enabled."
+                provider = str(self.build_provider.currentData() or "codex").title()
+                strategy = str(self.build_strategy.currentText())
+                status = f"Ready · {provider} · {strategy} · isolated sequential execution and automatic validation."
         self.build_status.setText(status)
         self.build_run_button.setEnabled(ready)
 
@@ -584,19 +1137,65 @@ class MainWindow(QMainWindow):
         request = self.build_request.toPlainText().strip()
         if project is None or not request:
             return
-        mode = self.build_mode.currentText()
-        if mode in {"AUTO", "FRONTIER_PLAN"} and QMessageBox.question(
-            self,
-            "Use Codex subscription quota",
-            (
-                "This mode may call the Codex CLI for planning, rescue, or review. "
-                "External calls are read-only, metered by count, and fall back locally if unavailable. Continue?"
-            ),
-        ) != QMessageBox.StandardButton.Yes:
-            return
+        mode = str(self.build_strategy.currentData() or "HYBRID")
+        provider_name = str(self.build_provider.currentData() or "codex")
+        fallback_name = str(self.build_fallback_provider.currentData() or "")
+        preferences = self.store.get_project_preferences(project.id)
+        if fallback_name:
+            if mode == "LOCAL_OFFLINE" or fallback_name == provider_name:
+                QMessageBox.information(self, "Fallback provider", "Choose a distinct fallback for a provider-backed Build.")
+                return
+            if fallback_name not in preferences.trusted_providers:
+                QMessageBox.information(
+                    self, "Fallback provider",
+                    "Trust the fallback provider for this project in Provider settings before running Build.",
+                )
+                return
+        if mode != "LOCAL_OFFLINE" and provider_name not in preferences.trusted_providers:
+            if QMessageBox.question(
+                self,
+                f"Trust {provider_name.title()} for this project",
+                (
+                    f"Allow {provider_name.title()} to plan and edit only inside an isolated worktree for {project.name}? "
+                    "Validation must pass before MoliCoder applies changes. This permission can be revoked in Provider settings."
+                ),
+            ) != QMessageBox.StandardButton.Yes:
+                return
+            trusted = tuple(sorted(set(preferences.trusted_providers) | {provider_name}))
+            self.store.set_project_preferences(
+                project.id, provider=provider_name, strategy=mode,
+                trusted_providers=trusted, model_overrides=preferences.model_overrides,
+            )
+            preferences = self.store.get_project_preferences(project.id)
+        model = preferences.model_overrides.get(provider_name, "")
+        risk = ActionRisk.MUTATION if mode == "LOCAL_OFFLINE" else ActionRisk.EXTERNAL
+        request_hash = hashlib.sha256(request.encode("utf-8")).hexdigest()
+        scope = f"project:{project.id}:provider:{provider_name}:mode:{mode}:request:{request_hash}"
+        fallback_scope = (
+            f"project:{project.id}:provider:{fallback_name}:mode:{mode}:request:{request_hash}:fallback"
+            if fallback_name else None
+        )
+        self.store.record_action_authorization(
+            project_id=project.id, action="build_run", scope=scope, risk=risk.value,
+            decision="approved", actor="local_user_build_button",
+            expires_at=(datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+        )
+        AuthorizationPolicy(self.store).require(ActionRequest(project.id, "build_run", scope, risk))
+        if fallback_scope:
+            self.store.record_action_authorization(
+                project_id=project.id, action="build_run", scope=fallback_scope,
+                risk=ActionRisk.EXTERNAL.value, decision="approved",
+                actor="local_user_selected_fallback_and_build_button",
+                expires_at=(datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+            )
         try:
-            orchestrator = build_orchestrator(store=self.store, project=project, client=self.client, mode=mode)
-        except (OSError, ValueError) as exc:
+            orchestrator = build_orchestrator(
+                store=self.store, project=project, client=self.client, mode=mode,
+                provider_name=provider_name, model=model, authorization_scope=scope,
+                fallback_provider_name=fallback_name,
+                fallback_authorization_scope=fallback_scope,
+            )
+        except (OSError, ValueError, ProviderUnavailable) as exc:
             QMessageBox.critical(self, "Build configuration error", str(exc))
             return
         worker = OrchestrationWorker(orchestrator, request, mode)
@@ -613,12 +1212,35 @@ class MainWindow(QMainWindow):
         self.build_merge_button.setEnabled(False)
         self.build_request.setEnabled(False)
         self.build_mode.setEnabled(False)
+        self.build_provider.setEnabled(False)
+        self.build_fallback_provider.setEnabled(False)
         self.build_pause_button.setEnabled(True)
         self.build_cancel_button.setEnabled(True)
         self._refresh_build_readiness()
+        self._build_started_at = time.monotonic()
+        self._build_activity_frame = 0
+        self._build_activity_timer.start()
+        self._update_build_activity()
         worker.start()
 
+    def _update_build_activity(self) -> None:
+        if self.orchestration_worker is None:
+            self.build_activity.setText("Idle")
+            return
+        frames = ("◐", "◓", "◑", "◒")
+        elapsed = max(0, int(time.monotonic() - self._build_started_at))
+        self.build_activity.setText(
+            f"{frames[self._build_activity_frame % len(frames)]} Working · {elapsed // 60:02d}:{elapsed % 60:02d} elapsed"
+        )
+        self._build_activity_frame += 1
+
     def _build_event(self, kind: str, payload: dict) -> None:
+        if kind == "provider_heartbeat":
+            elapsed = float(payload.get("elapsed_seconds", 0) or 0)
+            self.build_activity.setText(
+                f"◐ {str(payload.get('provider', 'Provider')).title()} is still working · {elapsed:.0f}s"
+            )
+            return
         labels = {
             "run_started": "Run started",
             "recon_completed": "Repository evidence collected",
@@ -634,6 +1256,22 @@ class MainWindow(QMainWindow):
             "run_failed": "Run failed",
             "run_cancelled": "Run cancelled",
             "external_call": "External consultant call completed",
+            "run_stage": "Run stage",
+            "workspace_created": "Isolated workspace ready",
+            "provider_started": "Provider started",
+            "provider_output": "Provider activity",
+            "provider_heartbeat": "Provider is still working",
+            "provider_finished": "Provider finished",
+            "provider_attempt_started": "Implementation attempt started",
+            "local_attempt_started": "Bounded local attempt started",
+            "provider_takeover": "Frontier provider took over",
+            "validation_started": "Validation started",
+            "validation_finished": "Validation finished",
+            "repair_started": "Validator-guided repair started",
+            "changes_applied": "Validated changes applied",
+            "run_needs_attention": "Run needs attention",
+            "routing_decision": "Route decision",
+            "routing_usage": "Route usage",
         }
         detail = ""
         if kind == "plan_created":
@@ -642,6 +1280,10 @@ class MainWindow(QMainWindow):
             detail = f" · {payload.get('title') or payload.get('key', '')}"
         elif payload.get("error"):
             detail = f" · {payload['error']}"
+        elif kind == "run_stage":
+            detail = f" · {payload.get('message', payload.get('stage', ''))}"
+        elif kind in {"provider_attempt_started", "validation_started", "validation_finished"}:
+            detail = f" · {payload.get('key', '')} · attempt {payload.get('attempt', 1)}"
         if kind == "task_failed" and payload.get("reason"):
             detail += f" · {payload['reason']}"
         item = QListWidgetItem(f"{labels.get(kind, kind.replace('_', ' ').title())}{detail}")
@@ -651,11 +1293,13 @@ class MainWindow(QMainWindow):
         if kind == "run_started" and payload.get("log_path"):
             self.last_run_log_path = Path(str(payload["log_path"]))
             self.build_log_button.setEnabled(True)
-        if kind in {"task_failed", "run_failed", "run_cancelled"}:
+        if kind in {"task_failed", "run_failed", "run_cancelled", "run_needs_attention"}:
             self.build_events.setCurrentItem(item)
             self._show_build_event_details(kind, payload)
         if kind == "integration_reviewed" and payload.get("review"):
             self.build_details.setPlainText(str(payload["review"]))
+        if kind == "run_stage":
+            self.build_activity.setText(f"◐ {payload.get('message', payload.get('stage', 'Working'))}")
 
     def _build_event_selected(
         self, current: QListWidgetItem | None, _previous: QListWidgetItem | None
@@ -683,6 +1327,23 @@ class MainWindow(QMainWindow):
             lines.append(f"Task: {payload['key']}")
         if payload.get("reason"):
             lines.append(f"Reason: {payload['reason']}")
+        if kind == "routing_decision":
+            lines.append(f"Selected: {payload.get('selected', 'unknown')}")
+            lines.extend(f"Constraint: {item}" for item in payload.get("constraints", []))
+            lines.extend(f"Alternative: {item}" for item in payload.get("alternatives", []))
+            lines.append(f"Usage accuracy: {payload.get('usage_accuracy', 'unknown')}")
+        if kind == "routing_usage":
+            lines.append(
+                f"Local inference: {payload.get('local_requests', 0)} request(s), "
+                f"{payload.get('local_input_tokens', 0)} input / "
+                f"{payload.get('local_output_tokens', 0)} output tokens"
+            )
+            lines.append(
+                f"Opaque CLI: {payload.get('opaque_cli_calls', 0)} call(s), "
+                f"{payload.get('opaque_cli_reported_input_tokens', 0)} reported input / "
+                f"{payload.get('opaque_cli_reported_output_tokens', 0)} reported output tokens; "
+                "cost unknown"
+            )
         if payload.get("executor_error"):
             lines.append(f"Executor error: {payload['executor_error']}")
         if "turns" in payload or "tool_calls" in payload:
@@ -721,7 +1382,7 @@ class MainWindow(QMainWindow):
             return
         if worker.paused:
             worker.resume()
-            self.build_pause_button.setText("Pause")
+            self.build_pause_button.setText("Pause after step")
             self.build_status.setText("Build resumed. Changes take effect at orchestration boundaries.")
         else:
             worker.pause()
@@ -734,7 +1395,7 @@ class MainWindow(QMainWindow):
             return
         worker.cancel()
         self.build_cancel_button.setEnabled(False)
-        self.build_status.setText("Cancellation requested. The active safe step will finish first.")
+        self.build_status.setText("Stopping the active provider process and preserving the isolated worktree…")
 
     def _build_completed(self, result) -> None:
         project = self.registry.selected()
@@ -747,12 +1408,20 @@ class MainWindow(QMainWindow):
         if result.status == "completed":
             self.last_integration_branch = result.integration_branch
             self.last_integration_path = result.integration_path
-            self.build_merge_button.setEnabled(bool(result.integration_branch))
+            self.build_merge_button.setEnabled(False)
             self.build_status.setText(
                 f"Completed run {result.run_id} · {result.completed_tasks}/{result.total_tasks} tasks passed validation.\n"
-                f"Integrated safely at {result.integration_path}{usage}"
+                f"Validated changes were applied automatically. Workspace: {result.integration_path}{usage}"
             )
-            self._show_integration_diff(result.integration_path)
+            self._show_integration_diff(result.integration_path, result.base_commit)
+        elif result.status == "ready_to_apply":
+            self.last_integration_branch = result.integration_branch
+            self.last_integration_path = result.integration_path
+            self.build_merge_button.setEnabled(bool(result.integration_branch))
+            self.build_status.setText(
+                f"Run {result.run_id} passed validation but the checkout changed. Review and apply when ready. {result.error}{usage}"
+            )
+            self._show_integration_diff(result.integration_path, result.base_commit)
         else:
             self.build_status.setText(
                 f"Run {result.run_id} stopped · {result.completed_tasks}/{result.total_tasks} tasks completed. {result.error}{usage}"
@@ -768,22 +1437,27 @@ class MainWindow(QMainWindow):
             self.orchestration_worker = None
         self.build_request.setEnabled(self.registry.selected() is not None)
         self.build_mode.setEnabled(True)
+        self.build_provider.setEnabled(True)
+        self.build_fallback_provider.setEnabled(True)
         self.build_pause_button.setEnabled(False)
-        self.build_pause_button.setText("Pause")
+        self.build_pause_button.setText("Pause after step")
         self.build_cancel_button.setEnabled(False)
+        self._build_activity_timer.stop()
+        self.build_activity.setText("Idle")
+        self._refresh_recovery_actions(self.registry.selected())
         terminal_status = self.build_status.text()
         self._refresh_build_readiness()
         if not self.build_run_button.isEnabled():
             terminal_status += f"\nNext run: {self.build_status.text()}"
         self.build_status.setText(terminal_status)
 
-    def _show_integration_diff(self, integration_path: Path | None) -> None:
+    def _show_integration_diff(self, integration_path: Path | None, base_commit: str = "") -> None:
         project = self.registry.selected()
         if integration_path is None or project is None:
             return
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        base = subprocess.run(
-            ["git", "-C", project.path, "rev-parse", "HEAD"],
+        base = base_commit or subprocess.run(
+            ["git", "-C", project.path, "rev-parse", "HEAD^"],
             capture_output=True, text=True, check=False, creationflags=creationflags,
         ).stdout.strip()
         if not base:
@@ -812,13 +1486,13 @@ class MainWindow(QMainWindow):
         if QMessageBox.question(
             self,
             "Merge validated build",
-            f"Merge {branch} into the current branch {state.branch}?",
+            f"Fast-forward the validated branch {branch} into {state.branch}?",
         ) != QMessageBox.StandardButton.Yes:
             return
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         merged = subprocess.run(
             ["git", "-C", project.path, "-c", "user.name=MoliCoder", "-c", "user.email=molicoder@localhost",
-             "merge", "--no-ff", "--no-edit", branch],
+             "merge", "--ff-only", branch],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             check=False, creationflags=creationflags,
         )
@@ -830,7 +1504,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Merge failed", (merged.stdout + merged.stderr)[-4000:])
             return
         self.build_merge_button.setEnabled(False)
-        self.build_status.setText(f"Merged {branch} into {state.branch}. Review and push manually when ready.")
+        self.build_status.setText(f"Applied validated branch {branch} to {state.branch}. Review and push manually when ready.")
         self._load_project_list(select_id=project.id)
 
     def _add_project(self) -> None:
@@ -896,6 +1570,96 @@ class MainWindow(QMainWindow):
         self.current_project_id = None
         self._load_project_list(select_saved=True)
 
+    def _recycle_project(self) -> None:
+        item = self.project_list.currentItem()
+        if item is None:
+            return
+        project = self.registry.get(int(item.data(Qt.ItemDataRole.UserRole)))
+        if project is None:
+            return
+        if self.orchestration_worker is not None or self.store.has_active_run(project.id):
+            QMessageBox.warning(self, "Project is active", "Cancel or finish the active build before deleting this project.")
+            return
+        path = Path(project.path).resolve()
+        if not path.is_dir():
+            QMessageBox.warning(self, "Folder missing", f"The project folder does not exist:\n{path}")
+            return
+        if path == Path(path.anchor) or path == Path.home().resolve():
+            QMessageBox.critical(self, "Unsafe project path", f"MoliCoder will not delete this broad path:\n{path}")
+            return
+        typed, ok = QInputDialog.getText(
+            self, "Move project to Recycle Bin",
+            f"Type {project.name} to move this exact folder to the Recycle Bin:\n{path}",
+        )
+        if not ok or typed.strip() != project.name:
+            return
+        moved = QFile.moveToTrash(str(path))
+        success = bool(moved[0]) if isinstance(moved, tuple) else bool(moved)
+        if not success:
+            QMessageBox.critical(self, "Recycle failed", f"Windows could not move this folder to the Recycle Bin:\n{path}")
+            return
+        self.registry.remove(project.id)
+        self.current_project_id = None
+        self._load_project_list(select_saved=True)
+        QMessageBox.information(self, "Project recycled", "The folder was moved to the Recycle Bin and can be restored from Windows.")
+
+    def _clear_project_history(self) -> None:
+        project = self.registry.selected()
+        if project is None:
+            return
+        if self.orchestration_worker is not None or self.store.has_active_run(project.id):
+            QMessageBox.warning(self, "Project is active", "Finish or cancel the active build first.")
+            return
+        if QMessageBox.question(
+            self, "Clear build history",
+            f"Permanently delete MoliCoder's saved run history for {project.name}? Project files are not removed.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self.store.clear_project_history(project.id)
+        QMessageBox.information(self, "History cleared", "Saved build history was deleted. Project files were not changed.")
+
+    def _clean_failed_worktrees(self) -> None:
+        project = self.registry.selected()
+        if project is None:
+            return
+        if self.orchestration_worker is not None or self.store.has_active_run(project.id):
+            QMessageBox.warning(self, "Project is active", "Finish or cancel the active build first.")
+            return
+        managed_root = (data_dir() / "worktrees").resolve()
+        candidates: list[tuple[Path, str]] = []
+        for run in self.store.list_project_runs(project.id):
+            if run["status"] not in {"failed", "cancelled", "needs_attention"} or not run.get("worktree"):
+                continue
+            path = Path(str(run["worktree"])).resolve()
+            try:
+                path.relative_to(managed_root)
+            except ValueError:
+                continue
+            candidates.append((path, f"molicoder/run-{run['id']}"))
+        if not candidates:
+            QMessageBox.information(self, "No worktrees", "There are no verified failed run worktrees to clean.")
+            return
+        if QMessageBox.question(
+            self, "Clean failed worktrees",
+            f"Remove {len(candidates)} failed/cancelled worktree(s) under:\n{managed_root}?\nRun logs and history are retained.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        removed = 0
+        for path, branch in candidates:
+            subprocess.run(
+                ["git", "-C", project.path, "worktree", "remove", "--force", str(path)],
+                capture_output=True, check=False, creationflags=creationflags,
+            )
+            if path.exists():
+                QDir(str(path)).removeRecursively()
+            subprocess.run(
+                ["git", "-C", project.path, "branch", "-D", branch],
+                capture_output=True, check=False, creationflags=creationflags,
+            )
+            removed += int(not path.exists())
+        QMessageBox.information(self, "Cleanup complete", f"Removed {removed} verified managed worktree(s).")
+
     def _load_conversation_list(self, select_first: bool = False, select_id: int | None = None) -> None:
         self.chat_list.blockSignals(True)
         self.chat_list.clear()
@@ -921,6 +1685,8 @@ class MainWindow(QMainWindow):
             self._stop_generation()
         model = model or self.model_combo.currentData()
         conversation = self.store.create_conversation(model)
+        if self.current_project_id is not None:
+            self.store.link_conversation_project(conversation.id, self.current_project_id)
         self._load_conversation_list(select_id=conversation.id)
         self.composer.setFocus()
 
@@ -932,6 +1698,9 @@ class MainWindow(QMainWindow):
         if not conversation:
             return
         self.current_conversation_id = conversation.id
+        linked_project_id = self.store.get_conversation_project_id(conversation.id)
+        if linked_project_id is not None and linked_project_id != self.current_project_id:
+            self._load_project_list(select_id=linked_project_id)
         index = self.model_combo.findData(conversation.model)
         if index >= 0:
             self.model_combo.blockSignals(True)
@@ -1005,9 +1774,12 @@ class MainWindow(QMainWindow):
             f"{budget.remaining:,} safe tokens remaining · {percent}%"
         )
         self.composer_hint.setText(f"~{estimate_tokens(self._pending_content()):,} tokens in pending message")
-        can_send = bool(self.composer.toPlainText().strip() or self.current_attachments) and not budget.blocked
+        deterministic_question = not self.current_attachments and self.controller.can_handle_locally(
+            self.composer.toPlainText()
+        )
+        can_send = bool(self.composer.toPlainText().strip() or self.current_attachments) and (deterministic_question or not budget.blocked)
         can_send = can_send and self.chat_worker is None
-        if self._installed_model_names:
+        if self._installed_model_names and not deterministic_question:
             can_send = can_send and self.preset.name in self._installed_model_names
         self.send_button.setEnabled(can_send)
         if budget.blocked:
@@ -1023,9 +1795,20 @@ class MainWindow(QMainWindow):
     def _send_message(self) -> None:
         if self.chat_worker or self.current_conversation_id is None:
             return
+        linked_project_id = self.store.get_conversation_project_id(self.current_conversation_id)
+        if self.current_project_id is not None and linked_project_id != self.current_project_id:
+            if linked_project_id is not None:
+                self._new_chat()
+            else:
+                self.store.link_conversation_project(self.current_conversation_id, self.current_project_id)
         content = self._pending_content()
         if not content.strip():
             return
+        if not self.current_attachments:
+            result = self.controller.handle(self.composer.toPlainText(), self.current_project_id)
+            if result is not None:
+                self._send_controller_reply(content, result)
+                return
         messages_before = self._current_messages()
         budget = calculate_budget(
             messages_before, content, self.preset.context_window, int(self.output_spin.value())
@@ -1070,7 +1853,10 @@ class MainWindow(QMainWindow):
             "show_thinking": self.preset.show_thinking,
             "keep_alive": "5m",
         }
-        self.chat_worker = ChatWorker(self.client, self.preset.name, api_messages, options)
+        self.chat_worker = ChatWorker(
+            self.client, self.preset.name, api_messages, options,
+            self.inference_policy, self.current_project_id,
+        )
         self.chat_worker.content_delta.connect(self._append_content)
         self.chat_worker.thinking_delta.connect(self._append_thinking)
         self.chat_worker.completed.connect(self._generation_finished)
@@ -1080,6 +1866,52 @@ class MainWindow(QMainWindow):
         self.stop_button.setVisible(True)
         self.model_combo.setEnabled(False)
         self._refresh_context_meter()
+
+    def _send_controller_reply(self, content: str, result: ControllerResult) -> None:
+        conversation_id = self.current_conversation_id
+        if conversation_id is None:
+            return
+        self.store.add_message(Message(None, conversation_id, "user", content))
+        self.store.add_message(Message(None, conversation_id, "assistant", result.content))
+        if result.kind == "execution_proposal" and result.action_state in {"awaiting_approval", "awaiting_clarification"}:
+            self.pending_build_request = (self.current_project_id, content)
+            self._update_pending_build_card()
+        conversation = self.store.get_conversation(conversation_id)
+        if conversation and conversation.title == "New chat":
+            self.store.rename_conversation(conversation_id, " ".join(content.split())[:56])
+        self.composer.clear()
+        self._load_conversation_list(select_id=conversation_id)
+        self._refresh_context_meter()
+
+    def _update_pending_build_card(self) -> None:
+        pending = self.pending_build_request
+        self.pending_build_card.setVisible(pending is not None)
+        if pending is None:
+            return
+        target_id = pending[0] if pending[0] is not None else self.current_project_id
+        project = self.store.get_project(target_id) if target_id is not None else None
+        name = project.name if project else "select a project"
+        self.pending_build_label.setText(f"Build proposal for {name}: {pending[1][:120]}")
+        self.pending_build_review.setEnabled(project is not None)
+
+    def _review_pending_build(self) -> None:
+        pending = self.pending_build_request
+        if pending is None:
+            return
+        target_id = pending[0] if pending[0] is not None else self.current_project_id
+        project = self.store.get_project(target_id) if target_id is not None else None
+        if project is None:
+            self._update_pending_build_card()
+            return
+        self._load_project_list(select_id=project.id)
+        self.build_request.setPlainText(pending[1])
+        self._set_view("build")
+        self.pending_build_request = None
+        self._update_pending_build_card()
+
+    def _cancel_pending_build(self) -> None:
+        self.pending_build_request = None
+        self._update_pending_build_card()
 
     def _append_content(self, delta: str) -> None:
         if self.active_bubble:
@@ -1183,6 +2015,7 @@ class MainWindow(QMainWindow):
         self._refresh_context_meter()
 
     def _refresh_telemetry(self) -> None:
+        self._refresh_pacing()
         telemetry = read_nvidia_telemetry()
         if telemetry:
             self.gpu_card.set_value(
@@ -1205,6 +2038,12 @@ class MainWindow(QMainWindow):
                 self.residency_card.set_value("Not loaded")
         except Exception:
             self.residency_card.set_value("Ollama unavailable")
+
+    def _refresh_pacing(self) -> None:
+        if self.current_project_id is None:
+            self.pacing_label.setText("Paid API pacing: select a project.")
+            return
+        self.pacing_label.setText(project_pacing(self.store, self.current_project_id).explanation)
 
     def _update_metrics_cards(self) -> None:
         metrics = self.last_metrics

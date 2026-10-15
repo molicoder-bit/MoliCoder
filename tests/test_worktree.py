@@ -2,7 +2,7 @@ import subprocess
 
 import pytest
 
-from local_model_chat.molicoder.worktree import IntegrationConflict, WorktreeManager
+from local_model_chat.molicoder.worktree import GitOperationError, IntegrationConflict, WorktreeManager
 
 
 def _git(root, *args):
@@ -118,3 +118,35 @@ def test_task_commit_excludes_python_cache_artifacts(tmp_path) -> None:
     tracked = _git(workspace.path, "ls-tree", "-r", "--name-only", "HEAD").stdout
     assert "__pycache__" not in tracked
     assert ".pytest_cache" not in tracked
+
+
+def test_task_commit_does_not_explicitly_add_ignored_cache(tmp_path) -> None:
+    root = _repo(tmp_path)
+    (root / ".gitignore").write_text(".pytest_cache/\n", encoding="utf-8")
+    _git(root, "add", ".gitignore")
+    _git(root, "commit", "-m", "ignore cache")
+    manager = WorktreeManager(root, run_id=11, base_dir=tmp_path / "trees")
+    workspace = manager.create_run()
+    (workspace.path / "feature.py").write_text("value = 1\n", encoding="utf-8")
+    cache = workspace.path / ".pytest_cache"
+    cache.mkdir()
+    (cache / "README.md").write_text("generated\n", encoding="utf-8")
+
+    changed = manager.commit(workspace, "cache-safe run")
+
+    assert changed == ("feature.py",)
+
+
+def test_retry_stops_for_ignored_attempt_output_instead_of_reusing_it(tmp_path) -> None:
+    root = _repo(tmp_path)
+    (root / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+    _git(root, "add", ".gitignore")
+    _git(root, "commit", "-m", "ignore attempt output")
+    manager = WorktreeManager(root, run_id=12, base_dir=tmp_path / "trees")
+    workspace = manager.create_run()
+    (workspace.path / "ignored.txt").write_text("failed output", encoding="utf-8")
+
+    with pytest.raises(GitOperationError, match="ignored attempt output requires review"):
+        manager.preserve_failed_attempt(workspace, "failed attempt")
+
+    assert (workspace.path / "ignored.txt").read_text() == "failed output"

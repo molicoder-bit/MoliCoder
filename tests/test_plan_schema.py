@@ -102,3 +102,39 @@ def test_plan_accepts_optional_expected_paths() -> None:
     )
 
     assert plan.tasks[0].expected_paths == ("src/app.py",)
+    assert plan.tasks[0].acceptance_criteria == ("Configured validation must pass",)
+    assert plan.tasks[0].verification_checks == ("project-default",)
+
+
+def test_plan_records_bounded_task_acceptance_and_named_checks() -> None:
+    payload = {
+        "objective": "Feature", "tasks": [{
+            "key": "one", "title": "One", "objective": "Add parser", "risk": "low",
+            "depends_on": [], "expected_paths": ["src/parser.py"],
+            "acceptance_criteria": ["Parser accepts valid input", "Parser rejects invalid input"],
+            "verification_checks": ["pytest", "lint"],
+        }],
+    }
+    task = parse_plan(payload).tasks[0]
+    assert task.acceptance_criteria == ("Parser accepts valid input", "Parser rejects invalid input")
+    assert task.verification_checks == ("pytest", "lint")
+    payload["tasks"][0]["verification_checks"] = ["python -c 'unsafe'"]
+    with pytest.raises(PlanValidationError, match="approved checks"):
+        parse_plan(payload)
+    payload["tasks"][0]["verification_checks"] = ["pytest"]
+    payload["tasks"][0]["acceptance_criteria"] = []
+    with pytest.raises(PlanValidationError, match="checkable items"):
+        parse_plan(payload)
+
+
+def test_plan_rejects_more_than_five_tasks() -> None:
+    tasks = [
+        {
+            "key": f"task-{index}", "title": f"Task {index}", "objective": "Do work",
+            "risk": "low", "depends_on": [], "expected_paths": [f"file-{index}.txt"],
+        }
+        for index in range(6)
+    ]
+
+    with pytest.raises(PlanValidationError, match="between 1 and 5"):
+        parse_plan({"objective": "Too large", "tasks": tasks})

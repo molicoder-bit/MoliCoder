@@ -78,6 +78,11 @@ class OllamaClient:
     def show(self, model: str) -> dict[str, Any]:
         return dict(self._request("/api/show", {"model": model}))
 
+    def pull_model(self, model: str) -> None:
+        result = self._request("/api/pull", {"model": model, "stream": False}, timeout=3600)
+        if not isinstance(result, dict) or result.get("error") or result.get("status") != "success":
+            raise OllamaError("local model download did not complete successfully")
+
     def running_models(self) -> list[dict[str, Any]]:
         return list(self._request("/api/ps").get("models", []))
 

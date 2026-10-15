@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from local_model_chat.actions.receipts import ActionReviewRequired
 
 from local_model_chat.molicoder.tools import (
     ToolCall,
@@ -94,6 +95,11 @@ def test_parses_function_style_calls_emitted_by_local_model() -> None:
 def test_malformed_call_is_rejected() -> None:
     with pytest.raises(ToolParseError, match="required argument"):
         parse_tool_calls({"content": '{"name":"write_file","arguments":{"path":"a.py"}}'})
+
+
+def test_external_side_effect_tool_stops_for_review() -> None:
+    with pytest.raises(ActionReviewRequired, match="user review"):
+        parse_tool_calls({"content": '{"name":"payment","arguments":{"amount":100}}'})
 
 
 def test_dispatcher_confines_paths_and_runs_fixed_validation(tmp_path) -> None:

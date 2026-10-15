@@ -27,7 +27,7 @@ molicoder-exec = "local_model_chat.molicoder.cli:main"
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
-local_model_chat = ["molicoder/planner/plan.schema.json"]
+local_model_chat = ["molicoder/planner/plan.schema.json", "environment/manifests/releases.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

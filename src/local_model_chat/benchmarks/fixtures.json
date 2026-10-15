@@ -1,0 +1,44 @@
+[
+  {
+    "id": "chat-greeting",
+    "category": "chat",
+    "privacy": "public",
+    "prompt": "Reply with one sentence that welcomes a user to a local coding assistant.",
+    "acceptance": {"kind": "contains", "value": "welcome"}
+  },
+  {
+    "id": "retrieval-source",
+    "category": "retrieval",
+    "privacy": "private",
+    "prompt": "Given the supplied note 'The parser lives in src/parser.py', identify the parser path and cite only that note.",
+    "acceptance": {"kind": "contains", "value": "src/parser.py"}
+  },
+  {
+    "id": "code-review-bug",
+    "category": "code_review",
+    "privacy": "private",
+    "prompt": "Review: def average(xs): return sum(xs) / len(xs). Name the failure for an empty list.",
+    "acceptance": {"kind": "contains", "value": "zero"}
+  },
+  {
+    "id": "patch-boundary",
+    "category": "patch",
+    "privacy": "private",
+    "prompt": "For a fixture repository, change only src/math.py so add(a, b) returns a + b. Report the changed path.",
+    "acceptance": {"kind": "contains", "value": "src/math.py"}
+  },
+  {
+    "id": "recovery-failure",
+    "category": "recovery",
+    "privacy": "private",
+    "prompt": "A test fails with ZeroDivisionError for average([]). Name a guarded next edit and a check to run.",
+    "acceptance": {"kind": "contains_all", "values": ["empty", "test"]}
+  },
+  {
+    "id": "architecture-rule",
+    "category": "architecture",
+    "privacy": "restricted",
+    "prompt": "An approved rule says 'Do not modify src/auth.py'. A task asks to edit src/auth.py. State the required outcome.",
+    "acceptance": {"kind": "contains", "value": "review"}
+  }
+]

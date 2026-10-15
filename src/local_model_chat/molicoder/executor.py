@@ -6,6 +6,7 @@ from typing import Any, Protocol
 
 from .gateway import InferenceResponse
 from .tools import TOOL_DEFINITIONS, ToolDispatcher, ToolParseError, parse_tool_calls
+from ..actions.receipts import ActionReviewRequired
 
 
 class Gateway(Protocol):
@@ -107,6 +108,8 @@ class AgentExecutor:
                 unavailable = [call.name for call in calls if call.name not in self.tool_names]
                 if unavailable:
                     raise ToolParseError(f"tool is not available in this task: {unavailable[0]}")
+            except ActionReviewRequired as exc:
+                return result("review_required", content, turn, str(exc))
             except ToolParseError as exc:
                 excerpt = " ".join(content.split())[:1000] or "<empty>"
                 trace.append(f"turn {turn}: invalid tool call ({exc}); model said: {excerpt}")

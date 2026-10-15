@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..attachments import MAX_FILE_BYTES, AttachmentError, is_allowed, load_attachment
+from ..actions.receipts import ActionReviewRequired
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +41,11 @@ _REQUIRED: dict[str, set[str]] = {
 _SENSITIVE_NAMES = {
     ".npmrc", ".pypirc", "auth.json", "credentials.json", "id_ed25519", "id_rsa",
     "secrets.json", "tokens.json",
+}
+
+_EXTERNAL_ACTION_NAMES = {
+    "deploy", "publish", "payment", "charge", "refund", "delete_remote",
+    "destroy", "send_email", "external_action",
 }
 
 
@@ -105,6 +111,8 @@ def _validate_call(value: Any) -> ToolCall:
     if not isinstance(function, dict):
         raise ToolParseError("tool call function must be an object")
     name = function.get("name")
+    if isinstance(name, str) and name in _EXTERNAL_ACTION_NAMES:
+        raise ActionReviewRequired("unsupported external action requires user review")
     if not isinstance(name, str) or name not in _ARGUMENTS:
         raise ToolParseError(f"unknown tool: {name!r}")
     arguments = function.get("arguments", {})

@@ -38,6 +38,10 @@ def _validator(root: Path) -> ProjectValidator:
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "doctor":
+        from ..environment.doctor import doctor_main
+
+        return doctor_main(sys.argv[2:])
     parser = argparse.ArgumentParser(description="Run one bounded MoliCoder executor task.")
     parser.add_argument("task", help="A small, mechanically verifiable coding task")
     parser.add_argument("--project", type=Path, default=Path.cwd())

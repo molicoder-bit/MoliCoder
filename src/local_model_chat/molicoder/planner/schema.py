@@ -18,6 +18,8 @@ class PlanTask:
     risk: str
     depends_on: tuple[str, ...]
     expected_paths: tuple[str, ...] = ()
+    acceptance_criteria: tuple[str, ...] = ("Configured validation must pass",)
+    verification_checks: tuple[str, ...] = ("project-default",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,8 +73,8 @@ def parse_plan(value: str | dict[str, Any]) -> Plan:
         raise PlanValidationError("plan must be an object")
     objective = _required_text(payload.get("objective"), "objective")
     raw_tasks = payload.get("tasks")
-    if not isinstance(raw_tasks, list) or not 1 <= len(raw_tasks) <= 12:
-        raise PlanValidationError("tasks must contain between 1 and 12 items")
+    if not isinstance(raw_tasks, list) or not 1 <= len(raw_tasks) <= 5:
+        raise PlanValidationError("tasks must contain between 1 and 5 items")
     tasks: list[PlanTask] = []
     keys: set[str] = set()
     for index, item in enumerate(raw_tasks):
@@ -93,6 +95,14 @@ def parse_plan(value: str | dict[str, Any]) -> Plan:
         expected_paths = item.get("expected_paths", [])
         if not isinstance(expected_paths, list) or not all(isinstance(path, str) and path.strip() for path in expected_paths):
             raise PlanValidationError(f"tasks[{index}].expected_paths must be a string list")
+        criteria = item.get("acceptance_criteria", ["Configured validation must pass"])
+        checks = item.get("verification_checks", ["project-default"])
+        if (not isinstance(criteria, list) or not 1 <= len(criteria) <= 5
+                or not all(isinstance(value, str) and 1 <= len(value.strip()) <= 300 for value in criteria)):
+            raise PlanValidationError(f"tasks[{index}].acceptance_criteria must contain 1 to 5 checkable items")
+        if (not isinstance(checks, list) or not 1 <= len(checks) <= 5
+                or not all(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", value) for value in checks)):
+            raise PlanValidationError(f"tasks[{index}].verification_checks must name 1 to 5 approved checks")
         tasks.append(
             PlanTask(
                 key,
@@ -101,6 +111,8 @@ def parse_plan(value: str | dict[str, Any]) -> Plan:
                 risk,
                 tuple(depends),
                 tuple(path.replace("\\", "/").strip() for path in expected_paths),
+                tuple(value.strip() for value in criteria),
+                tuple(checks),
             )
         )
     for task in tasks:

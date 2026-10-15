@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+import json
+from dataclasses import replace
+from datetime import datetime, timezone
+from typing import Callable, Mapping, Protocol
+
+from ..storage import ChatStore
+from .contracts import KandevConnection, KandevEvent, KandevMode, KandevTaskRef, KandevTaskSnapshot
+
+
+class KandevTaskApi(Protocol):
+    """Negotiated Kandev operations; HTTP/MCP transport is supplied by a verified connector."""
+
+    def capabilities(self) -> tuple[str, ...]: ...
+    def create(self, external_id: str, objective: str) -> Mapping[str, object]: ...
+    def read(self, remote_task_id: str) -> Mapping[str, object] | None: ...
+    def find_by_external_id(self, external_id: str) -> Mapping[str, object] | None: ...
+    def events(self, remote_task_id: str, after_cursor: str) -> tuple[Mapping[str, object], ...]: ...
+    def cancel(self, remote_task_id: str) -> Mapping[str, object]: ...
+
+
+_STATES = {
+    "todo": "ready", "created": "ready", "queued": "ready", "scheduling": "ready",
+    "in_progress": "running", "running": "running", "review": "verifying",
+    "completed": "verifying", "cancelled": "cancelled", "failed": "failed",
+    "blocked": "blocked", "waiting_for_input": "review_required",
+}
+
+
+class KandevTaskAdapter:
+    """Map Kandev-owned work to local IDs without assuming its internal schema."""
+
+    def __init__(
+        self, connection: KandevConnection, api: KandevTaskApi,
+        *, store: ChatStore | None = None, on_event: Callable[[KandevEvent], None] | None = None,
+    ) -> None:
+        self.connection = connection
+        self.api = api
+        self.store = store
+        self.on_event = on_event
+
+    def probe(self) -> KandevConnection:
+        capabilities = self.api.capabilities()
+        required = {"create", "read", "lookup_external_id", "events", "cancel", "launch"}
+        health = "ready" if self.connection.mode != KandevMode.DISABLED and required.issubset(capabilities) else "limited"
+        return replace(self.connection, capabilities=capabilities, health_state=health)
+
+    def list_capabilities(self) -> tuple[str, ...]:
+        return self.api.capabilities()
+
+    @staticmethod
+    def _snapshot(ref: KandevTaskRef, raw: Mapping[str, object] | None) -> KandevTaskSnapshot:
+        observed = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        if not raw:
+            return KandevTaskSnapshot(ref, "reconciliation_required", observed, detail="Remote task unavailable")
+        remote_id = str(raw.get("id") or "")
+        external_id = str(raw.get("external_id") or "")
+        if not remote_id or external_id != ref.external_id:
+            return KandevTaskSnapshot(ref, "reconciliation_required", observed, detail="Remote identity mismatch")
+        resolved = replace(ref, remote_task_id=remote_id)
+        if raw.get("creation_complete") is False:
+            state = "reconciliation_required"
+        else:
+            state = _STATES.get(str(raw.get("state") or "").lower(), "reconciliation_required")
+        return KandevTaskSnapshot(
+            resolved, state, observed, str(raw.get("primary_session_id") or raw.get("session_id") or ""),
+            str(raw.get("worktree_path") or ""), str(raw.get("event_cursor") or ""),
+            "Unknown or unsettled remote state" if state == "reconciliation_required" else "",
+        )
+
+    def create_task(self, ref: KandevTaskRef, objective: str) -> KandevTaskSnapshot:
+        if self.probe().health_state != "ready":
+            raise RuntimeError("Kandev task capabilities are incomplete")
+        return self._snapshot(ref, self.api.create(ref.external_id, objective))
+
+    def get_task(self, ref: KandevTaskRef) -> KandevTaskSnapshot:
+        raw = self.api.read(ref.remote_task_id) if ref.remote_task_id else self.api.find_by_external_id(ref.external_id)
+        return self._snapshot(ref, raw)
+
+    def subscribe_events(self, ref: KandevTaskRef, after_cursor: str = "") -> tuple[KandevEvent, ...]:
+        if not ref.remote_task_id:
+            return ()
+        if not after_cursor and self.store is not None:
+            for recorded in reversed(self.store.list_events(ref.run_id)):
+                if recorded.task_id != ref.task_id or recorded.kind != "kandev_message":
+                    continue
+                try:
+                    payload = json.loads(recorded.payload_json)
+                except json.JSONDecodeError:
+                    continue
+                if payload.get("remote_task_id") == ref.remote_task_id and isinstance(payload.get("cursor"), str):
+                    after_cursor = payload["cursor"]
+                    break
+        events = []
+        for raw in self.api.events(ref.remote_task_id, after_cursor):
+            cursor = str(raw.get("cursor") or "")
+            if not cursor or cursor == after_cursor:
+                continue
+            payload = raw.get("payload")
+            event = KandevEvent(
+                ref, cursor, str(raw.get("kind") or "unknown"),
+                str(raw.get("observed_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")),
+                dict(payload) if isinstance(payload, Mapping) else {},
+            )
+            events.append(event)
+            if self.store is not None:
+                self.store.add_event(ref.run_id, "kandev_" + event.kind, {
+                    "external_id": ref.external_id, "remote_task_id": ref.remote_task_id,
+                    "cursor": event.cursor, "observed_at": event.observed_at,
+                    "payload": event.payload,
+                }, ref.task_id)
+            if self.on_event:
+                self.on_event(event)
+        return tuple(events)
+
+    def cancel_task(self, ref: KandevTaskRef) -> KandevTaskSnapshot:
+        if not ref.remote_task_id:
+            return self.get_task(ref)
+        self.api.cancel(ref.remote_task_id)
+        # A successful cancellation request does not prove the remote task stopped.
+        return self.get_task(ref)
+
+    def reconcile(self, ref: KandevTaskRef) -> KandevTaskSnapshot:
+        return self.get_task(ref)

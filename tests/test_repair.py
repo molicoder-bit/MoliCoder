@@ -36,6 +36,18 @@ def test_repair_uses_fresh_attempt_and_diagnosis_then_completes() -> None:
     assert "Diagnosis" in prompts[2]
 
 
+def test_repair_does_not_retry_external_action_review() -> None:
+    calls = []
+    outcome = RepairLoop(
+        execute=lambda prompt: calls.append(prompt) or ExecutionResult(
+            "review_required", "", 1, 0, "unsupported external action requires user review"
+        ),
+        diagnose=lambda _packet: "should not diagnose", max_attempts=4,
+    ).run("Task")
+    assert outcome.status == "review_required" and outcome.attempts == 1
+    assert len(calls) == 1
+
+
 def test_repair_stops_on_identical_fingerprint_three_times() -> None:
     outcome = RepairLoop(
         execute=lambda _prompt: failed("app.py:10: same failure"),

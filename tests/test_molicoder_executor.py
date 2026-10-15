@@ -54,6 +54,17 @@ def test_executor_handles_bare_json_call_then_returns_final_answer(tmp_path) -> 
     assert "replace_in_file" not in exposed
 
 
+def test_executor_stops_on_unsupported_external_action_without_reprompt(tmp_path) -> None:
+    gateway = FakeGateway([{"content": '{"name":"deploy","arguments":{"target":"production"}}'}])
+    executor = AgentExecutor(
+        gateway=gateway, dispatcher=ToolDispatcher(tmp_path, validation=lambda: "validation passed"),
+        model="molicoder:latest", max_turns=4,
+    )
+    result = executor.run("Deploy the app")
+    assert result.status == "review_required" and result.turns == 1
+    assert len(gateway.requests) == 1
+
+
 def test_executor_reprompts_once_after_malformed_tool_call(tmp_path) -> None:
     gateway = FakeGateway(
         [

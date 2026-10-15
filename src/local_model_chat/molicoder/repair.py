@@ -3,8 +3,41 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from ..inference.fallback import classify_provider_failure
 from .executor import ExecutionResult
 from .fingerprint import classify_progress, failure_fingerprint
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryDecision:
+    category: str
+    action: str
+    retry_allowed: bool
+    fingerprint: str
+
+
+def classify_task_failure(
+    status: str, error: str, *,
+    validation_summary: str = "", fingerprints: tuple[str, ...] = (),
+    interrupted: bool = False,
+) -> RecoveryDecision:
+    """Choose a bounded next action from observed failure evidence."""
+    fingerprint = failure_fingerprint(error or validation_summary or status)
+    if interrupted:
+        return RecoveryDecision("interrupted", "reconcile_preserved_worktree", False, fingerprint)
+    if error.startswith(("architectural invariant conflict:", "architectural review required:")):
+        return RecoveryDecision("architecture", "human_review", False, fingerprint)
+    progress = classify_progress((*fingerprints, fingerprint))
+    if progress in {"stuck", "oscillating"} or "without making a repository change" in error.lower():
+        return RecoveryDecision("no_progress", "stop_repeated_attempt", False, fingerprint)
+    if status in {"timeout", "crashed", "process_failed"} or "process exited" in error.lower():
+        return RecoveryDecision("agent_process", "restart_from_checkpoint", True, fingerprint)
+    provider = classify_provider_failure(status, error)
+    if provider.category in {"auth", "quota", "model", "outage"}:
+        return RecoveryDecision("provider", provider.action, provider.retry_same_route, fingerprint)
+    if validation_summary.startswith("validation failed"):
+        return RecoveryDecision("validation", "repair_from_diagnostics", True, fingerprint)
+    return RecoveryDecision("unknown", "human_review", False, fingerprint)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +91,11 @@ class RepairLoop:
                 )
             last = self.execute(prompt)
             executions.append(last)
+            if last.status == "review_required":
+                return RepairOutcome(
+                    "review_required", attempt, last, tuple(fingerprints),
+                    last.error or "external action requires review", tuple(executions),
+                )
             if last.status == "completed":
                 return RepairOutcome(
                     "completed", attempt, last, tuple(fingerprints), "", tuple(executions)

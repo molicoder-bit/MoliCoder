@@ -54,6 +54,6 @@ class ProjectRegistry:
 
     def remove(self, project_id: int) -> None:
         selected = self.selected()
-        self.store.delete_project(project_id)
+        self.store.archive_project(project_id)
         if selected and selected.id == project_id:
             self.store.set_setting(_SELECTED_PROJECT_SETTING, "")

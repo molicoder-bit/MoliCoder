@@ -115,7 +115,17 @@ def test_real_local_multi_task_worktree_run(tmp_path) -> None:
 )
 def test_real_frontier_plan_local_execution_and_frontier_review(tmp_path) -> None:
     _root, store, project = _create_e2e_project(tmp_path)
-    orchestrator = build_orchestrator(store=store, project=project, mode="FRONTIER_PLAN")
+    from datetime import datetime, timedelta, timezone
+
+    scope = "opt-in-live-frontier-test"
+    store.record_action_authorization(
+        project_id=project.id, action="build_run", scope=scope, risk="external",
+        decision="approved", actor="explicit_live_test_env",
+        expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+    )
+    orchestrator = build_orchestrator(
+        store=store, project=project, mode="FRONTIER_PLAN", authorization_scope=scope,
+    )
 
     result = orchestrator.run(
         "Create exactly two independent tasks. Task alpha must update alpha.py and test_alpha.py "

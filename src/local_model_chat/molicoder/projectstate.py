@@ -114,6 +114,7 @@ def bootstrap_project(parent: str | Path, name: str, kind: str) -> ProjectState:
         root.mkdir()
 
     if normalized_kind == "python":
+        module_name = re.sub(r"[^a-z0-9_]", "_", clean_name.lower().replace("-", "_"))
         _write_new(
             root / "pyproject.toml",
             "[project]\n"
@@ -121,9 +122,21 @@ def bootstrap_project(parent: str | Path, name: str, kind: str) -> ProjectState:
             'version = "0.1.0"\n'
             'requires-python = ">=3.11"\n\n'
             "[project.optional-dependencies]\n"
-            'test = ["pytest==9.1.1"]\n',
+            'test = ["pytest==9.1.1"]\n\n'
+            "[tool.pytest.ini_options]\n"
+            'pythonpath = ["src"]\n'
+            'testpaths = ["tests"]\n',
         )
         _write_new(root / ".gitignore", ".venv/\n__pycache__/\n*.py[cod]\n.pytest_cache/\n")
+        package = root / "src" / module_name
+        tests = root / "tests"
+        package.mkdir(parents=True, exist_ok=True)
+        tests.mkdir(exist_ok=True)
+        _write_new(package / "__init__.py", '"""Application package."""\n')
+        _write_new(
+            tests / "test_smoke.py",
+            f"def test_package_imports():\n    import {module_name}\n    assert {module_name} is not None\n",
+        )
         _setup_python_environment(root)
     elif normalized_kind == "node":
         package_name = clean_name.lower().replace("_", "-")
@@ -134,13 +147,27 @@ def bootstrap_project(parent: str | Path, name: str, kind: str) -> ProjectState:
                     "name": package_name,
                     "version": "0.1.0",
                     "private": True,
-                    "scripts": {"test": "node --test", "build": "node -e \"\""},
+                    "type": "module",
+                    "scripts": {"test": "node --test", "build": "node --check app.js"},
                 },
                 indent=2,
             )
             + "\n",
         )
         _write_new(root / ".gitignore", "node_modules/\ndist/\n")
+        _write_new(
+            root / "index.html",
+            '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            f"<title>{clean_name}</title></head><body><main id=\"app\"></main>"
+            '<script type="module" src="./app.js"></script></body></html>\n',
+        )
+        _write_new(root / "app.js", 'export function start() { return "ready"; }\n')
+        _write_new(
+            root / "app.test.js",
+            'import test from "node:test";\nimport assert from "node:assert/strict";\n'
+            'import { start } from "./app.js";\ntest("starter is ready", () => assert.equal(start(), "ready"));\n',
+        )
     else:
         flutter_name = re.sub(r"[^a-z0-9_]", "_", clean_name.lower().replace("-", "_"))
         _run_checked(

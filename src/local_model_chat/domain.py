@@ -57,6 +57,15 @@ class Project:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectPreferences:
+    project_id: int
+    provider: str = "codex"
+    strategy: str = "HYBRID"
+    trusted_providers: tuple[str, ...] = ()
+    model_overrides: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class TaskRecord:
     id: int
     run_id: int
@@ -70,6 +79,57 @@ class TaskRecord:
     branch: str | None = None
     base_commit: str | None = None
     changed_paths: tuple[str, ...] = ()
+    acceptance_criteria: tuple[str, ...] = ("Configured validation must pass",)
+    verification_checks: tuple[str, ...] = ("project-default",)
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCompletionRecord:
+    run_id: int
+    task_id: int
+    revision: str
+    checks: tuple[str, ...]
+    validation_summary: str
+    output_artifacts: tuple[str, ...]
+    unmet_criteria: tuple[str, ...]
+    human_review_status: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class TaskStatus:
+    id: int
+    key: str
+    title: str
+    status: str
+    updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectRunStatus:
+    project_id: int
+    project_name: str
+    run_id: int | None
+    run_status: str | None
+    updated_at: str | None
+    tasks: tuple[TaskStatus, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeRecord:
+    id: int
+    project_id: int
+    kind: str
+    status: str
+    revision: int
+    title: str
+    body: str
+    rationale: str
+    confidence: str
+    source_ref: str
+    source_revision: str
+    author: str
+    updated_at: str
 
 
 @dataclass(frozen=True, slots=True)
