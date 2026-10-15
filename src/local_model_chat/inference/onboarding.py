@@ -36,17 +36,9 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def register_custom_route(store: ChatStore, route: CustomRoute) -> str:
-    """Register a disabled route; setup and provider verification follow later."""
-    if not re.fullmatch(r"[a-z][a-z0-9-]{2,39}", route.provider_id):
-        raise ValueError("provider ID needs 3-40 lowercase letters, digits, or hyphens")
-    if route.provider_id in {"ollama", "codex", "claude", "copilot"}:
-        raise ValueError("built-in provider ID is reserved")
-    if not route.name.strip() or len(route.name) > 100:
-        raise ValueError("provider name is required and must be at most 100 characters")
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,149}", route.model_id):
-        raise ValueError("model ID contains unsupported characters")
-    endpoint = route.base_url.rstrip("/")
+def validate_custom_endpoint(base_url: str) -> str:
+    """Return an exact API base URL suitable for both checks and dispatch."""
+    endpoint = base_url.rstrip("/")
     parsed = urlsplit(endpoint)
     if (parsed.scheme not in {"https", "http"} or not parsed.hostname
             or parsed.username or parsed.password or parsed.query or parsed.fragment
@@ -58,11 +50,26 @@ def register_custom_route(store: ChatStore, route: CustomRoute) -> str:
         raise ValueError("endpoint port is invalid") from exc
     if port is not None and not 1 <= port <= 65535:
         raise ValueError("endpoint port is invalid")
-    local = parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "::1"}
-    if parsed.scheme == "http" and not local:
+    if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "::1"}:
         raise ValueError("plain HTTP is allowed only for a loopback endpoint")
     if parsed.path.endswith(("/chat/completions", "/responses")):
         raise ValueError("enter the API base URL, not a request endpoint")
+    return endpoint
+
+
+def register_custom_route(store: ChatStore, route: CustomRoute) -> str:
+    """Register a disabled route; setup and provider verification follow later."""
+    if not re.fullmatch(r"[a-z][a-z0-9-]{2,39}", route.provider_id):
+        raise ValueError("provider ID needs 3-40 lowercase letters, digits, or hyphens")
+    if route.provider_id in {"ollama", "codex", "claude", "copilot"}:
+        raise ValueError("built-in provider ID is reserved")
+    if not route.name.strip() or len(route.name) > 100:
+        raise ValueError("provider name is required and must be at most 100 characters")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,149}", route.model_id):
+        raise ValueError("model ID contains unsupported characters")
+    endpoint = validate_custom_endpoint(route.base_url)
+    parsed = urlsplit(endpoint)
+    local = parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "::1"}
     offering_id = "custom:" + route.provider_id + ":" + hashlib.sha256(
         (endpoint + "\n" + route.model_id).encode("utf-8")
     ).hexdigest()[:16]
@@ -132,13 +139,10 @@ def check_custom_connection(
         except (CredentialUnavailable, OSError, ValueError, UnicodeError):
             return ConnectionCheck("key_unavailable", "The stored API key cannot be read for this user.")
     # Recheck the persisted endpoint before making any network request.
-    endpoint = offering.route_id.rstrip("/")
-    parsed = urlsplit(endpoint)
-    if (parsed.scheme not in {"https", "http"} or not parsed.hostname
-            or parsed.username or parsed.password or parsed.query or parsed.fragment
-            or any(character.isspace() for character in endpoint)
-            or (parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "::1"})):
-        raise ValueError("custom endpoint is unsafe")
+    try:
+        endpoint = validate_custom_endpoint(offering.route_id)
+    except ValueError as exc:
+        raise ValueError("custom endpoint is unsafe") from exc
     request = urllib.request.Request(
         endpoint + "/models", headers=headers, method="GET",
     )
