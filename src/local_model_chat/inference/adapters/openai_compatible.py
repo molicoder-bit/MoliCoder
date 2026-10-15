@@ -13,7 +13,7 @@ from typing import Iterator
 
 from ...environment.auth import ProtectedCredentialStore
 from ..contracts import InferenceError, InferenceEvent, InferenceEventKind, InferenceRequest, InferenceResult
-from ..onboarding import _NoRedirects, validate_custom_endpoint
+from ..onboarding import _NoRedirects, is_api_offering, validate_custom_endpoint
 from ..registry import ProviderRegistry
 
 
@@ -46,7 +46,7 @@ class OpenAICompatibleAdapter:
 
     def invoke(self, request: InferenceRequest) -> InferenceResult:
         offering = self.registry.get_offering(request.offering_id)
-        if offering is None or not offering.id.startswith("custom:") or offering.model_id != request.model_id:
+        if offering is None or not is_api_offering(offering.id) or offering.model_id != request.model_id:
             raise ValueError("registered custom offering and model are required")
         endpoint = validate_custom_endpoint(offering.route_id)
         if request.stream or request.tool_scopes:
@@ -114,7 +114,7 @@ class OpenAICompatibleAdapter:
 
     def stream(self, request: InferenceRequest) -> Iterator[InferenceEvent]:
         offering = self.registry.get_offering(request.offering_id)
-        if offering is None or not offering.id.startswith("custom:") or offering.model_id != request.model_id:
+        if offering is None or not is_api_offering(offering.id) or offering.model_id != request.model_id:
             raise ValueError("registered custom offering and model are required")
         endpoint = validate_custom_endpoint(offering.route_id)
         if not request.stream or request.tool_scopes:

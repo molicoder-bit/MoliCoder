@@ -652,6 +652,22 @@ def test_custom_provider_can_be_registered_from_ui_without_activation(qtbot, tmp
     assert len(offerings) == 1 and offerings[0].status == "discovered"
 
 
+def test_official_api_preset_registration_remains_inactive(qtbot, tmp_path, monkeypatch) -> None:
+    store = ChatStore(tmp_path / "preset-provider.sqlite3")
+    window = MainWindow(store, FakeClient())
+    qtbot.addWidget(window)
+    qtbot.waitUntil(lambda: window.startup_worker is None)
+    monkeypatch.setattr(QInputDialog, "getItem", lambda *_args: ("OpenAI API", True))
+    monkeypatch.setattr(QInputDialog, "getText", lambda *_args: ("example-model", True))
+    monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
+    window._add_api_preset()
+    offerings = [item for item in window.inference_registry.list_offerings()
+                 if item.provider_id == "openai-api"]
+    assert len(offerings) == 1
+    assert offerings[0].status == "discovered"
+    assert offerings[0].input_usd_per_million is None
+
+
 def test_custom_provider_connection_check_is_available_in_settings(qtbot, tmp_path, monkeypatch) -> None:
     from local_model_chat.inference.onboarding import ConnectionCheck, CustomRoute, register_custom_route
 

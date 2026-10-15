@@ -4,9 +4,10 @@ import urllib.error
 
 import pytest
 
+from local_model_chat.environment.auth import store_provider_key
 from local_model_chat.inference.onboarding import (
     CustomRoute, CustomRouteFacts, attest_custom_route_facts,
-    check_custom_connection, register_custom_route,
+    check_custom_connection, register_custom_route, register_preset_route,
 )
 from local_model_chat.inference.registry import ProviderRegistry
 from local_model_chat.storage import ChatStore
@@ -136,3 +137,41 @@ def test_user_attested_paid_facts_keep_route_inactive_and_preserve_source(tmp_pa
             "public", 8192, 1024, 1.5, 6.0, True,
         ))
     assert registry.get_offering(offering_id).source_url == facts.source_url
+
+
+def test_preset_models_share_one_provider_account_and_stay_inactive(tmp_path) -> None:
+    store = ChatStore(tmp_path / "presets.sqlite3")
+    first = register_preset_route(store, "openai-api", "example-model-a")
+    second = register_preset_route(store, "openai-api", "example-model-b")
+    router = register_preset_route(store, "openrouter-api", "vendor/example-model")
+    registry = ProviderRegistry(store)
+    assert len({registry.get_offering(item).account_id for item in (first, second)}) == 2
+    assert registry.get_offering(first).route_id == "https://api.openai.com/v1"
+    assert registry.get_offering(router).route_id == "https://openrouter.ai/api/v1"
+    assert all(registry.get_offering(item).status == "discovered"
+               for item in (first, second, router))
+    assert all(registry.get_offering(item).input_usd_per_million is None
+               for item in (first, second, router))
+    class Credentials:
+        def put(self, _account_id, _secret):
+            return "encrypted-local:" + "a" * 64
+
+    store_provider_key(registry, Credentials(), "openai-api", "private-key")
+    with store._connect() as connection:
+        references = connection.execute(
+            "SELECT DISTINCT secret_ref FROM inference_accounts WHERE provider_id = 'openai-api'"
+        ).fetchall()
+    assert [row[0] for row in references] == ["encrypted-local:" + "a" * 64]
+    third = register_preset_route(store, "openai-api", "example-model-c")
+    with store._connect() as connection:
+        account = connection.execute(
+            "SELECT secret_ref FROM inference_accounts WHERE id = ?",
+            (registry.get_offering(third).account_id,),
+        ).fetchone()
+    assert account[0] == "encrypted-local:" + "a" * 64
+    with pytest.raises(ValueError, match="already registered"):
+        register_preset_route(store, "openai-api", "example-model-a")
+    with pytest.raises(ValueError, match="reserved"):
+        register_custom_route(store, CustomRoute(
+            "openai-api", "Wrong", "https://other.example/v1", "model",
+        ))

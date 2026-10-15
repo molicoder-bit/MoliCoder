@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from .budget import BudgetManager
 from .contracts import InferencePurpose, InferenceRequest
+from .onboarding import is_api_offering
 from .registry import ProviderRegistry
 
 
@@ -23,7 +24,7 @@ def preview_custom_chat(
     registry: ProviderRegistry, offering_id: str, prompt: str,
 ) -> CustomChatPreview:
     offering = registry.get_offering(offering_id)
-    if offering is None or not offering.id.startswith("custom:"):
+    if offering is None or not is_api_offering(offering.id):
         raise ValueError("registered custom route is required")
     if not prompt.strip() or len(prompt.encode("utf-8")) > 4096:
         raise ValueError("test prompt must be nonempty and at most 4096 UTF-8 bytes")

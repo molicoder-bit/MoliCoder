@@ -27,8 +27,8 @@ from ..domain import Attachment, GenerationMetrics, Message, Project
 from ..inference.adapters.ollama import ensure_local_offering, local_offering_id
 from ..inference.api_dispatch import preview_custom_chat
 from ..inference.onboarding import (
-    CustomRoute, CustomRouteFacts, attest_custom_route_facts,
-    check_custom_connection, register_custom_route,
+    API_PRESETS, CustomRoute, CustomRouteFacts, attest_custom_route_facts,
+    check_custom_connection, is_api_offering, register_custom_route, register_preset_route,
 )
 from ..inference.policy import InferencePolicy
 from ..inference.pacing import project_pacing
@@ -627,7 +627,7 @@ class MainWindow(QMainWindow):
         report = QTextBrowser(dialog)
         layout.addWidget(report)
         limit_row = QHBoxLayout()
-        limit_row.addWidget(QLabel("Project API spending limit (USD, all time)"))
+        limit_row.addWidget(QLabel("Project API token-charge limit (USD, all time)"))
         project_limit = QDoubleSpinBox(dialog)
         project_limit.setDecimals(4)
         project_limit.setRange(0, 10000)
@@ -1213,6 +1213,9 @@ class MainWindow(QMainWindow):
         add_custom = QPushButton("Add custom OpenAI-compatible provider")
         add_custom.clicked.connect(self._add_custom_provider)
         layout.addWidget(add_custom)
+        add_preset = QPushButton("Add official API preset")
+        add_preset.clicked.connect(self._add_api_preset)
+        layout.addWidget(add_preset)
         layout.addWidget(QLabel("API account readiness"))
         accounts = self.inference_registry.list_account_statuses()
         if not accounts:
@@ -1231,7 +1234,7 @@ class MainWindow(QMainWindow):
             layout.addWidget(key_button)
         custom_offerings = tuple(
             offering for offering in self.inference_registry.list_offerings()
-            if offering.id.startswith("custom:")
+            if is_api_offering(offering.id)
         )
         if custom_offerings:
             check_button = QPushButton("Check custom provider connection")
@@ -1346,6 +1349,30 @@ class MainWindow(QMainWindow):
             f"{offering_id} is registered and inactive. Open Provider settings again to store its key.",
         )
 
+    def _add_api_preset(self) -> None:
+        choices = [item.name for item in API_PRESETS]
+        selected, accepted = QInputDialog.getItem(
+            self, "Add API preset", "Official provider", choices, 0, False,
+        )
+        if not accepted:
+            return
+        preset = API_PRESETS[choices.index(selected)]
+        model_id, accepted = QInputDialog.getText(
+            self, "Add API preset", "Model ID from the official model list",
+        )
+        if not accepted:
+            return
+        try:
+            offering_id = register_preset_route(self.store, preset.id, model_id.strip())
+        except ValueError as exc:
+            QMessageBox.warning(self, "API preset", str(exc))
+            return
+        QMessageBox.information(
+            self, "API preset registered",
+            f"{offering_id} is inactive. Reopen Provider settings to store its key, check the model, "
+            f"and review prices and terms.\n\nPricing: {preset.price_url}\nTerms: {preset.terms_url}",
+        )
+
     def _store_provider_key(self, providers: tuple[tuple[str, str], ...]) -> None:
         choices = [f"{name} ({provider_id})" for provider_id, name in providers]
         selected, accepted = QInputDialog.getItem(
@@ -1409,6 +1436,10 @@ class MainWindow(QMainWindow):
         source.setPlaceholderText("https://provider.example/pricing")
         terms = QLineEdit(dialog)
         terms.setPlaceholderText("https://provider.example/terms")
+        preset = next((item for item in API_PRESETS if item.id == offering.provider_id), None)
+        if preset is not None:
+            source.setText(preset.price_url)
+            terms.setText(preset.terms_url)
         privacy = QComboBox(dialog)
         for value in ("public", "private", "restricted"):
             privacy.addItem(value.title(), value)
@@ -1441,6 +1472,13 @@ class MainWindow(QMainWindow):
         note = QLabel("These are user-attested facts. The route stays inactive until its connection and exact project approval pass.")
         note.setWordWrap(True)
         form.addRow(note)
+        if offering.provider_id == "openrouter-api":
+            fee_note = QLabel(
+                "OpenRouter may charge fees when credits are purchased. The project cap covers "
+                "the token prices entered here; account fees and taxes are outside that cap."
+            )
+            fee_note.setWordWrap(True)
+            form.addRow(fee_note)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
@@ -1491,8 +1529,10 @@ class MainWindow(QMainWindow):
         except ValueError as exc:
             QMessageBox.warning(self, "Custom API test", str(exc))
             return
-        cost = (f"${preview.worst_case_usd:.6f} maximum reserved"
+        cost = (f"${preview.worst_case_usd:.6f} maximum token charges reserved"
                 if preview.worst_case_usd is not None else "no API price")
+        if offering.provider_id == "openrouter-api":
+            cost += "; credit-purchase fees and taxes are outside this cap"
         answer = QMessageBox.question(
             self, "Approve exact API route",
             f"Send this prompt to {offering.provider_id} / {offering.model_id}?\n"

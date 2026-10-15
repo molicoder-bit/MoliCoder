@@ -18,7 +18,7 @@ from local_model_chat.inference.contracts import InferenceEventKind, InferencePu
 from local_model_chat.inference.ledger import InferenceLedger
 from local_model_chat.inference.onboarding import (
     CustomRoute, CustomRouteFacts, attest_custom_route_facts,
-    check_custom_connection, register_custom_route,
+    check_custom_connection, register_custom_route, register_preset_route,
 )
 from local_model_chat.inference.policy import ControlledGateway, InferencePolicy
 from local_model_chat.inference.registry import ProviderRegistry
@@ -343,3 +343,50 @@ def test_custom_chat_classifies_auth_and_timeout_without_server_body(tmp_path) -
 
     expired = OpenAICompatibleAdapter(registry, opener=timeout).invoke(request)
     assert expired.error.value == "timeout" and expired.content == ""
+
+
+def test_official_preset_uses_the_same_budget_and_policy_gateway(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(eligibility, "platform_security", lambda: platform_security("Windows"))
+    store = ChatStore(tmp_path / "preset.sqlite3")
+    project = store.upsert_project("Example", str(tmp_path), "python")
+    registry = ProviderRegistry(store)
+    offering_id = register_preset_route(store, "openai-api", "example-model")
+    attest_custom_route_facts(store, CustomRouteFacts(
+        offering_id, "https://platform.openai.com/pricing",
+        "https://openai.com/policies/service-terms/", "private", 8192, 512,
+        1.0, 2.0, True,
+    ))
+    account_id = registry.get_offering(offering_id).account_id
+    registry.update_account_secret(account_id, "openai-api", "encrypted-local:" + "a" * 64)
+
+    class Credentials:
+        def get(self, _reference):
+            return "private-token"
+
+    check_custom_connection(
+        store, offering_id, credentials=Credentials(),
+        opener=lambda *_args, **_kwargs: Response({"data": [{"id": "example-model"}]}),
+    )
+    registry.set_offering_state(
+        offering_id, status="eligible", actor="user", reason="reviewed fixture",
+    )
+    BudgetManager(store).set_project_limit(project.id, 0.01, actor="user")
+    store.record_action_authorization(
+        project_id=project.id, action="inference_route", scope=offering_id,
+        risk="financial", decision="approved", actor="user",
+        expires_at=(datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+    )
+    urls = []
+
+    def open_request(transport_request, *, timeout):
+        urls.append(transport_request.full_url)
+        return Response({"choices": [{"message": {"content": "ok"}}]})
+
+    request = prepare_custom_chat(registry, project.id, offering_id, "Hi")
+    result = ControlledGateway(
+        InferencePolicy(registry),
+        OpenAICompatibleAdapter(registry, Credentials(), opener=open_request),
+        InferenceLedger(store),
+    ).invoke(request)
+    assert result.content == "ok"
+    assert urls == ["https://api.openai.com/v1/chat/completions"]

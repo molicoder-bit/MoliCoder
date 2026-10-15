@@ -105,5 +105,8 @@ def store_provider_key(
         raise ValueError("provider is not registered")
     account_id = f"manual-key:{provider_id}"
     reference = protected.put(account_id, secret)
-    registry.update_account_secret(account_id, provider_id, reference)
+    accounts = [item.id for item in registry.list_account_statuses()
+                if item.provider_id == provider_id]
+    for target_id in accounts or [account_id]:
+        registry.update_account_secret(target_id, provider_id, reference)
     return reference

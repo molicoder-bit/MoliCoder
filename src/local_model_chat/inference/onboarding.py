@@ -47,6 +47,34 @@ class CustomRouteFacts:
     supports_stream: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class ApiPreset:
+    id: str
+    name: str
+    base_url: str
+    price_url: str
+    terms_url: str
+    api_docs_url: str
+
+
+API_PRESETS = (
+    ApiPreset(
+        "openai-api", "OpenAI API", "https://api.openai.com/v1",
+        "https://platform.openai.com/pricing", "https://openai.com/policies/service-terms/",
+        "https://developers.openai.com/api/reference/resources/chat",
+    ),
+    ApiPreset(
+        "openrouter-api", "OpenRouter API", "https://openrouter.ai/api/v1",
+        "https://openrouter.ai/pricing", "https://openrouter.ai/terms",
+        "https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request",
+    ),
+)
+
+
+def is_api_offering(offering_id: str) -> bool:
+    return offering_id.startswith(("custom:", "preset:"))
+
+
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, message, headers, newurl):
         return None
@@ -77,7 +105,7 @@ def register_custom_route(store: ChatStore, route: CustomRoute) -> str:
     """Register a disabled route; setup and provider verification follow later."""
     if not re.fullmatch(r"[a-z][a-z0-9-]{2,39}", route.provider_id):
         raise ValueError("provider ID needs 3-40 lowercase letters, digits, or hyphens")
-    if route.provider_id in {"ollama", "codex", "claude", "copilot"}:
+    if route.provider_id in {"ollama", "codex", "claude", "copilot", *(preset.id for preset in API_PRESETS)}:
         raise ValueError("built-in provider ID is reserved")
     if not route.name.strip() or len(route.name) > 100:
         raise ValueError("provider name is required and must be at most 100 characters")
@@ -130,10 +158,73 @@ def register_custom_route(store: ChatStore, route: CustomRoute) -> str:
     return offering_id
 
 
+def register_preset_route(store: ChatStore, preset_id: str, model_id: str) -> str:
+    """Register an official endpoint with user-selected model; facts stay unknown."""
+    preset = next((item for item in API_PRESETS if item.id == preset_id), None)
+    if preset is None:
+        raise ValueError("unknown API preset")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,149}", model_id):
+        raise ValueError("model ID contains unsupported characters")
+    endpoint = validate_custom_endpoint(preset.base_url)
+    offering_id = "preset:" + preset.id + ":" + hashlib.sha256(
+        model_id.encode("utf-8")
+    ).hexdigest()[:16]
+    account_id = f"manual-key:{preset.id}:{offering_id.rsplit(':', 1)[1]}"
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with closing(store._connect()) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        existing = connection.execute(
+            "SELECT official_url FROM inference_providers WHERE id = ?", (preset.id,),
+        ).fetchone()
+        if existing is not None and existing[0] != endpoint:
+            raise ValueError("preset provider endpoint differs from its registered identity")
+        if connection.execute(
+            "SELECT 1 FROM inference_offerings WHERE id = ?", (offering_id,),
+        ).fetchone():
+            raise ValueError("preset model is already registered")
+        connection.execute(
+            """INSERT OR IGNORE INTO inference_providers(id,name,official_url,created_at,updated_at)
+               VALUES (?,?,?,?,?)""",
+            (preset.id, preset.name, endpoint, now, now),
+        )
+        connection.execute(
+            """INSERT OR IGNORE INTO inference_models(id,family,version,created_at,updated_at)
+               VALUES (?,?,?,?,?)""",
+            (model_id, model_id, "user-selected", now, now),
+        )
+        existing_key = connection.execute(
+            """SELECT secret_ref FROM inference_accounts WHERE provider_id = ? AND secret_ref != ''
+               ORDER BY updated_at DESC LIMIT 1""",
+            (preset.id,),
+        ).fetchone()
+        connection.execute(
+            """INSERT INTO inference_accounts(id,provider_id,owner,secret_ref,auth_status,created_at,updated_at)
+               VALUES (?,?, 'local_user',?, 'login_needed',?,?)""",
+            (account_id, preset.id, str(existing_key[0]) if existing_key else "", now, now),
+        )
+        connection.execute(
+            """INSERT INTO inference_offerings(
+                   id,provider_id,model_id,route_id,account_id,class,status,created_at,updated_at)
+               VALUES (?,?,?,?,?,'metered','discovered',?,?)""",
+            (offering_id, preset.id, model_id, endpoint, account_id, now, now),
+        )
+        connection.execute(
+            """INSERT INTO inference_offering_events(
+                   offering_id,kind,snapshot_json,source_url,actor,created_at)
+               VALUES (?,'preset_registration',?,?, 'user',?)""",
+            (offering_id, json.dumps({"api_docs_url": preset.api_docs_url,
+                                     "price_url": preset.price_url,
+                                     "terms_url": preset.terms_url,
+                                     "status": "discovered"}), preset.api_docs_url, now),
+        )
+        connection.commit()
+    return offering_id
+
+
 def attest_custom_route_facts(store: ChatStore, facts: CustomRouteFacts) -> int:
     """Record user-reviewed facts, with provenance, without enabling the route."""
     offering = ProviderRegistry(store).get_offering(facts.offering_id)
-    if offering is None or not offering.id.startswith("custom:"):
+    if offering is None or not is_api_offering(offering.id):
         raise ValueError("custom offering is unavailable")
     paid = offering.offering_class in {"metered", "trial"}
     if paid and not facts.terms_url:
@@ -171,7 +262,7 @@ def check_custom_connection(
     """Probe /models once without inference; never return a key or server body."""
     registry = ProviderRegistry(store)
     offering = registry.get_offering(offering_id)
-    if offering is None or not offering.id.startswith("custom:"):
+    if offering is None or not is_api_offering(offering.id):
         raise ValueError("custom offering is unavailable")
     headers = {"Accept": "application/json"}
     if offering.account_id:
