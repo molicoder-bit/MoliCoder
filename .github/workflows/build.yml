@@ -31,15 +31,17 @@ jobs:
         run: python -m PyInstaller --noconfirm --clean LocalModelChat.spec
       - name: Check packaged app
         shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
           Copy-Item LICENSE dist/MoliCoder/LICENSE
           Copy-Item NOTICE dist/MoliCoder/NOTICE
           $process = Start-Process -FilePath (Resolve-Path dist/MoliCoder/MoliCoder.exe) -ArgumentList '--package-smoke-check' -WindowStyle Hidden -PassThru
-          if (-not $process.WaitForExit(15000)) {
+          if (-not $process.WaitForExit(90000)) {
             Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
-            throw 'Packaged health check timed out'
+            throw 'Packaged UI and doctor smoke timed out'
           }
-          if ($process.ExitCode -ne 0) { throw "Packaged health check failed: $($process.ExitCode)" }
+          if ($process.ExitCode -ne 0) { throw "Packaged UI and doctor smoke failed: $($process.ExitCode)" }
       - name: Archive
         shell: pwsh
         run: Compress-Archive -Path dist/MoliCoder/* -DestinationPath MoliCoder-Windows-x64.zip

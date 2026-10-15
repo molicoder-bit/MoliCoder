@@ -21,6 +21,7 @@ from ..authorization import ActionRequest, ActionRisk, AuthorizationPolicy
 from ..config import APP_NAME, MODEL_PRESETS, ModelPreset, data_dir, export_dir
 from ..controller import ControllerResult, MainController
 from ..environment.auth import CredentialUnavailable, ProtectedCredentialStore, store_provider_key
+from ..environment.security import platform_security
 from ..context import calculate_budget, estimate_tokens
 from ..domain import Attachment, GenerationMetrics, Message, Project
 from ..inference.adapters.ollama import ensure_local_offering, local_offering_id
@@ -1087,8 +1088,15 @@ class MainWindow(QMainWindow):
             item for item in self.inference_registry.list_providers()
             if item[0] not in {"ollama", "codex", "claude", "copilot"}
         )
+        security = platform_security()
+        security_label = QLabel(security.reason)
+        security_label.setWordWrap(True)
+        layout.addWidget(security_label)
         if api_providers:
             key_button = QPushButton("Store API key for a registered provider")
+            key_button.setEnabled(security.credential_backend is not None)
+            if security.credential_backend is None:
+                key_button.setToolTip("No verified encrypted provider-key backend is available on this OS.")
             key_button.clicked.connect(lambda: self._store_provider_key(api_providers))
             layout.addWidget(key_button)
         offerings = self.inference_registry.list_offerings()
@@ -1116,6 +1124,10 @@ class MainWindow(QMainWindow):
             details.setWordWrap(True)
             layout.addWidget(details)
             enabled = QCheckBox(f"Enable {offering.id}")
+            if (offering.offering_class in {"metered", "trial"}
+                    and not security.metered_api_allowed):
+                enabled.setEnabled(False)
+                enabled.setToolTip("Metered API routes need a supported OS credential backend.")
             enabled.setChecked(offering.status == "eligible")
             offering_controls.append((offering.id, enabled, offering.status))
             layout.addWidget(enabled)

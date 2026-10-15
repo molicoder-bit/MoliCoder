@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from .registry import OfferingRecord, ProviderRegistry
 from .capacity import capacity_snapshot
+from ..environment.security import platform_security
 
 
 _SENSITIVITY = {"public": 0, "private": 1, "restricted": 2}
@@ -57,6 +58,8 @@ def evaluate_eligibility(
     if offering.account_id is not None and registry.get_account_status(offering.account_id) != "ready":
         reasons.append("account authentication is not ready")
     if offering.offering_class in {"metered", "trial"}:
+        if not platform_security().metered_api_allowed:
+            reasons.append("metered API route needs a supported OS credential backend")
         if not request.paid_allowed:
             reasons.append("paid capacity is not authorized")
         if offering.input_usd_per_million is None or offering.output_usd_per_million is None:

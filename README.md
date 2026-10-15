@@ -4,7 +4,7 @@
 
 MoliCoder combines Ollama chat, project-aware answers, and a guarded Build workflow. You can keep routine work on local models, set visible context and output limits, and choose when an external coding agent is worth using. The app records what it can measure and labels unknown subscription usage as unknown.
 
-> **Current platform:** Windows 11. macOS and Linux packaging and smoke tests are still on the [project tracker](docs/plans/platform-transformation-tracker.md).
+> **Platform checks:** Windows 11, macOS Intel, and Linux x64 have automated tests and packaged startup checks. macOS/Linux builds are unsigned CI artifacts with the [limits documented here](docs/plans/platform-support.md).
 
 ## Why token control matters
 
@@ -36,7 +36,7 @@ Local Ollama chat needs no cloud account. Optional external agents and services 
 
 ## Run from source
 
-Requirements: Windows 11, Python 3.13+, Git, and Ollama. The Chat presets expect Ollama model names `molicoder:latest` and `local-reasoning:latest`; make those aliases available in your Ollama installation. MoliCoder does not download or replace model weights automatically.
+Requirements: Python 3.13+, Git, and Ollama on a tested platform. The Chat presets expect Ollama model names `molicoder:latest` and `local-reasoning:latest`; make those aliases available in your Ollama installation. MoliCoder does not download or replace model weights automatically.
 
 ```powershell
 git clone https://github.com/molicoder-bit/MoliCoder.git
@@ -48,6 +48,16 @@ ollama list
 ```
 
 The app connects to Ollama on `http://127.0.0.1:11434` and tries to start the local Ollama service if it is installed but stopped. `ollama list` should show the expected aliases before you start a model-backed chat or Local offline Build.
+
+On macOS or Linux, replace the virtual-environment commands above with:
+
+```sh
+python3.13 -m venv .venv
+.venv/bin/python -m pip install -r requirements.lock
+.venv/bin/python run_app.py
+```
+
+For an unsigned macOS Intel or Linux x64 package, run `.venv/bin/python scripts/build_unix.py` after installing dependencies. Automated package startup and behavior checks are in [platform support](docs/plans/platform-support.md). Metered API routes are currently unavailable on macOS and Linux because MoliCoder has no verified encrypted key store there; local Ollama and supported official CLI sign-in flows remain separate.
 
 ### First steps
 

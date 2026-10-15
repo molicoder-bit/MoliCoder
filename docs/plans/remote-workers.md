@@ -1,0 +1,33 @@
+# Optional remote-worker protocol draft
+
+Status: design only. Remote execution remains disabled. Implementation waits for the external-action and platform-security gates, a stable local recovery path, and an explicit user choice to attach a worker.
+
+## Authority and ownership
+
+The desktop coordinator is the sole writer for project, run, task, budget, authorization, and acceptance records in its SQLite database. A worker owns one isolated checkout lease and may report observations and candidate artifacts. It cannot mark a task accepted, approve spending, alter project knowledge, apply a commit to the user's branch, or launch another worker. The coordinator records `run_id`, `task_id`, `worker_id`, `lease_epoch`, base commit, branch, worktree root, permitted action set, and an expiry before dispatch. A task has at most one active lease. Reassignment increments the epoch; reports from older epochs are retained as audit evidence but cannot advance task state.
+
+The first implementation should support one user-selected worker and one task at a time. Local-only remains the default and needs no remote service. Existing internal or Kandev-owned runs cannot silently change owner mid-run. A remote worker cannot assume ownership of an existing Kandev task or local worktree.
+
+## Transport and authentication
+
+Use an outbound connection from the worker to a user-configured coordinator endpoint over authenticated TLS or a user-owned authenticated tunnel. Do not bind a coordinator listener to a public interface by default. Pairing is an explicit setup action: show both endpoint identities and a short-lived one-time pairing code, then pin the worker public key and coordinator certificate fingerprint. The worker receives a scoped, expiring credential held in the OS credential store; it never receives the coordinator's provider API keys, SQLite file, or blanket project filesystem access. Revocation immediately prevents new leases and messages. Require protocol version, nonce, timestamp, and monotonically increasing per-lease sequence on every signed message; reject replay, wrong project, expired lease, unknown identity, and oversized payloads before processing content. Rotate credentials after compromise or device removal.
+
+Minimum message types: `hello/capabilities`, `lease_offer`, `lease_accept`, `heartbeat`, `request_inference`, `request_tool_action`, `usage_observation`, `artifact_manifest`, `task_result`, `cancel`, and `reconcile`. Messages carry stable message and lease IDs. The coordinator stores an idempotent receipt for every accepted message and returns the same receipt on duplicate delivery. No raw prompt, secret, or repository blob belongs in routine heartbeat or audit metadata.
+
+## Work and budget flow
+
+The coordinator admits a lease only after checking project privacy, worker capability, pinned code revision, sandbox mode, task dependencies, user authorization, and available budget. The lease contains a bounded task packet and an allowlisted source snapshot or Git commit; it never grants the whole user home directory. The worker verifies the base revision before creating its own isolated checkout. It reports a content hash and changed paths for each candidate checkpoint. The coordinator independently fetches and validates artifacts, reruns fixed checks, and records acceptance before any local apply.
+
+All metered inference and external actions pass through a coordinator-mediated request. The coordinator performs route eligibility and an atomic budget reservation before returning a one-use dispatch capability with exact request ID, offering, token ceiling, expiry, and spend ceiling. A worker cannot call a paid provider directly with coordinator credentials. If a provider must run on the worker, issue only a provider-scoped short-lived token when supported and still enforce the coordinator reservation; otherwise that offering is unavailable to remote tasks. Opaque subscription CLIs have unknown internal spend and are disabled for remote execution until their permission and side-effect boundary is independently verified. Actual usage settles the reservation; timeout or unknown outcome holds it for reconciliation rather than reissuing the request.
+
+## Disconnects, cancellation, and conflicts
+
+A missed heartbeat marks the lease `reconciling`, not failed or completed. The coordinator does not start a second worker while the old lease may still be active. On reconnect, the worker sends the last acknowledged sequence, current process identity, base and candidate revisions, and its durable dispatch receipts. The coordinator compares them with the saved lease and requests missing records. After expiry, the worker must stop new dispatches and preserve its checkout. Cancellation is a persisted intent sent repeatedly until acknowledged; a lost acknowledgement requires process and receipt reconciliation before any retry. No external side-effect action is replayed merely because the transport timed out.
+
+The coordinator accepts a candidate only when its base commit matches the original lease, the task's latest accepted checkpoint remains the expected ancestor, the worktree is clean at the reported revision, and its file manifest matches the fetched artifact. Divergent local and remote revisions create a conflict record and require review; never force-push, silently merge, or overwrite either branch. Offline work may continue only on already leased read/write files and local validation without network or paid calls. Offline results are proposals until the coordinator reconnects and verifies them.
+
+## Threat model and release gate
+
+Assume a lost worker device, compromised worker process, malicious task text, stale or reordered messages, a network observer, provider billing delays, and an untrusted repository. Bound artifact size and path depth; reject symlinks/path traversal and secrets in logs; run worker tools in a tested OS-specific sandbox; use an unprivileged account; keep network and filesystem scopes minimal. These controls reduce exposure but cannot make a compromised worker trustworthy. The coordinator therefore revalidates code and retains final apply authority.
+
+Before enabling this path, tests must cover duplicate/reordered messages, certificate mismatch, revoked worker, lease expiry, old-epoch reports, budget races, lost dispatch responses, cancellation after a network partition, offline edits, conflicting commits, artifact traversal, and a full local-only regression. Record the platform's actual sandbox capability and disable remote paid dispatch where it is unverified. No remote task launches from this design document.

@@ -3,10 +3,17 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from local_model_chat.inference.catalog import CatalogRecord, import_catalog_record
+from local_model_chat.environment.security import platform_security
+from local_model_chat.inference import eligibility
 from local_model_chat.inference.eligibility import EligibilityRequest
 from local_model_chat.inference.health import deprecate_offering, enable_offering, record_health
 from local_model_chat.inference.registry import ProviderRegistry
 from local_model_chat.storage import ChatStore
+
+
+@pytest.fixture(autouse=True)
+def _metered_fixture_has_verified_windows_backend(monkeypatch):
+    monkeypatch.setattr(eligibility, "platform_security", lambda: platform_security("Windows"))
 
 
 def test_catalog_and_health_do_not_auto_enable_paid_route(tmp_path) -> None:

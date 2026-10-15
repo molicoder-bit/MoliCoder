@@ -41,7 +41,7 @@ def test_build_script_runs_the_packaged_health_check() -> None:
     project_root = Path(__file__).resolve().parents[1]
     script = (project_root / "scripts" / "build.ps1").read_text(encoding="utf-8")
 
-    assert "--package-health-check" in script
+    assert "--package-smoke-check" in script
     assert "WaitForExit" in script
 
 

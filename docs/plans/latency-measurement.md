@@ -1,0 +1,5 @@
+# Direct and gateway latency measurement
+
+`local_model_chat.benchmarks.latency.compare_latency` is a read-only analysis of measured samples. Every prompt and replicate must have both a direct and gateway result for the same provider, model, and context size. The output shows median time to first token, median total time, mean retries, the median paired gateway-minus-direct total time, and the smallest/largest observed pair difference. The range is descriptive, not a confidence interval.
+
+Live measurement remains open. Run the capped benchmark with one account, identical prompts and model parameters, and alternating route order. Record failed and capped attempts separately instead of dropping them from the benchmark report. Do not infer that OpenRouter or any other gateway is faster from these fixture tests. A provider-side model alias or hidden context difference invalidates the pair; compare only routes confirmed to target the same model/version. This task does not activate a paid route or make provider requests by itself.

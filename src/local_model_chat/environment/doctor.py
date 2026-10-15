@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from .discovery import EnvironmentReport, discover_environment
 from .manifests import InstallManifest, load_manifests
+from .security import platform_security
 
 
 _STATES = {
@@ -82,6 +83,14 @@ def doctor_report(
         components.append(ComponentReadiness(
             tool.name, state, f"{tool.path or 'path unknown'}; version {tool.version or 'unknown'}", action,
         ))
+    security = platform_security(environment.system)
+    components.append(ComponentReadiness(
+        "platform security", "limited" if not security.metered_api_allowed else "ready",
+        security.reason,
+        "Metered API routes are unavailable on this platform. Use local inference or a supported credential backend."
+        if not security.metered_api_allowed else
+        "Review each opaque agent's native tool permissions before external execution.",
+    ))
     return DoctorReport(
         1, datetime.now(timezone.utc).isoformat(timespec="seconds"),
         environment, tuple(components),

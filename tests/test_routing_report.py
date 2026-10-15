@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from local_model_chat.inference.catalog import CatalogRecord, import_catalog_record
+from local_model_chat.environment.security import platform_security
+from local_model_chat.inference import eligibility
 from local_model_chat.inference.adapters.ollama import ensure_local_offering, local_offering_id
 from local_model_chat.inference.contracts import InferencePurpose, InferenceRequest
 from local_model_chat.inference.ledger import InferenceLedger, UsageEvent
@@ -13,6 +15,11 @@ from local_model_chat.inference.routing_report import (
     RoutingOutcome, compare_routing, recorded_task_outcomes,
 )
 from local_model_chat.storage import ChatStore
+
+
+@pytest.fixture(autouse=True)
+def _metered_fixture_has_verified_windows_backend(monkeypatch):
+    monkeypatch.setattr(eligibility, "platform_security", lambda: platform_security("Windows"))
 
 
 def _registry(tmp_path):

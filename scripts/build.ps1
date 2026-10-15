@@ -16,8 +16,9 @@ Copy-Item -LiteralPath (Join-Path $projectRoot "LICENSE") -Destination (Join-Pat
 Copy-Item -LiteralPath (Join-Path $projectRoot "NOTICE") -Destination (Join-Path $distribution "NOTICE")
 
 $builtExecutable = Join-Path $projectRoot "dist\MoliCoder\MoliCoder.exe"
-$healthProcess = Start-Process -FilePath $builtExecutable -ArgumentList "--package-health-check" -WindowStyle Hidden -PassThru
-if (-not $healthProcess.WaitForExit(15000)) {
+$env:QT_QPA_PLATFORM = "offscreen"
+$healthProcess = Start-Process -FilePath $builtExecutable -ArgumentList "--package-smoke-check" -WindowStyle Hidden -PassThru
+if (-not $healthProcess.WaitForExit(90000)) {
     Stop-Process -Id $healthProcess.Id -ErrorAction SilentlyContinue
     throw "Packaged health check timed out. The executable may be showing a startup error."
 }
@@ -25,5 +26,5 @@ if ($healthProcess.ExitCode -ne 0) {
     throw "Packaged health check failed with exit code $($healthProcess.ExitCode)."
 }
 
-Write-Host "Packaged health check passed."
+Write-Host "Packaged UI and doctor smoke passed."
 Write-Host "Built: $builtExecutable"

@@ -26,7 +26,7 @@ def test_doctor_distinguishes_updates_login_and_optional_missing_components() ->
     states = {item.name: item.state for item in report.components}
     assert states == {
         "python": "ready", "ollama": "update_available",
-        "codex": "login_needed", "kandev": "limited",
+        "codex": "login_needed", "kandev": "limited", "platform security": "ready",
     }
     assert "credentials" not in render_human(report).lower()
 

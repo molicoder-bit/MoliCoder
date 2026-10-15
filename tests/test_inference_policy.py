@@ -4,12 +4,19 @@ from dataclasses import replace
 import pytest
 
 from local_model_chat.inference.catalog import CatalogRecord, import_catalog_record
+from local_model_chat.environment.security import platform_security
+from local_model_chat.inference import eligibility
 from local_model_chat.inference.budget import BudgetManager
 from local_model_chat.inference.ledger import InferenceLedger
 from local_model_chat.inference.contracts import InferencePurpose, InferenceRequest, InferenceResult
 from local_model_chat.inference.policy import ControlledGateway, InferencePolicy
 from local_model_chat.inference.registry import ProviderRegistry
 from local_model_chat.storage import ChatStore
+
+
+@pytest.fixture(autouse=True)
+def _metered_fixture_has_verified_windows_backend(monkeypatch):
+    monkeypatch.setattr(eligibility, "platform_security", lambda: platform_security("Windows"))
 
 
 class FakeAdapter:

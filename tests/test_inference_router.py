@@ -2,12 +2,22 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from local_model_chat.inference.adapters.ollama import ensure_local_offering, local_offering_id
+from local_model_chat.environment.security import platform_security
+from local_model_chat.inference import eligibility
 from local_model_chat.inference.catalog import CatalogRecord, import_catalog_record
 from local_model_chat.inference.registry import OfferingRecord, ProviderRegistry
 from local_model_chat.inference.router import (
     RouteMetrics, RouteRequest, _expected_accepted_cost, choose_route,
 )
 from local_model_chat.storage import ChatStore
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _metered_fixture_has_verified_windows_backend(monkeypatch):
+    monkeypatch.setattr(eligibility, "platform_security", lambda: platform_security("Windows"))
 
 
 def _registry(tmp_path) -> ProviderRegistry:
