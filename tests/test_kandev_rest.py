@@ -98,6 +98,41 @@ def test_rest_404_reconciles_and_other_errors_hide_server_body() -> None:
     assert "secret-pat" not in str(caught.value)
 
 
+def test_task_session_read_supplies_worktree_identity() -> None:
+    api = KandevRestTaskApi(_config())
+    fake = FakeOpener()
+    fake.responses = [
+        {"id": "task-1", "external_id": "run:1", "state": "COMPLETED",
+         "primary_session_id": "session-1"},
+        {"session": {"id": "session-1", "task_id": "task-1",
+                     "worktree_path": "C:/work/task-1", "worktree_branch": "feature/task-1",
+                     "base_commit_sha": "abc123", "repository_id": "repo-1"}},
+    ]
+    api._opener = fake
+    snapshot = KandevTaskAdapter(
+        KandevConnection(KandevMode.ATTACHED, _config().endpoint), api,
+    ).get_task(KandevTaskRef(1, 2, "run:1", "task-1"))
+    assert snapshot.state == "verifying"
+    assert snapshot.worktree == "C:/work/task-1"
+    assert snapshot.worktree_branch == "feature/task-1"
+    assert snapshot.base_commit_sha == "abc123"
+    assert snapshot.repository_id == "repo-1"
+    assert fake.requests[1].full_url.endswith("/task-sessions/session-1")
+
+
+def test_task_session_read_rejects_mismatched_identity() -> None:
+    api = KandevRestTaskApi(_config())
+    fake = FakeOpener()
+    fake.responses = [
+        {"id": "task-1", "primary_session_id": "session-1"},
+        {"session": {"id": "session-1", "task_id": "other-task",
+                     "worktree_path": "C:/work/other-task"}},
+    ]
+    api._opener = fake
+    with pytest.raises(KandevTransportError, match="session identity differs"):
+        api.read_with_session("task-1")
+
+
 def test_rest_create_needs_exact_external_authorization(tmp_path) -> None:
     store = ChatStore(tmp_path / "kandev.sqlite3")
     api = KandevRestTaskApi(_config(), store=store)

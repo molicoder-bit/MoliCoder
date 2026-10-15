@@ -250,6 +250,9 @@ The module names below are proposed until P06-04 confirms interfaces. Each check
       - [x] **I12-04d2a Wire the adapter to authorized launch and reconcile a lost create response.** Lookup by stable external ID recovers the observed remote task without a second launch; 17 focused tests pass.
       - [x] **I12-04d2b Persist ownership selection in the Build run and route to the adapter.** Explicit backend selection records Kandev ownership before launch, and restart reconciles by external ID without local fallback; 22 focused tests pass. Disabled mode stays internal.
     - [ ] **I12-04d3 Reconcile the remote worktree and verify local acceptance.** Missing or mismatched worktree identity must require review.
+      - [x] **I12-04d3a Read the pinned primary-session worktree identity.** Task/session ID fencing carries the observed path, branch, base commit, and repository ID into the snapshot; 21 focused tests pass.
+      - [x] **I12-04d3b Verify the Kandev worktree belongs to the selected repository.** Registered clean worktree, repository ID, branch, base ancestry, and changed HEAD must match before a checkpoint is recorded; 25 focused tests pass.
+      - [ ] **I12-04d3c Run deterministic acceptance and keep final apply under MoliCoder control.** Remote completion alone cannot mark a local task complete.
 - [ ] **I12-05 Run harmless readiness and lifecycle tests.** D: I12-03, I12-04. N: `tests/` integration fixture. V: executable, backend, connection, agent profile, routing policy, test worktree/task, result, stop/restart, and no-Kandev regression pass. C/R: L/high. G1,G4.
 
 ### I13 — Verification and architectural consistency (5 tasks)

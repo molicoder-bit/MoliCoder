@@ -31,6 +31,9 @@ class FakeApi:
     def read(self, remote_task_id):
         return next((task for task in self.tasks.values() if task["id"] == remote_task_id), None)
 
+    def read_with_session(self, remote_task_id):
+        return self.read(remote_task_id)
+
     def find_by_external_id(self, external_id):
         return self.tasks.get(external_id)
 

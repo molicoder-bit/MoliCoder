@@ -47,6 +47,9 @@ class KandevTaskSnapshot:
     worktree: str = ""
     event_cursor: str = ""
     detail: str = ""
+    worktree_branch: str = ""
+    base_commit_sha: str = ""
+    repository_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

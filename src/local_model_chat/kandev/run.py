@@ -9,6 +9,7 @@ from ..molicoder.orchestrator import OrchestrationResult
 from ..storage import ChatStore
 from .adapter import KandevTaskAdapter
 from .contracts import KandevTaskRef, KandevTaskSnapshot
+from .worktree import verify_kandev_worktree
 
 
 class KandevRunOrchestrator:
@@ -34,6 +35,7 @@ class KandevRunOrchestrator:
     def _record(self, snapshot: KandevTaskSnapshot) -> OrchestrationResult:
         ref = snapshot.ref
         state = snapshot.state
+        detail = snapshot.detail or state
         local_state = state if state in self.store.TASK_STATES else "review_required"
         if state == "reconciliation_required":
             local_state = "review_required"
@@ -43,10 +45,29 @@ class KandevRunOrchestrator:
             "session_id": snapshot.session_id, "state": state,
             "worktree": snapshot.worktree, "observed_at": snapshot.observed_at,
         })
+        if state == "verifying":
+            expected_repository_id = str(getattr(getattr(self.adapter.api, "config", None), "repository_id", ""))
+            check = verify_kandev_worktree(
+                self.root, snapshot, expected_repository_id=expected_repository_id,
+            )
+            if check.valid:
+                self.store.update_task_workspace(
+                    ref.task_id, worktree=check.path, branch=check.branch,
+                    base_commit=check.base_commit,
+                )
+                self.store.update_run_state(ref.run_id, "needs_attention", worktree=check.path,
+                                            base_commit=check.base_commit, final_commit=check.checkpoint)
+                self._event(ref, "kandev_worktree_reconciled", {
+                    "worktree": check.path, "branch": check.branch,
+                    "base_commit": check.base_commit, "checkpoint": check.checkpoint,
+                })
+            else:
+                detail = check.reason
+                self._event(ref, "kandev_worktree_review_required", {"reason": check.reason})
         # Remote completion still needs MoliCoder's worktree and acceptance checks.
         run_state = "running" if state in {"ready", "running"} else "needs_attention"
-        self.store.update_run_state(ref.run_id, run_state, recovery_reason=snapshot.detail or state)
-        return OrchestrationResult(ref.run_id, run_state, 0, 1, snapshot.detail or state)
+        self.store.update_run_state(ref.run_id, run_state, recovery_reason=detail)
+        return OrchestrationResult(ref.run_id, run_state, 0, 1, detail)
 
     def run(self, request: str, *, mode: str = "HYBRID") -> OrchestrationResult:
         if not request.strip():

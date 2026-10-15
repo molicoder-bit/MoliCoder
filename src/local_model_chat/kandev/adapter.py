@@ -17,6 +17,7 @@ class KandevTaskApi(Protocol):
     def create(self, external_id: str, objective: str) -> Mapping[str, object]: ...
     def create_and_launch(self, external_id: str, objective: str) -> Mapping[str, object]: ...
     def read(self, remote_task_id: str) -> Mapping[str, object] | None: ...
+    def read_with_session(self, remote_task_id: str) -> Mapping[str, object] | None: ...
     def find_by_external_id(self, external_id: str) -> Mapping[str, object] | None: ...
     def events(self, remote_task_id: str, after_cursor: str) -> tuple[Mapping[str, object], ...]: ...
     def cancel(self, remote_task_id: str) -> Mapping[str, object]: ...
@@ -69,6 +70,8 @@ class KandevTaskAdapter:
             resolved, state, observed, str(raw.get("primary_session_id") or raw.get("session_id") or ""),
             str(raw.get("worktree_path") or ""), str(raw.get("event_cursor") or ""),
             "Unknown or unsettled remote state" if state == "reconciliation_required" else "",
+            str(raw.get("worktree_branch") or ""), str(raw.get("base_commit_sha") or ""),
+            str(raw.get("repository_id") or ""),
         )
 
     def create_task(self, ref: KandevTaskRef, objective: str) -> KandevTaskSnapshot:
@@ -86,7 +89,12 @@ class KandevTaskAdapter:
         return self._snapshot(ref, raw)
 
     def get_task(self, ref: KandevTaskRef) -> KandevTaskSnapshot:
-        raw = self.api.read(ref.remote_task_id) if ref.remote_task_id else self.api.find_by_external_id(ref.external_id)
+        if ref.remote_task_id:
+            raw = self.api.read_with_session(ref.remote_task_id)
+        else:
+            raw = self.api.find_by_external_id(ref.external_id)
+            if raw and isinstance(raw.get("id"), str):
+                raw = self.api.read_with_session(raw["id"])
         return self._snapshot(ref, raw)
 
     def subscribe_events(self, ref: KandevTaskRef, after_cursor: str = "") -> tuple[KandevEvent, ...]:
