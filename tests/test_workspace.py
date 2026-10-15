@@ -62,3 +62,37 @@ def test_start_refuses_unmanaged_binary(tmp_path,monkeypatch):
     service=KandevServiceController(tmp_path)
     monkeypatch.setattr('local_model_chat.kandev.service.get_json',lambda *args:None)
     with pytest.raises(ValueError,match='Install'):service.start('http://127.0.0.1:48998/')
+
+def test_connection_setup_loads_steps_from_kandev_snapshot(qtbot,tmp_path,monkeypatch):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication,QDialog,QPushButton,QComboBox
+    store=ChatStore(tmp_path/'profile-ui.db')
+    root=tmp_path/'project';root.mkdir();project=store.upsert_project('Project',str(root),'python')
+    window=MainWindow(store,start_ollama_check=False);qtbot.addWidget(window)
+    window._load_project_list(select_id=project.id)
+    visited=[]
+    def api(origin,path):
+        visited.append(path)
+        responses={
+            '/api/v1/workspaces':{'workspaces':[{'id':'w','name':'Workspace'}]},
+            '/api/v1/agents':{'agents':[{'profiles':[{'id':'a','name':'Agent'}]}]},
+            '/api/v1/workspaces/w/repositories':{'repositories':[{'id':'r','name':'Repo'}]},
+            '/api/v1/workspaces/w/workflows':{'workflows':[{'id':'f','name':'Flow'}]},
+            '/api/v1/workflows/f/snapshot':{'steps':[{'id':'s','name':'Ready'}]},
+        }
+        return responses[path]
+    monkeypatch.setattr('local_model_chat.ui.kandev_panel.get_json',api)
+    def interact():
+        dialog=QApplication.activeModalWidget()
+        assert isinstance(dialog,QDialog)
+        next(b for b in dialog.findChildren(QPushButton) if b.text()=='Load / refresh choices').click()
+        def save():
+            if window.kandev_panel.worker is not None:
+                QTimer.singleShot(20,save);return
+            next(b for b in dialog.findChildren(QPushButton) if b.text()=='Save').click()
+        QTimer.singleShot(20,save)
+    QTimer.singleShot(0,interact)
+    window.kandev_panel.configure()
+    adapter=configured_kandev_adapter(store,{},project_id=project.id)
+    assert adapter.api.config.workflow_step_id=='s'
+    assert '/api/v1/workflows/f/snapshot' in visited

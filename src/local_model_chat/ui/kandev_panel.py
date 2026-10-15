@@ -133,7 +133,7 @@ class KandevPanel(QWidget):
                     data['workflows'][wid] = workflows
                     for workflow in workflows[:30]:
                         fid = workflow['id']
-                        data['steps'][fid] = get_json(origin, f'/api/v1/workflows/{fid}').get('steps', [])
+                        data['steps'][fid] = get_json(origin, f'/api/v1/workflows/{fid}/snapshot').get('steps', [])
                 return data
             def loaded(data):
                 catalog.update(data)
