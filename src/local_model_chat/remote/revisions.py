@@ -10,6 +10,9 @@ from .artifacts import CandidateManifest, MAX_EXTRACTED_BYTES, _safe_path
 from .leases import RemoteLease
 
 
+MAX_BUNDLE_BYTES = 32 * 1024 * 1024
+
+
 class CandidateConflict(ValueError):
     pass
 
@@ -55,3 +58,25 @@ def review_candidate_revision(root: Path, lease: RemoteLease,
             raise CandidateConflict("candidate blob hash differs from the manifest")
     if _git(root, "rev-parse", "HEAD").decode().strip() != original_head:
         raise CandidateConflict("project checkout changed during candidate review")
+
+
+def import_candidate_bundle(root: Path, bundle: Path, lease: RemoteLease,
+                            manifest: CandidateManifest) -> None:
+    """Import candidate objects without updating a user branch or checkout."""
+    root = root.resolve(strict=True)
+    if (manifest.task_id, manifest.epoch, manifest.base_commit) != (
+            lease.task_id, lease.epoch, lease.base_commit):
+        raise CandidateConflict("candidate bundle lease differs")
+    if not bundle.is_file() or bundle.stat().st_size > MAX_BUNDLE_BYTES:
+        raise CandidateConflict("candidate bundle is missing or exceeds size limit")
+    original_head = _git(root, "rev-parse", "HEAD").decode().strip()
+    if original_head != lease.base_commit or _git(root, "status", "--porcelain", "-z"):
+        raise CandidateConflict("project checkout changed before bundle import")
+    _git(root, "bundle", "verify", str(bundle.resolve()))
+    heads = _git(root, "bundle", "list-heads", str(bundle.resolve())).decode().splitlines()
+    if heads != [f"{manifest.candidate_commit} HEAD"]:
+        raise CandidateConflict("bundle does not contain the declared candidate")
+    _git(root, "fetch", "--no-tags", "--no-write-fetch-head", str(bundle.resolve()), "HEAD")
+    if _git(root, "cat-file", "-t", manifest.candidate_commit).strip() != b"commit":
+        raise CandidateConflict("bundle does not contain the declared candidate")
+    review_candidate_revision(root, lease, manifest)

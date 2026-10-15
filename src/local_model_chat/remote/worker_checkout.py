@@ -16,6 +16,9 @@ from .artifacts import (
 from .leases import RemoteLease
 
 
+MAX_BUNDLE_BYTES = 32 * 1024 * 1024
+
+
 def _git(root: Path, *args: str) -> bytes:
     result = subprocess.run(["git", "-C", str(root), *args], capture_output=True,
                             timeout=15, check=False)
@@ -106,3 +109,26 @@ def package_worker_candidate(checkout: Path, lease: RemoteLease,
         raise
     return CandidateManifest(lease.task_id, lease.epoch, lease.base_commit,
                              candidate, tuple(files))
+
+
+def create_candidate_bundle(checkout: Path, lease: RemoteLease,
+                            manifest: CandidateManifest, bundle: Path) -> Path:
+    """Export only the candidate's new Git objects above the leased base."""
+    root = checkout.resolve(strict=True)
+    if (lease.state != "active" or manifest.task_id != lease.task_id
+            or manifest.epoch != lease.epoch or manifest.base_commit != lease.base_commit
+            or _git(root, "rev-parse", "HEAD").decode().strip() != manifest.candidate_commit
+            or _git(root, "status", "--porcelain", "-z")):
+        raise ValueError("worker bundle no longer matches a clean active candidate")
+    _git(root, "merge-base", "--is-ancestor", lease.base_commit, manifest.candidate_commit)
+    if bundle.exists():
+        raise ValueError("worker candidate bundle already exists")
+    bundle.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _git(root, "bundle", "create", str(bundle), "HEAD", f"^{lease.base_commit}")
+        if bundle.stat().st_size > MAX_BUNDLE_BYTES:
+            raise ValueError("worker candidate bundle exceeds size limit")
+    except Exception:
+        bundle.unlink(missing_ok=True)
+        raise
+    return bundle
