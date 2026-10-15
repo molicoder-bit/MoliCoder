@@ -1,0 +1,7 @@
+# Routing measurement status
+
+The offline comparison API in `local_model_chat.inference.routing_report` replays two policies against the same held-out scenarios. The baseline ranks currently eligible and authorized offerings by quoted token price, assuming every call succeeds. The tuned policy uses measured acceptance, retries, and latency from separate training scenarios. Both call the production router, so current privacy, capability, health, account, terms, price freshness, and authorization checks still apply.
+
+Each observation names a scenario and offering and records acceptance, elapsed seconds, cost when known, retry count, intervention count, and failure. An evaluation scenario must contain an observed outcome for each policy's selected offering. Missing observations stop the comparison. The report includes accepted-task cost only when every selected cost is known and at least one task is accepted. It never treats an unknown cost as free.
+
+This is a comparison mechanism, **not a measured improvement claim**. The tests use constructed outcomes. The app does not yet link verified Build task completions to individual inference requests, and opaque CLI subscriptions do not expose reliable per-task spend. A real routing change needs that attribution plus independent training and evaluation runs covering the offerings being compared. At least five observations per offering are required by the router before it uses measured metrics. Keep the production route policy unchanged until the measured report is reviewable.
