@@ -311,6 +311,9 @@ The module names below are proposed until P06-04 confirms interfaces. Each check
   - [x] **I17-04a Draft the coordinator/worker protocol and threat model.** V: identity, lease fencing, shared quota, reconnect, offline work, conflict handling, and tests specified in `docs/plans/remote-workers.md` (2026-10-15).
   - [x] **I17-04b Reconcile the draft with completed local side-effect and platform security gates.** V: no remote implementation starts until I14-05 and I17-03 pass. Evidence: I14-05 and I17-03 checked; draft retains coordinator authority and disabled opaque remote paid dispatch (2026-10-15).
 - [ ] **I17-05 Implement one opt-in remote worker path.** D: I17-04. A: `molicoder/orchestrator.py`, `storage.py`; N: `remote/`. V: authenticated connection, centralized budget reservation, worktree ownership, crash/reconnect and conflict tests; local-only behavior remains available. C/R: L/high. G4,G5,G10.
+  - [x] **I17-05a Persist coordinator-owned worker identities and fenced task leases.** V: exact pairing approval, one unresolved lease per task and worker, atomic offers, epoch and sequence replay rejection, expiry reconciliation, and revocation survive restart. Evidence: schema v12, `remote/leases.py`, and concurrent/stale/revoked lease tests (2026-10-15).
+  - [ ] **I17-05b Authenticate a bounded worker connection and reconcile durable messages.** V: pinned identities, signed nonces/sequences, bounded payloads, idempotent receipts, disconnect/reconnect and revocation tests.
+  - [ ] **I17-05c Restrict remote task execution, centralize paid dispatch, and validate candidate artifacts.** V: opt-in checkout ownership, coordinator budget reservation, crash/cancel/conflict recovery, and local-only regression tests.
 
 ### I18 — In-app provider onboarding and custom routes (6 tasks; added 2026-10-15)
 

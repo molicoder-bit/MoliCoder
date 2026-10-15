@@ -1,6 +1,6 @@
 # Optional remote-worker protocol draft
 
-Status: design only. Remote execution remains disabled. Implementation waits for the external-action and platform-security gates, a stable local recovery path, and an explicit user choice to attach a worker.
+Status: durable coordinator lease records are implemented. Remote networking and execution remain disabled while authenticated transport, central budget dispatch, and artifact validation are built and tested. Attaching a worker still requires an explicit user choice.
 
 ## Authority and ownership
 

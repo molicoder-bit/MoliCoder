@@ -15,7 +15,7 @@ from .domain import (
 
 
 class ChatStore:
-    SCHEMA_VERSION = 11
+    SCHEMA_VERSION = 12
     TASK_STATES = frozenset({
         "pending", "proposed", "ready", "running", "verifying", "completed",
         "blocked", "failed", "retrying", "waiting_quota", "waiting_approval",
@@ -412,6 +412,26 @@ class ChatStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_installation_jobs_status
                     ON installation_jobs(status, id);
+                CREATE TABLE IF NOT EXISTS remote_workers (
+                    id TEXT PRIMARY KEY,
+                    public_key TEXT NOT NULL,
+                    coordinator_fingerprint TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('paired', 'revoked')),
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS remote_leases (
+                    task_id INTEGER PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+                    worker_id TEXT NOT NULL REFERENCES remote_workers(id),
+                    epoch INTEGER NOT NULL CHECK(epoch > 0),
+                    state TEXT NOT NULL CHECK(state IN ('offered', 'active', 'reconciling', 'completed', 'cancelled')),
+                    base_commit TEXT NOT NULL,
+                    worktree_root TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    last_sequence INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_remote_leases_worker_state
+                    ON remote_leases(worker_id, state);
                 CREATE INDEX IF NOT EXISTS idx_inference_offerings_provider_status
                     ON inference_offerings(provider_id, status, id);
                 CREATE INDEX IF NOT EXISTS idx_knowledge_project_status
