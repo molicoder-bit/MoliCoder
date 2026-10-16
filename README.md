@@ -54,7 +54,7 @@ The app starts in general Chat with **No project**. Choose a folder for reposito
 
 Each project has its own **chat history**, with any number of conversations. Choose a project to see only its chats under **History → Projects / conversations**; the heading shows the project and chat count. **New chat** creates another conversation in that project. Switching projects restores the chat you last selected there, including its unsent draft and attachments during the current session. The chat selection also survives restarting the app. Choose **General chats · No project** for conversations without a project. Existing chats keep their saved associations; unassigned older chats remain General chats. Removing a project from the list preserves its chat history; add the same folder again to reopen it.
 
-Project history preview: [Matrix](docs/images/usability/project-chats-matrix.png) · [Light](docs/images/usability/project-chats-light.png).
+Project history preview: [Matrix](docs/images/usability/project-chats-matrix.png) · [Light](docs/images/usability/project-chats-light.png). [Completed implementation and verification tracker](docs/plans/project-chat-tracker.md).
 
 Explicit simple folder requests use a local confirmation showing the exact path, including destinations outside a Git project. Missing or invalid destinations produce clarification. Created, already-existing, cancelled, and failed actions are recorded under **History → Local actions**. Coding agents still cannot escape their worktree scope.
 
