@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-16T15:25:56.848854+00:00",
+  "generated_at": "2026-10-16T15:30:51.362374+00:00",
   "selection": {
     "id": null,
     "level": null,
@@ -11,10 +11,10 @@
     "live": false
   },
   "counts": {
-    "PASS": 63,
+    "PASS": 64,
     "FAIL": 0,
     "BLOCKED": 0,
-    "NOT_RUN": 57
+    "NOT_RUN": 56
   },
   "scenarios": [
     {
@@ -24,17 +24,17 @@
       "category": "general",
       "test": "tests/test_build_plan_approval.py::test_s001_s002_plan_approval_and_exact_output",
       "outcome": "PASS",
-      "elapsed_seconds": 6.965,
+      "elapsed_seconds": 2.83,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S001.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S001.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s001_s002_plan_approval_and_exact_output[hello.txt-]",
         "test_s001_s002_plan_approval_and_exact_output[greeting.txt-Hello World\\n]"
       ],
       "assertion_count": 2,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S001.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S001.xml"
     },
     {
       "id": "S002",
@@ -43,17 +43,17 @@
       "category": "general",
       "test": "tests/test_build_plan_approval.py::test_s001_s002_plan_approval_and_exact_output",
       "outcome": "PASS",
-      "elapsed_seconds": 2.869,
+      "elapsed_seconds": 2.866,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S002.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S002.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s001_s002_plan_approval_and_exact_output[hello.txt-]",
         "test_s001_s002_plan_approval_and_exact_output[greeting.txt-Hello World\\n]"
       ],
       "assertion_count": 2,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S002.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S002.xml"
     },
     {
       "id": "S003",
@@ -65,10 +65,10 @@
         "S003"
       ],
       "outcome": "PASS",
-      "elapsed_seconds": 7.669,
+      "elapsed_seconds": 6.822,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S003.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S003.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s003_s004_s005_s006_s009_exact_file_operations[S003-before0-paths0-replace-expected0]",
@@ -78,7 +78,7 @@
         "test_s003_s004_s005_s006_s009_exact_file_operations[S009-before4-paths4-config-expected4]"
       ],
       "assertion_count": 5,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S003.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S003.xml"
     },
     {
       "id": "S004",
@@ -90,10 +90,10 @@
         "S004"
       ],
       "outcome": "PASS",
-      "elapsed_seconds": 6.897,
+      "elapsed_seconds": 7.619,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S004.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S004.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s003_s004_s005_s006_s009_exact_file_operations[S003-before0-paths0-replace-expected0]",
@@ -103,7 +103,7 @@
         "test_s003_s004_s005_s006_s009_exact_file_operations[S009-before4-paths4-config-expected4]"
       ],
       "assertion_count": 5,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S004.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S004.xml"
     },
     {
       "id": "S005",
@@ -115,10 +115,10 @@
         "S005"
       ],
       "outcome": "PASS",
-      "elapsed_seconds": 7.209,
+      "elapsed_seconds": 7.489,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S005.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S005.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s003_s004_s005_s006_s009_exact_file_operations[S003-before0-paths0-replace-expected0]",
@@ -128,7 +128,7 @@
         "test_s003_s004_s005_s006_s009_exact_file_operations[S009-before4-paths4-config-expected4]"
       ],
       "assertion_count": 5,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S005.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S005.xml"
     },
     {
       "id": "S006",
@@ -140,10 +140,10 @@
         "S006"
       ],
       "outcome": "PASS",
-      "elapsed_seconds": 7.366,
+      "elapsed_seconds": 7.22,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S006.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S006.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s003_s004_s005_s006_s009_exact_file_operations[S003-before0-paths0-replace-expected0]",
@@ -153,7 +153,7 @@
         "test_s003_s004_s005_s006_s009_exact_file_operations[S009-before4-paths4-config-expected4]"
       ],
       "assertion_count": 5,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S006.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S006.xml"
     },
     {
       "id": "S007",
@@ -162,16 +162,16 @@
       "category": "general",
       "test": "tests/test_build_level0_scenarios.py::test_s007_empty_directory_survives_review_and_apply",
       "outcome": "PASS",
-      "elapsed_seconds": 3.596,
+      "elapsed_seconds": 3.477,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S007.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S007.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s007_empty_directory_survives_review_and_apply"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S007.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S007.xml"
     },
     {
       "id": "S008",
@@ -180,16 +180,16 @@
       "category": "general",
       "test": "tests/test_build_level0_scenarios.py::test_s008_independent_files_have_no_dependency_edge",
       "outcome": "PASS",
-      "elapsed_seconds": 2.544,
+      "elapsed_seconds": 2.119,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S008.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S008.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s008_independent_files_have_no_dependency_edge"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S008.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S008.xml"
     },
     {
       "id": "S009",
@@ -201,10 +201,10 @@
         "S009"
       ],
       "outcome": "PASS",
-      "elapsed_seconds": 7.339,
+      "elapsed_seconds": 7.237,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S009.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S009.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s003_s004_s005_s006_s009_exact_file_operations[S003-before0-paths0-replace-expected0]",
@@ -214,7 +214,7 @@
         "test_s003_s004_s005_s006_s009_exact_file_operations[S009-before4-paths4-config-expected4]"
       ],
       "assertion_count": 5,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S009.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S009.xml"
     },
     {
       "id": "S010",
@@ -223,16 +223,16 @@
       "category": "general",
       "test": "tests/test_build_level0_scenarios.py::test_s010_exact_already_satisfied_request_has_verified_no_change",
       "outcome": "PASS",
-      "elapsed_seconds": 1.92,
+      "elapsed_seconds": 1.804,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S010.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S010.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s010_exact_already_satisfied_request_has_verified_no_change"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S010.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S010.xml"
     },
     {
       "id": "S011",
@@ -241,16 +241,16 @@
       "category": "general",
       "test": "tests/test_build_level1_preflight.py::test_s011_build_without_selected_project_stays_disabled",
       "outcome": "PASS",
-      "elapsed_seconds": 1.218,
+      "elapsed_seconds": 1.251,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S011.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S011.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s011_build_without_selected_project_stays_disabled"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S011.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S011.xml"
     },
     {
       "id": "S012",
@@ -259,16 +259,16 @@
       "category": "general",
       "test": "tests/test_build_level1_preflight.py::test_s012_valid_project_is_selected_for_build_preflight",
       "outcome": "PASS",
-      "elapsed_seconds": 2.153,
+      "elapsed_seconds": 2.602,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S012.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S012.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s012_valid_project_is_selected_for_build_preflight"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S012.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S012.xml"
     },
     {
       "id": "S013",
@@ -277,16 +277,16 @@
       "category": "general",
       "test": "tests/test_build_level1_preflight.py::test_s013_missing_project_folder_blocks_build",
       "outcome": "PASS",
-      "elapsed_seconds": 1.283,
+      "elapsed_seconds": 1.277,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S013.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S013.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s013_missing_project_folder_blocks_build"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S013.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S013.xml"
     },
     {
       "id": "S014",
@@ -295,16 +295,16 @@
       "category": "general",
       "test": "tests/test_build_level1_preflight.py::test_s014_read_only_project_blocks_before_planning",
       "outcome": "PASS",
-      "elapsed_seconds": 2.16,
+      "elapsed_seconds": 2.056,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S014.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S014.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s014_read_only_project_blocks_before_planning"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S014.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S014.xml"
     },
     {
       "id": "S015",
@@ -313,16 +313,16 @@
       "category": "general",
       "test": "tests/test_build_level1_preflight.py::test_s015_non_git_project_is_explicitly_blocked",
       "outcome": "PASS",
-      "elapsed_seconds": 1.422,
+      "elapsed_seconds": 1.804,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S015.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S015.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s015_non_git_project_is_explicitly_blocked"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S015.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S015.xml"
     },
     {
       "id": "S016",
@@ -334,10 +334,10 @@
         "S016"
       ],
       "outcome": "PASS",
-      "elapsed_seconds": 5.215,
+      "elapsed_seconds": 5.396,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S016.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S016.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S016-Fix the thing.-Clarify which file or behavior]",
@@ -345,7 +345,7 @@
         "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S018-Deploy this app to production.-not a supported Build action]"
       ],
       "assertion_count": 3,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S016.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S016.xml"
     },
     {
       "id": "S017",
@@ -357,10 +357,10 @@
         "S017"
       ],
       "outcome": "PASS",
-      "elapsed_seconds": 5.5,
+      "elapsed_seconds": 5.649,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S017.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S017.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S016-Fix the thing.-Clarify which file or behavior]",
@@ -368,7 +368,7 @@
         "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S018-Deploy this app to production.-not a supported Build action]"
       ],
       "assertion_count": 3,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S017.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S017.xml"
     },
     {
       "id": "S018",
@@ -380,10 +380,10 @@
         "S018"
       ],
       "outcome": "PASS",
-      "elapsed_seconds": 5.102,
+      "elapsed_seconds": 5.653,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S018.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S018.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S016-Fix the thing.-Clarify which file or behavior]",
@@ -391,7 +391,7 @@
         "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S018-Deploy this app to production.-not a supported Build action]"
       ],
       "assertion_count": 3,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S018.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S018.xml"
     },
     {
       "id": "S019",
@@ -400,16 +400,16 @@
       "category": "general",
       "test": "tests/test_build_level1_preflight.py::test_s019_pending_plan_cannot_be_approved_from_another_project",
       "outcome": "PASS",
-      "elapsed_seconds": 2.639,
+      "elapsed_seconds": 3.267,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S019.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S019.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s019_pending_plan_cannot_be_approved_from_another_project"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S019.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S019.xml"
     },
     {
       "id": "S020",
@@ -418,16 +418,16 @@
       "category": "general",
       "test": "tests/test_build_level1_preflight.py::test_s020_chat_status_answer_reads_persisted_state_without_starting_build",
       "outcome": "PASS",
-      "elapsed_seconds": 2.04,
+      "elapsed_seconds": 2.089,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S020.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S020.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s020_chat_status_answer_reads_persisted_state_without_starting_build"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S020.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S020.xml"
     },
     {
       "id": "S021",
@@ -530,17 +530,17 @@
         "S028"
       ],
       "outcome": "PASS",
-      "elapsed_seconds": 1.463,
+      "elapsed_seconds": 1.487,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S028.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S028.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s028_s029_invalid_graph_never_reaches_execution[S028-tasks0-cycle]",
         "test_s028_s029_invalid_graph_never_reaches_execution[S029-tasks1-missing dependency]"
       ],
       "assertion_count": 2,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S028.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S028.xml"
     },
     {
       "id": "S029",
@@ -552,17 +552,17 @@
         "S029"
       ],
       "outcome": "PASS",
-      "elapsed_seconds": 1.692,
+      "elapsed_seconds": 1.82,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S029.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S029.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s028_s029_invalid_graph_never_reaches_execution[S028-tasks0-cycle]",
         "test_s028_s029_invalid_graph_never_reaches_execution[S029-tasks1-missing dependency]"
       ],
       "assertion_count": 2,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S029.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S029.xml"
     },
     {
       "id": "S030",
@@ -584,16 +584,16 @@
       "category": "general",
       "test": "tests/test_build_plan_approval.py::test_s031_s039_stale_plan_revision_cannot_execute",
       "outcome": "PASS",
-      "elapsed_seconds": 1.071,
+      "elapsed_seconds": 1.366,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S031.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S031.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s031_s039_stale_plan_revision_cannot_execute"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S031.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S031.xml"
     },
     {
       "id": "S032",
@@ -602,17 +602,17 @@
       "category": "general",
       "test": "tests/test_build_plan_approval.py::test_s001_s002_plan_approval_and_exact_output",
       "outcome": "PASS",
-      "elapsed_seconds": 2.966,
+      "elapsed_seconds": 3.681,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S032.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S032.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s001_s002_plan_approval_and_exact_output[hello.txt-]",
         "test_s001_s002_plan_approval_and_exact_output[greeting.txt-Hello World\\n]"
       ],
       "assertion_count": 2,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S032.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S032.xml"
     },
     {
       "id": "S033",
@@ -621,16 +621,16 @@
       "category": "general",
       "test": "tests/test_build_plan_approval.py::test_s033_rejected_plan_is_persisted_without_execution",
       "outcome": "PASS",
-      "elapsed_seconds": 2.229,
+      "elapsed_seconds": 2.241,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S033.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S033.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s033_rejected_plan_is_persisted_without_execution"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S033.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S033.xml"
     },
     {
       "id": "S034",
@@ -639,16 +639,16 @@
       "category": "general",
       "test": "tests/test_build_plan_revision.py::test_s034_add_task_through_review_requires_new_approval",
       "outcome": "PASS",
-      "elapsed_seconds": 4.39,
+      "elapsed_seconds": 4.602,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S034.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S034.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s034_add_task_through_review_requires_new_approval"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S034.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S034.xml"
     },
     {
       "id": "S035",
@@ -657,16 +657,16 @@
       "category": "general",
       "test": "tests/test_build_plan_revision.py::test_s035_removing_parent_rejects_dangling_edge_then_saves_valid_revision",
       "outcome": "PASS",
-      "elapsed_seconds": 1.793,
+      "elapsed_seconds": 2.026,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S035.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S035.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s035_removing_parent_rejects_dangling_edge_then_saves_valid_revision"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S035.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S035.xml"
     },
     {
       "id": "S036",
@@ -675,16 +675,16 @@
       "category": "general",
       "test": "tests/test_build_plan_revision.py::test_s036_edited_dependency_controls_execution_order",
       "outcome": "PASS",
-      "elapsed_seconds": 2.367,
+      "elapsed_seconds": 2.506,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S036.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S036.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s036_edited_dependency_controls_execution_order"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S036.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S036.xml"
     },
     {
       "id": "S037",
@@ -706,16 +706,16 @@
       "category": "general",
       "test": "tests/test_build_plan_revision.py::test_s038_unsupported_runner_override_is_explained_without_execution",
       "outcome": "PASS",
-      "elapsed_seconds": 2.155,
+      "elapsed_seconds": 2.335,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S038.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S038.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s038_unsupported_runner_override_is_explained_without_execution"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S038.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S038.xml"
     },
     {
       "id": "S039",
@@ -724,16 +724,16 @@
       "category": "general",
       "test": "tests/test_build_plan_approval.py::test_s031_s039_stale_plan_revision_cannot_execute",
       "outcome": "PASS",
-      "elapsed_seconds": 1.067,
+      "elapsed_seconds": 1.119,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S039.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S039.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s031_s039_stale_plan_revision_cannot_execute"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S039.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S039.xml"
     },
     {
       "id": "S040",
@@ -755,16 +755,16 @@
       "category": "general",
       "test": "tests/test_build_level4_routing.py::test_s041_s043_simple_existing_file_uses_local_executor",
       "outcome": "PASS",
-      "elapsed_seconds": 2.253,
+      "elapsed_seconds": 2.227,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S041.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S041.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s041_s043_simple_existing_file_uses_local_executor"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S041.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S041.xml"
     },
     {
       "id": "S042",
@@ -786,16 +786,16 @@
       "category": "general",
       "test": "tests/test_build_level4_routing.py::test_s041_s043_simple_existing_file_uses_local_executor",
       "outcome": "PASS",
-      "elapsed_seconds": 1.762,
+      "elapsed_seconds": 1.999,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S043.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S043.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s041_s043_simple_existing_file_uses_local_executor"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S043.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S043.xml"
     },
     {
       "id": "S044",
@@ -807,17 +807,17 @@
         "S044"
       ],
       "outcome": "PASS",
-      "elapsed_seconds": 2.195,
+      "elapsed_seconds": 2.685,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S044.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S044.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s044_s045_provider_failure_stops_without_edits[S044-service unavailable-needs_attention]",
         "test_s044_s045_provider_failure_stops_without_edits[S045-authentication required-waiting_auth]"
       ],
       "assertion_count": 2,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S044.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S044.xml"
     },
     {
       "id": "S045",
@@ -829,17 +829,17 @@
         "S045"
       ],
       "outcome": "PASS",
-      "elapsed_seconds": 2.323,
+      "elapsed_seconds": 2.348,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S045.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S045.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s044_s045_provider_failure_stops_without_edits[S044-service unavailable-needs_attention]",
         "test_s044_s045_provider_failure_stops_without_edits[S045-authentication required-waiting_auth]"
       ],
       "assertion_count": 2,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S045.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S045.xml"
     },
     {
       "id": "S046",
@@ -887,16 +887,16 @@
       "category": "general",
       "test": "tests/test_build_level4_routing.py::test_s049_recoverable_failure_uses_approved_fallback_within_attempt_cap",
       "outcome": "PASS",
-      "elapsed_seconds": 1.875,
+      "elapsed_seconds": 1.901,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S049.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S049.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s049_recoverable_failure_uses_approved_fallback_within_attempt_cap"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S049.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S049.xml"
     },
     {
       "id": "S050",
@@ -905,16 +905,16 @@
       "category": "general",
       "test": "tests/test_build_level4_routing.py::test_s050_opaque_cli_usage_keeps_unknown_cost",
       "outcome": "PASS",
-      "elapsed_seconds": 2.049,
+      "elapsed_seconds": 1.921,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S050.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S050.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s050_opaque_cli_usage_keeps_unknown_cost"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S050.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S050.xml"
     },
     {
       "id": "S051",
@@ -923,16 +923,16 @@
       "category": "general",
       "test": "tests/test_build_level5_execution.py::test_s051_implement_arithmetic_against_independent_tests",
       "outcome": "PASS",
-      "elapsed_seconds": 2.16,
+      "elapsed_seconds": 2.322,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S051.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S051.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s051_implement_arithmetic_against_independent_tests"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S051.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S051.xml"
     },
     {
       "id": "S052",
@@ -941,16 +941,16 @@
       "category": "general",
       "test": "tests/test_build_level5_execution.py::test_s052_fix_incorrect_function_and_pass_existing_tests",
       "outcome": "PASS",
-      "elapsed_seconds": 2.379,
+      "elapsed_seconds": 2.622,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S052.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S052.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s052_fix_incorrect_function_and_pass_existing_tests"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S052.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S052.xml"
     },
     {
       "id": "S053",
@@ -959,16 +959,16 @@
       "category": "general",
       "test": "tests/test_build_level5_execution.py::test_s053_added_unit_test_runs_and_rejects_mutant",
       "outcome": "PASS",
-      "elapsed_seconds": 2.29,
+      "elapsed_seconds": 2.385,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S053.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S053.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s053_added_unit_test_runs_and_rejects_mutant"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S053.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S053.xml"
     },
     {
       "id": "S054",
@@ -977,16 +977,16 @@
       "category": "general",
       "test": "tests/test_build_level5_execution.py::test_s054_syntax_error_fails_verification",
       "outcome": "PASS",
-      "elapsed_seconds": 1.52,
+      "elapsed_seconds": 1.491,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S054.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S054.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s054_syntax_error_fails_verification"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S054.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S054.xml"
     },
     {
       "id": "S055",
@@ -995,16 +995,16 @@
       "category": "general",
       "test": "tests/test_build_level5_execution.py::test_s055_type_error_fails_configured_static_check",
       "outcome": "PASS",
-      "elapsed_seconds": 2.046,
+      "elapsed_seconds": 2.109,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S055.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S055.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s055_type_error_fails_configured_static_check"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S055.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S055.xml"
     },
     {
       "id": "S056",
@@ -1013,16 +1013,16 @@
       "category": "general",
       "test": "tests/test_build_level5_execution.py::test_s056_success_text_without_change_is_not_completion",
       "outcome": "PASS",
-      "elapsed_seconds": 1.583,
+      "elapsed_seconds": 1.725,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S056.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S056.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s056_success_text_without_change_is_not_completion"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S056.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S056.xml"
     },
     {
       "id": "S057",
@@ -1031,16 +1031,16 @@
       "category": "general",
       "test": "tests/test_build_level5_execution.py::test_s057_out_of_scope_file_is_rejected",
       "outcome": "PASS",
-      "elapsed_seconds": 1.521,
+      "elapsed_seconds": 1.86,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S057.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S057.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s057_out_of_scope_file_is_rejected"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S057.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S057.xml"
     },
     {
       "id": "S058",
@@ -1049,16 +1049,16 @@
       "category": "general",
       "test": "tests/test_build_level5_execution.py::test_s058_long_validation_reports_progress_times_out_and_cancels",
       "outcome": "PASS",
-      "elapsed_seconds": 3.422,
+      "elapsed_seconds": 3.011,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S058.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S058.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s058_long_validation_reports_progress_times_out_and_cancels"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S058.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S058.xml"
     },
     {
       "id": "S059",
@@ -1067,16 +1067,16 @@
       "category": "general",
       "test": "tests/test_build_level5_execution.py::test_s059_cancel_running_task_keeps_partial_work_isolated",
       "outcome": "PASS",
-      "elapsed_seconds": 1.409,
+      "elapsed_seconds": 1.607,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S059.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S059.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s059_cancel_running_task_keeps_partial_work_isolated"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S059.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S059.xml"
     },
     {
       "id": "S060",
@@ -1085,16 +1085,16 @@
       "category": "general",
       "test": "tests/test_build_level5_execution.py::test_s060_final_project_regression_blocks_apply",
       "outcome": "PASS",
-      "elapsed_seconds": 2.214,
+      "elapsed_seconds": 2.438,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S060.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S060.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s060_final_project_regression_blocks_apply"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S060.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S060.xml"
     },
     {
       "id": "S061",
@@ -1103,16 +1103,16 @@
       "category": "repair",
       "test": "tests/test_build_level6_repair.py::test_s061_one_failed_implementation_then_verified_repair",
       "outcome": "PASS",
-      "elapsed_seconds": 3.113,
+      "elapsed_seconds": 2.777,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S061.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S061.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s061_one_failed_implementation_then_verified_repair"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S061.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S061.xml"
     },
     {
       "id": "S062",
@@ -1121,16 +1121,16 @@
       "category": "repair",
       "test": "tests/test_build_level6_repair.py::test_s062_second_bad_attempt_is_rejected_before_third_repair",
       "outcome": "PASS",
-      "elapsed_seconds": 3.616,
+      "elapsed_seconds": 3.197,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S062.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S062.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s062_second_bad_attempt_is_rejected_before_third_repair"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S062.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S062.xml"
     },
     {
       "id": "S063",
@@ -1139,16 +1139,16 @@
       "category": "repair",
       "test": "tests/test_build_level6_repair.py::test_s063_identical_validation_failures_stop_without_fourth_attempt",
       "outcome": "PASS",
-      "elapsed_seconds": 2.747,
+      "elapsed_seconds": 2.989,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S063.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S063.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s063_identical_validation_failures_stop_without_fourth_attempt"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S063.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S063.xml"
     },
     {
       "id": "S064",
@@ -1157,16 +1157,16 @@
       "category": "repair",
       "test": "tests/test_build_level6_repair.py::test_s064_missing_import_is_repaired_with_test_evidence",
       "outcome": "PASS",
-      "elapsed_seconds": 3.255,
+      "elapsed_seconds": 2.837,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S064.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S064.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s064_missing_import_is_repaired_with_test_evidence"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S064.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S064.xml"
     },
     {
       "id": "S065",
@@ -1175,16 +1175,16 @@
       "category": "repair",
       "test": "tests/test_build_level6_repair.py::test_s065_wrong_return_type_is_corrected",
       "outcome": "PASS",
-      "elapsed_seconds": 2.807,
+      "elapsed_seconds": 3.048,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S065.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S065.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s065_wrong_return_type_is_corrected"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S065.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S065.xml"
     },
     {
       "id": "S066",
@@ -1193,16 +1193,16 @@
       "category": "repair",
       "test": "tests/test_build_level6_repair.py::test_s066_regression_from_repair_requires_third_verified_attempt",
       "outcome": "PASS",
-      "elapsed_seconds": 3.677,
+      "elapsed_seconds": 3.358,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S066.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S066.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s066_regression_from_repair_requires_third_verified_attempt"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S066.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S066.xml"
     },
     {
       "id": "S067",
@@ -1211,16 +1211,16 @@
       "category": "repair",
       "test": "tests/test_build_level6_repair.py::test_s067_broken_oracle_is_not_changed_to_make_bad_result_pass",
       "outcome": "PASS",
-      "elapsed_seconds": 2.738,
+      "elapsed_seconds": 2.285,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S067.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S067.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s067_broken_oracle_is_not_changed_to_make_bad_result_pass"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S067.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S067.xml"
     },
     {
       "id": "S068",
@@ -1229,16 +1229,16 @@
       "category": "repair",
       "test": "tests/test_build_level6_repair.py::test_s068_transient_outage_is_classified_and_uses_available_route",
       "outcome": "PASS",
-      "elapsed_seconds": 1.914,
+      "elapsed_seconds": 2.065,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S068.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S068.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s068_transient_outage_is_classified_and_uses_available_route"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S068.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S068.xml"
     },
     {
       "id": "S069",
@@ -1247,16 +1247,16 @@
       "category": "repair",
       "test": "tests/test_build_level6_repair.py::test_s069_scope_expansion_reapproves_and_preserves_completed_checkpoint",
       "outcome": "PASS",
-      "elapsed_seconds": 6.533,
+      "elapsed_seconds": 6.257,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S069.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S069.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s069_scope_expansion_reapproves_and_preserves_completed_checkpoint"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S069.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S069.xml"
     },
     {
       "id": "S070",
@@ -1265,16 +1265,16 @@
       "category": "repair",
       "test": "tests/test_build_level6_repair.py::test_s070_retry_ceiling_preserves_failure_without_claiming_success",
       "outcome": "PASS",
-      "elapsed_seconds": 2.444,
+      "elapsed_seconds": 2.289,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S070.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S070.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s070_retry_ceiling_preserves_failure_without_claiming_success"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S070.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S070.xml"
     },
     {
       "id": "S071",
@@ -1283,16 +1283,16 @@
       "category": "kandev",
       "test": "tests/test_build_level7_kandev.py::test_s071_disabled_kandev_executes_internal_build_without_adapter_call",
       "outcome": "PASS",
-      "elapsed_seconds": 1.919,
+      "elapsed_seconds": 1.926,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S071.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S071.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s071_disabled_kandev_executes_internal_build_without_adapter_call"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S071.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S071.xml"
     },
     {
       "id": "S072",
@@ -1301,16 +1301,16 @@
       "category": "kandev",
       "test": "tests/test_build_level7_kandev.py::test_s072_enabled_without_adapter_gives_setup_guidance_and_no_run",
       "outcome": "PASS",
-      "elapsed_seconds": 0.915,
+      "elapsed_seconds": 0.937,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S072.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S072.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s072_enabled_without_adapter_gives_setup_guidance_and_no_run"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S072.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S072.xml"
     },
     {
       "id": "S073",
@@ -1319,17 +1319,17 @@
       "category": "kandev",
       "test": "tests/test_build_level7_kandev.py::test_s073_disconnected_or_unauthorized_kandev_is_not_ready",
       "outcome": "PASS",
-      "elapsed_seconds": 1.214,
+      "elapsed_seconds": 1.236,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S073.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S073.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s073_disconnected_or_unauthorized_kandev_is_not_ready[disconnected-Kandev endpoint is unavailable-1]",
         "test_s073_disconnected_or_unauthorized_kandev_is_not_ready[unauthorized-Kandev returned HTTP 401-2]"
       ],
       "assertion_count": 2,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S073.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S073.xml"
     },
     {
       "id": "S074",
@@ -1338,16 +1338,16 @@
       "category": "kandev",
       "test": "tests/test_build_level7_kandev.py::test_s074_successful_read_only_probe_discovers_capabilities",
       "outcome": "PASS",
-      "elapsed_seconds": 0.946,
+      "elapsed_seconds": 0.938,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S074.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S074.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s074_successful_read_only_probe_discovers_capabilities"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S074.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S074.xml"
     },
     {
       "id": "S075",
@@ -1356,16 +1356,16 @@
       "category": "kandev",
       "test": "tests/test_kandev_run.py::test_selected_build_is_bound_to_kandev_before_dispatch_and_recovers",
       "outcome": "PASS",
-      "elapsed_seconds": 1.239,
+      "elapsed_seconds": 1.187,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S075.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S075.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_selected_build_is_bound_to_kandev_before_dispatch_and_recovers"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S075.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S075.xml"
     },
     {
       "id": "S076",
@@ -1452,16 +1452,16 @@
       "category": "general",
       "test": "tests/test_build_level8_dependencies.py::test_s082_successor_starts_after_parent_verification",
       "outcome": "PASS",
-      "elapsed_seconds": 2.068,
+      "elapsed_seconds": 2.224,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S082.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S082.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s082_successor_starts_after_parent_verification"
       ],
       "assertion_count": 1,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S082.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S082.xml"
     },
     {
       "id": "S083",
@@ -1572,13 +1572,18 @@
       "level": 9,
       "title": "Application closes while awaiting approval",
       "category": "general",
-      "test": null,
-      "outcome": "NOT_RUN",
-      "elapsed_seconds": 0,
+      "test": "tests/test_build_level9_recovery.py::test_s091_pending_approval_survives_restart_without_launch",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.793,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "",
-      "reason": "No executable scenario case is registered"
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S091.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s091_pending_approval_survives_restart_without_launch"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S091.xml"
     },
     {
       "id": "S092",
@@ -1785,17 +1790,17 @@
         "S107"
       ],
       "outcome": "PASS",
-      "elapsed_seconds": 3.023,
+      "elapsed_seconds": 3.305,
       "resource_usage": "unknown",
       "approval_revision": "asserted by test when applicable",
-      "evidence": "artifacts\\build-scenarios\\20261016T152254854501Z\\S107.txt",
+      "evidence": "artifacts\\build-scenarios\\20261016T152747767516Z\\S107.txt",
       "reason": "Assertions passed",
       "assertion_tests": [
         "test_s107_plan_revision_change_during_execution_stops_next_task",
         "test_s107_plan_revision_during_last_task_stops_apply_even_if_new_revision_is_approved"
       ],
       "assertion_count": 2,
-      "junit": "artifacts\\build-scenarios\\20261016T152254854501Z\\S107.xml"
+      "junit": "artifacts\\build-scenarios\\20261016T152747767516Z\\S107.xml"
     },
     {
       "id": "S108",
