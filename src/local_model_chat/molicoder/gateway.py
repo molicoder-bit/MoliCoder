@@ -47,6 +47,8 @@ class InferenceGateway:
         temperature: float,
         top_p: float,
         purpose: InferencePurpose = InferencePurpose.EXECUTION,
+        timeout_seconds: float | None = None,
+        response_format: dict | str | None = None,
     ) -> InferenceResponse:
         request = InferenceRequest(
             request_id=str(uuid4()), project_id=self.project_id,
@@ -54,7 +56,7 @@ class InferenceGateway:
             purpose=purpose, messages=tuple(messages),
             sensitivity="private", required_capabilities=(),
             max_input_tokens=max(1, estimate_messages(messages)),
-            max_output_tokens=max_output_tokens, timeout_seconds=1200,
+            max_output_tokens=max_output_tokens, timeout_seconds=timeout_seconds or 1200,
             tool_scopes=("local-worktree-tools",) if tools else (),
             options={"context_window": context_window, "temperature": temperature, "top_p": top_p},
             run_id=self.run_id, task_id=self.task_id,
@@ -76,6 +78,9 @@ class InferenceGateway:
             ledger.append(UsageEvent(request.request_id, "started", source_event="gateway"))
         with self._lock:
             try:
+                timeout_options = {'timeout_seconds': timeout_seconds} if timeout_seconds is not None else {}
+                if response_format is not None:
+                    timeout_options['response_format'] = response_format
                 response = self.client.chat(
                     model,
                     messages,
@@ -84,6 +89,7 @@ class InferenceGateway:
                     max_output_tokens=max_output_tokens,
                     temperature=temperature,
                     top_p=top_p,
+                    **timeout_options,
                 )
             except Exception:
                 if ledger is not None:

@@ -346,6 +346,9 @@ def refresh_workspace(w):
             w.context_summary.setText(f"Last reply included: {len(receipt.get('turn_ids', []))} conversation turns · {len(receipt.get('attachments', []))} attachments")
             metrics = receipt.get('metrics', {})
             w.usage_summary.setText(f"Last reply: {metrics.get('prompt_tokens') or 'unknown'} input / {metrics.get('output_tokens') or 'unknown'} output tokens")
+            external_attempts = [a for a in receipt.get('attempts', []) if a.get('provider') in {'codex', 'claude', 'copilot'}]
+            if external_attempts:
+                w.usage_summary.setText(w.usage_summary.text() + f' · {len(external_attempts)} external attempts · CLI cost unknown')
         else:
             w.context_summary.setText('No recorded request context yet')
             w.usage_summary.setText('Usage available after a measured reply')

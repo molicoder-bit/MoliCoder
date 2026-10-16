@@ -48,7 +48,7 @@ from ..ollama import OllamaClient
 from ..storage import ChatStore
 from ..telemetry import format_bytes, read_nvidia_telemetry
 from ..workers import (
-    ChatWorker, DirectoryReadWorker, CustomApiWorker, DoctorWorker, ManagedInstallWorker,
+    ChatWorker, RepositoryChatWorker, DirectoryReadWorker, CustomApiWorker, DoctorWorker, ManagedInstallWorker,
     ManagedRepairWorker, ModelInspectWorker, ModelPullWorker, OrchestrationWorker, StartupWorker,
     WindowsOllamaInstallWorker,
 )
@@ -1670,6 +1670,10 @@ class MainWindow(QMainWindow):
         trusted = QCheckBox(f"Trust {selected.title()} for this project")
         trusted.setChecked(selected in preferences.trusted_providers)
         form.addRow("Project permission", trusted)
+        automatic_fallback = QCheckBox('Automatically try trusted external providers when local repository analysis cannot answer')
+        automatic_fallback.setChecked(self.store.get_setting(f'repository.external_fallback.{project.id}', 'true') == 'true')
+        automatic_fallback.setToolTip('Local models are tried first. Up to two distinct trusted external CLI calls per question, each capped at 90 seconds. Subscription usage/cost can be unknown.')
+        form.addRow('Repository questions', automatic_fallback)
         layout.addLayout(form)
         setup = QPushButton(f"Open official {selected.title()} setup and sign-in guide")
         setup.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(agent_profile(selected).auth_guide)))
@@ -1772,6 +1776,7 @@ class MainWindow(QMainWindow):
         else:
             models.pop(selected, None)
         trusted_providers = set(preferences.trusted_providers)
+        self.store.set_setting(f'repository.external_fallback.{project.id}', 'true' if automatic_fallback.isChecked() else 'false')
         if trusted.isChecked():
             trusted_providers.add(selected)
         else:
@@ -2104,7 +2109,7 @@ class MainWindow(QMainWindow):
             ready = not file_action.error
             status = file_action.error or f'Ready to review local file creation: {file_action.target}. No model required.'
         elif project is None:
-            status = "Build blocked — no project selected. Choose a project or create one above."
+            status = "Build blocked — no project selected. Select a project or create one above."
         elif not Path(project.path).is_dir():
             status = "The selected project folder is missing."
         else:
@@ -3411,6 +3416,12 @@ class MainWindow(QMainWindow):
         project_id = self.store.get_conversation_project_id(self.current_conversation_id) if self.current_conversation_id else None
         return self.store.get_project(project_id) if project_id is not None else None
 
+    def _repository_request(self, content: str) -> bool:
+        from ..repository_analysis import repository_question
+        from ..project_queries import project_query
+        query = project_query(content)
+        return bool(self._chat_project() and (repository_question(content) or (query and query.operation == 'file')))
+
     def _refresh_context_meter(self) -> None:
         if not hasattr(self, "context_progress"):
             return
@@ -3430,14 +3441,18 @@ class MainWindow(QMainWindow):
         deterministic_question = not self.current_attachments and self.controller.can_handle_locally(
             self.composer.toPlainText()
         )
-        can_send = bool(self.composer.toPlainText().strip() or self.current_attachments) and (deterministic_question or not budget.blocked)
+        repository_request = self._repository_request(self.composer.toPlainText())
+        can_send = bool(self.composer.toPlainText().strip() or self.current_attachments) and (deterministic_question or repository_request or not budget.blocked)
         can_send = can_send and self.chat_worker is None
-        if self._installed_model_names and not deterministic_question:
+        if self._installed_model_names and not deterministic_question and not repository_request:
             can_send = can_send and self.preset.name in self._installed_model_names
             if self.preset.name not in self._installed_model_names:
                 self.composer_hint.setText('Selected model is not installed · Change model or open Settings')
         self.send_button.setEnabled(can_send)
-        if budget.blocked:
+        if repository_request:
+            self.context_notice.setText('Repository analysis checks context and available models for each route; conversation history is preserved.')
+            self.context_notice.setStyleSheet(f"color: {theme_color('muted')};")
+        elif budget.blocked:
             self.composer_hint.setText('Context limit reached · Open Usage for details')
             self.context_notice.setText("Safe context limit exceeded. Start a new chat or remove the last exchange; history will not be trimmed silently.")
             self.context_notice.setStyleSheet(f"color: {theme_color('error')}; font-weight: 650;")
@@ -3481,6 +3496,7 @@ class MainWindow(QMainWindow):
                 return
         messages_before = self._current_messages()
         chat_project = self._chat_project()
+        repository_request = self._repository_request(content)
         api_messages = build_chat_messages(messages_before, self.preset.system_prompt, pending_text=content, project=chat_project)
         if file_context:
             api_messages.insert(-1, {'role': 'system', 'content':
@@ -3496,7 +3512,7 @@ class MainWindow(QMainWindow):
             "keep_alive": "5m",
         }
         budget = ContextBudget(estimate_messages(api_messages), options['max_output_tokens'], options['context_window'])
-        if budget.blocked:
+        if budget.blocked and not repository_request:
             QMessageBox.warning(
                 self, "Context limit reached",
                 "This request would exceed the safe 95% context budget. Start a new chat or remove the last exchange.",
@@ -3534,10 +3550,13 @@ class MainWindow(QMainWindow):
         self._render_attachment_chips()
         self._scroll_to_bottom()
 
-        self.chat_worker = ChatWorker(
-            self.client, model, api_messages, options,
-            self.inference_policy, chat_project_id,
-        )
+        if repository_request:
+            self.chat_worker = RepositoryChatWorker(self.client, model, api_messages, options,
+                                                   self.inference_policy, chat_project)
+            self.chat_worker.route_changed.connect(self._repository_route_changed)
+        else:
+            self.chat_worker = ChatWorker(self.client, model, api_messages, options,
+                                          self.inference_policy, chat_project_id)
         self._pending_receipt['request_id'] = getattr(self.chat_worker, 'request_id', f'conversation:{self.current_conversation_id}')
         self.chat_worker.content_delta.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._append_content(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
         self.chat_worker.thinking_delta.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._append_thinking(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
@@ -3549,6 +3568,26 @@ class MainWindow(QMainWindow):
         self.stop_button.setVisible(True)
         self.model_combo.setEnabled(False)
         self._refresh_context_meter()
+
+    def _repository_route_changed(self, event: dict) -> None:
+        if event.get('request_id') != self._pending_receipt.get('request_id') or not self.chat_worker:
+            return
+        if event.get('phase') == 'started':
+            self.chat_worker.provider = event['provider']
+            self.chat_worker.model = event.get('model', 'CLI default')
+            self._pending_receipt.update(provider=event['provider'], requested_model=self.chat_worker.model,
+                                         model_source='requested' if event['provider'] == 'ollama' else 'configured')
+            if self.active_bubble:
+                self.active_bubble.set_content(f"Inspecting repository · {event['provider']} / {event.get('model', 'CLI default')}…")
+        elif event.get('phase') == 'fallback':
+            if self.active_bubble:
+                self.active_bubble.set_content('Trying the next available model · ' + event.get('error', 'insufficient evidence'))
+        elif event.get('phase') == 'completed':
+            self._pending_receipt.update({key: value for key, value in event.items() if key != 'phase'})
+            self._pending_receipt['runtime_metadata'] = getattr(self, '_model_facts', {}).get(event.get('requested_model'), {}) if event.get('provider') == 'ollama' else {}
+            if self.active_bubble:
+                self.active_bubble.set_content('')
+        self._refresh_route_identity()
 
     def _start_directory_read(self, content: str, path: Path) -> None:
         project_id = self.store.get_conversation_project_id(self.current_conversation_id)
@@ -3650,6 +3689,9 @@ class MainWindow(QMainWindow):
     def _generation_finished(self, metrics: GenerationMetrics) -> None:
         self.last_metrics = metrics
         if self.active_bubble and self.current_conversation_id is not None:
+            if metrics.done_reason == 'cancelled' and getattr(self.chat_worker, 'repository_analysis', False):
+                self.active_bubble.set_content('_Repository analysis stopped. No verified answer was produced._')
+                self._pending_receipt.update(outcome='cancelled', model_source='no_verified_answer')
             content = self.active_bubble.content
             thinking = self.active_bubble.thinking
             if not content:

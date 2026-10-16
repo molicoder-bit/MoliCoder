@@ -1,0 +1,292 @@
+{
+  "date": "2026-10-16",
+  "project": "MoliCoder source repository",
+  "scope": "Five targeted location questions; not a general coding benchmark.",
+  "local_cases": [
+    {
+      "id": "Q1",
+      "question": "Where does Build decide whether a task runs locally or through Codex?",
+      "status": "PASS",
+      "seconds": 11.35,
+      "provider": "ollama",
+      "model": "molicoder:latest",
+      "answer": "Build decides whether a task runs locally or through Codex based on the task's attributes and the selected strategy. The decision is made in the `_task_assignments` method of the `SequentialRunOrchestrator` class.\n\nSources checked on disk:\n- `src/local_model_chat/molicoder/orchestrator.py:860` \u2014 `local = override is None and self.local_executor is not None and self._local_eligible(task, self.root)`\n- `src/local_model_chat/molicoder/orchestrator.py:861` \u2014 `if strategy == \"LOCAL_OFFLINE\" and override:`\n- `src/local_model_chat/molicoder/orchestrator.py:864` \u2014 `runner = \"local\" if local else \"unavailable\"`",
+      "citations": [
+        {
+          "path": "src/local_model_chat/molicoder/orchestrator.py",
+          "line": 860,
+          "requested_line": 793,
+          "quote": "local = override is None and self.local_executor is not None and self._local_eligible(task, self.root)",
+          "sha256": "aa1b2c2c8090c7629e5f14a3295726aa031245606ce14fde86b060743a55f838"
+        },
+        {
+          "path": "src/local_model_chat/molicoder/orchestrator.py",
+          "line": 861,
+          "requested_line": 793,
+          "quote": "if strategy == \"LOCAL_OFFLINE\" and override:",
+          "sha256": "aa1b2c2c8090c7629e5f14a3295726aa031245606ce14fde86b060743a55f838"
+        },
+        {
+          "path": "src/local_model_chat/molicoder/orchestrator.py",
+          "line": 864,
+          "requested_line": 793,
+          "quote": "runner = \"local\" if local else \"unavailable\"",
+          "sha256": "aa1b2c2c8090c7629e5f14a3295726aa031245606ce14fde86b060743a55f838"
+        }
+      ],
+      "grounding_review": {
+        "supported": true,
+        "reason": "The answer correctly identifies that the decision is made in the `_task_assignments` method of the `SequentialRunOrchestrator` class, and the provided code snippet from `orchestrator.py` confirms this"
+      },
+      "metrics": {
+        "prompt_tokens": 12339,
+        "output_tokens": 231,
+        "prompt_tokens_per_second": 0.0,
+        "output_tokens_per_second": 0.0,
+        "load_seconds": 0.0,
+        "total_seconds": 11.097156799994991,
+        "done_reason": "repository_answer"
+      },
+      "manual_review": "Correct implementation location; sources checked against the implementation."
+    },
+    {
+      "id": "Q2",
+      "question": "Where are local folder listings handled when I ask in Chat?",
+      "status": "PASS",
+      "seconds": 7.52,
+      "provider": "ollama",
+      "model": "molicoder:latest",
+      "answer": "Local folder listings are handled in the `list_directory` function in `src/local_model_chat/directory_queries.py`.\n\nSources checked on disk:\n- `src/local_model_chat/directory_queries.py:92` \u2014 `def list_directory(path: Path, *, cancelled=lambda: False, max_entries=100, max_chars=16000, max_seconds=2.0) -> DirectoryListing:`\n- `src/local_model_chat/directory_queries.py:104` \u2014 `with os.scandir(path) as entries:`",
+      "citations": [
+        {
+          "path": "src/local_model_chat/directory_queries.py",
+          "line": 92,
+          "requested_line": 25,
+          "quote": "def list_directory(path: Path, *, cancelled=lambda: False, max_entries=100, max_chars=16000, max_seconds=2.0) -> DirectoryListing:",
+          "sha256": "4d3248d8bf0feb78fc589a92ec832e8c91f6af91f2f89efb6e162dc212b190d9"
+        },
+        {
+          "path": "src/local_model_chat/directory_queries.py",
+          "line": 104,
+          "requested_line": 25,
+          "quote": "with os.scandir(path) as entries:",
+          "sha256": "4d3248d8bf0feb78fc589a92ec832e8c91f6af91f2f89efb6e162dc212b190d9"
+        }
+      ],
+      "grounding_review": {
+        "supported": true,
+        "reason": "The code answer is supported by the source quotations. The `list_directory` function in `src/local_model_chat/directory_queries.py` is correctly identified as handling local folder listings."
+      },
+      "metrics": {
+        "prompt_tokens": 10120,
+        "output_tokens": 186,
+        "prompt_tokens_per_second": 0.0,
+        "output_tokens_per_second": 0.0,
+        "load_seconds": 0.0,
+        "total_seconds": 7.24172059999546,
+        "done_reason": "repository_answer"
+      },
+      "manual_review": "Correct implementation location; sources checked against the implementation."
+    },
+    {
+      "id": "Q3",
+      "question": "Where is approval of the exact Build plan checked before execution?",
+      "status": "PASS",
+      "seconds": 6.59,
+      "provider": "ollama",
+      "model": "molicoder:latest",
+      "answer": "The approval of the exact Build plan is checked in the `require_approved_plan` function in `src/local_model_chat/molicoder/plan_approval.py`.\n\nSources checked on disk:\n- `src/local_model_chat/molicoder/plan_approval.py:25` \u2014 `def require_approved_plan(store: ChatStore, run_id: int) -> tuple[dict, dict]:`\n- `src/local_model_chat/molicoder/plan_approval.py:30` \u2014 `AuthorizationPolicy(store).require(ActionRequest(`",
+      "citations": [
+        {
+          "path": "src/local_model_chat/molicoder/plan_approval.py",
+          "line": 25,
+          "requested_line": 1,
+          "quote": "def require_approved_plan(store: ChatStore, run_id: int) -> tuple[dict, dict]:",
+          "sha256": "252adce201d24f9ecade578c5177cf3d3ea4b81a82237851d1f4d0cf2f9aa298"
+        },
+        {
+          "path": "src/local_model_chat/molicoder/plan_approval.py",
+          "line": 30,
+          "requested_line": 1,
+          "quote": "AuthorizationPolicy(store).require(ActionRequest(",
+          "sha256": "252adce201d24f9ecade578c5177cf3d3ea4b81a82237851d1f4d0cf2f9aa298"
+        }
+      ],
+      "grounding_review": {
+        "supported": true,
+        "reason": "The approval of the exact Build plan is checked in the `require_approved_plan` function in `src/local_model_chat/molicoder/plan_approval.py`, as indicated by the provided code snippet and source path."
+      },
+      "metrics": {
+        "prompt_tokens": 7795,
+        "output_tokens": 180,
+        "prompt_tokens_per_second": 0.0,
+        "output_tokens_per_second": 0.0,
+        "load_seconds": 0.0,
+        "total_seconds": 6.3445979000098305,
+        "done_reason": "repository_answer"
+      },
+      "manual_review": "Correct implementation location; sources checked against the implementation."
+    },
+    {
+      "id": "Q4",
+      "question": "Where does the local executor run validation before reporting completion?",
+      "status": "PASS",
+      "seconds": 8.53,
+      "provider": "ollama",
+      "model": "molicoder:latest",
+      "answer": "The local executor runs validation before reporting completion in the `run` method of the `AgentExecutor` class. Specifically, it checks if the task is not complete and if validation is required. If so, it calls the `run_validation` tool directly instead of spending model turns asking it to invoke the same validation tool.\n\nSources checked on disk:\n- `src/local_model_chat/molicoder/executor.py:142` \u2014 `if not calls:`\n- `src/local_model_chat/molicoder/executor.py:146` \u2014 `if not self.require_validation or validation_passed:`\n- `src/local_model_chat/molicoder/executor.py:150` \u2014 `tool_count += 1`",
+      "citations": [
+        {
+          "path": "src/local_model_chat/molicoder/executor.py",
+          "line": 142,
+          "requested_line": 25,
+          "quote": "if not calls:",
+          "sha256": "3826476dfd6e9a1874151a415647c224317a62fb34f5c72d945b6fbd4293668c"
+        },
+        {
+          "path": "src/local_model_chat/molicoder/executor.py",
+          "line": 146,
+          "requested_line": 25,
+          "quote": "if not self.require_validation or validation_passed:",
+          "sha256": "3826476dfd6e9a1874151a415647c224317a62fb34f5c72d945b6fbd4293668c"
+        },
+        {
+          "path": "src/local_model_chat/molicoder/executor.py",
+          "line": 150,
+          "requested_line": 25,
+          "quote": "tool_count += 1",
+          "sha256": "3826476dfd6e9a1874151a415647c224317a62fb34f5c72d945b6fbd4293668c"
+        }
+      ],
+      "grounding_review": {
+        "supported": true,
+        "reason": "The code checks if the task is not complete and if validation is required before running the `run_validation` tool directly."
+      },
+      "metrics": {
+        "prompt_tokens": 12319,
+        "output_tokens": 202,
+        "prompt_tokens_per_second": 0.0,
+        "output_tokens_per_second": 0.0,
+        "load_seconds": 0.0,
+        "total_seconds": 8.279765799990855,
+        "done_reason": "repository_answer"
+      },
+      "manual_review": "Correct implementation location; sources checked against the implementation."
+    },
+    {
+      "id": "Q5",
+      "question": "Where are validated Build changes applied to the project checkout?",
+      "status": "PASS",
+      "seconds": 8.53,
+      "provider": "ollama",
+      "model": "molicoder:latest",
+      "answer": "Validated Build changes are applied to the project checkout through the `_merge_last_build` method in `src/local_model_chat/ui/main_window.py`. This method checks if the project checkout is clean and a named branch before attempting to merge the validated checkpoint.\n\nSources checked on disk:\n- `src/local_model_chat/ui/main_window.py:2960` \u2014 `if (project is None or not branch or recorded_run is None`\n- `src/local_model_chat/ui/main_window.py:2968` \u2014 `creationflags = getattr(subprocess, \"CREATE_NO_WINDOW\", 0)`\n- `src/local_model_chat/ui/main_window.py:3012` \u2014 `merged = subprocess.run(`",
+      "citations": [
+        {
+          "path": "src/local_model_chat/ui/main_window.py",
+          "line": 2960,
+          "requested_line": 2905,
+          "quote": "if (project is None or not branch or recorded_run is None",
+          "sha256": "d6d312d2d91d61e48721818631897bf4890592694abaac79c1a278c2c4b6fcd6"
+        },
+        {
+          "path": "src/local_model_chat/ui/main_window.py",
+          "line": 2968,
+          "requested_line": 2905,
+          "quote": "creationflags = getattr(subprocess, \"CREATE_NO_WINDOW\", 0)",
+          "sha256": "d6d312d2d91d61e48721818631897bf4890592694abaac79c1a278c2c4b6fcd6"
+        },
+        {
+          "path": "src/local_model_chat/ui/main_window.py",
+          "line": 3012,
+          "requested_line": 2905,
+          "quote": "merged = subprocess.run(",
+          "sha256": "d6d312d2d91d61e48721818631897bf4890592694abaac79c1a278c2c4b6fcd6"
+        }
+      ],
+      "grounding_review": {
+        "supported": true,
+        "reason": "The answer correctly identifies the `_merge_last_build` method in `src/local_model_chat/ui/main_window.py` as the location where validated Build changes are applied to the project checkout. The method"
+      },
+      "metrics": {
+        "prompt_tokens": 11326,
+        "output_tokens": 217,
+        "prompt_tokens_per_second": 0.0,
+        "output_tokens_per_second": 0.0,
+        "load_seconds": 0.0,
+        "total_seconds": 8.29214520000096,
+        "done_reason": "repository_answer"
+      },
+      "manual_review": "Correct implementation location; sources checked against the implementation."
+    }
+  ],
+  "local_result": "5/5 after fixes; earlier failures preserved in ignored artifacts.",
+  "external_outage_test": {
+    "setup": "Isolated profile trusting Codex, unused loopback Ollama port; no running service was stopped.",
+    "provider": "codex",
+    "model": "CLI default",
+    "model_source": "unknown",
+    "metrics": {
+      "prompt_tokens": 23278,
+      "output_tokens": 313,
+      "prompt_tokens_per_second": 0.0,
+      "output_tokens_per_second": 0.0,
+      "load_seconds": 0.0,
+      "total_seconds": 10.110272999998415,
+      "done_reason": "repository_answer"
+    },
+    "attempts": [
+      {
+        "provider": "ollama",
+        "model": "molicoder:latest",
+        "status": "failed",
+        "reason": "local service preflight",
+        "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
+      },
+      {
+        "provider": "codex",
+        "model": "CLI default",
+        "status": "answered",
+        "reason": "previous route could not produce a verified answer",
+        "actual_model": "",
+        "model_source": "unknown",
+        "citations": [
+          {
+            "path": "src/local_model_chat/molicoder/orchestrator.py",
+            "line": 851,
+            "requested_line": 793,
+            "quote": "def _task_assignments(self, plan, strategy: str, model_overrides: dict[str, str] | None = None) -> dict[str, dict]:",
+            "sha256": "aa1b2c2c8090c7629e5f14a3295726aa031245606ce14fde86b060743a55f838"
+          },
+          {
+            "path": "src/local_model_chat/molicoder/orchestrator.py",
+            "line": 860,
+            "requested_line": 793,
+            "quote": "local = override is None and self.local_executor is not None and self._local_eligible(task, self.root)",
+            "sha256": "aa1b2c2c8090c7629e5f14a3295726aa031245606ce14fde86b060743a55f838"
+          },
+          {
+            "path": "src/local_model_chat/molicoder/orchestrator.py",
+            "line": 863,
+            "requested_line": 793,
+            "quote": "if strategy == \"LOCAL_OFFLINE\":\n                runner = \"local\" if local else \"unavailable\"\n            elif strategy == \"HYBRID\" and local:\n                runner = \"local\"\n            else:\n                runner = \"provider_cli\"\n            assignments[task.key] = {\n                \"runner\": runner,\n                \"provider\": \"ollama\" if runner == \"local\" else selected_provider.name if runner == \"provider_cli\" else None,",
+            "sha256": "aa1b2c2c8090c7629e5f14a3295726aa031245606ce14fde86b060743a55f838"
+          }
+        ]
+      }
+    ]
+  },
+  "limits": [
+    "Local self-review can be mistaken. Literal source verification does not prove every explanation.",
+    "Claude and Copilot analysis adapters have command/extraction tests; no live inference was run for them.",
+    "The alternate local reasoning model failed multiple earlier structured-output attempts; fallback records these failures.",
+    "Build execution and arbitrary shell commands are outside this analysis feature."
+  ],
+  "regression_coverage": {
+    "collected_final": 707,
+    "passing_unique_across_staged_runs": 700,
+    "skipped_opt_in_live": 7,
+    "focused_final_passed": 69,
+    "notes": "Two regression stages plus final focused reruns. Initial failures and fixes are documented in the companion report. Not one uninterrupted final full-suite command."
+  }
+}

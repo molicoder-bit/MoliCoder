@@ -40,7 +40,7 @@ def test_project_evidence_is_fresh_bounded_and_path_specific(tmp_path):
 def test_ui_file_read_reaches_model_with_evidence(qtbot, tmp_path, monkeypatch):
     from local_model_chat.storage import ChatStore
     from local_model_chat.ui.main_window import MainWindow
-    from local_model_chat.workers import ChatWorker
+    from local_model_chat.workers import RepositoryChatWorker
     note = tmp_path / 'notes.txt'
     note.write_text('ORCHID-742')
     store = ChatStore(tmp_path / 'ui.db')
@@ -50,7 +50,7 @@ def test_ui_file_read_reaches_model_with_evidence(qtbot, tmp_path, monkeypatch):
     window._load_project_list(select_id=project.id)
     window._new_chat()
     requests = []
-    monkeypatch.setattr(ChatWorker, 'start', lambda worker: requests.append(worker.messages))
+    monkeypatch.setattr(RepositoryChatWorker, 'start', lambda worker: requests.append(worker.messages))
     window.composer.setPlainText('Locate notes.txt and explain its contents.')
     window._send_message()
     assert any('ORCHID-742' in m['content'] for m in requests[0])

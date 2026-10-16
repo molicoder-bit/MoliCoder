@@ -21,13 +21,14 @@ Long chat histories, oversized prompts, unnecessary model calls, and automatic r
 
 The goal is more predictable use of local hardware and paid services, with fewer needless model calls and clearer evidence about what happened. Savings depend on your workload and provider terms; MoliCoder does not promise a fixed reduction in tokens or cost. The metered API policy layer is separate from the default desktop routes and cannot cap internal usage inside a subscription CLI.
 
-For example, a question such as “What task are we on?” can be answered from the saved run record without sending a model prompt. A small code change can run through Local offline Build. If that route cannot handle the task, you can deliberately choose an external agent, inspect the result, and see which usage figures are known. This keeps the decision to spend external allowance with you.
+For example, a question such as “What task are we on?” can be answered from the saved run record without sending a model prompt. A small code change can run through Local offline Build. Repository questions try local models first and can automatically continue through a trusted external provider when local analysis fails. Each reply records the attempted routes and the model that answered.
 
 ## What works today
 
 - **Chat:** stream replies from local Ollama models; adjust output length, temperature, and top-p; inspect prompt/output metrics; keep conversations and export Markdown or JSON.
 - **Conversation continuity and copying:** reopened chats send their saved messages with each request, within the visible context limit. Drag across message cards or Shift-click to select a range; use Select all / Copy chat for larger copies.
 - **Project context:** Chat knows its associated project's name, folder and type. Ask which project is selected or inspect authoritative run status and project knowledge using local records.
+- **Repository analysis:** ask where behavior is implemented. The app searches actual source, gives local models bounded read/search tools, checks quoted code against the files, and reviews local answers for support. Inability, bad evidence, stalled tools, context limits, and provider errors trigger automatic fallback with the same question and gathered evidence.
 - **Read-only folder listings:** ask "What's in C:/Dev?" or "List files in src" to see immediate folder/file names without a model call, including explicit folders outside the selected project.
 - **Build:** plan and execute tasks in isolated Git worktrees, run fixed validation commands, preserve failed work for review, and record task evidence.
 - **Routes:** choose Local offline, Hybrid, or Frontier only. External CLI agents require project trust and an explicit Build authorization.
@@ -64,9 +65,27 @@ To copy several messages, drag from one message body into another, or click a st
 
 Explicit simple folder requests use a local confirmation showing the exact path, including destinations outside a Git project. Missing or invalid destinations produce clarification. Created, already-existing, cancelled, and failed actions are recorded under **Chat history → Local actions**. Coding agents still cannot escape their worktree scope.
 
-Ask **"Do you know what project we're working on?"** for the current chat's saved project name, folder, and type. A General chat explains that it has no associated project. Normal model requests also include this basic metadata so follow-up wording can use it; no project file is automatically opened.
+Ask **"Do you know what project we're working on?"** for the current chat's saved project name, folder, and type. A General chat explains that it has no associated project. General conversation requests also include this basic metadata; repository questions use the source-reading analysis route below.
 
 Ask **"OK, can you tell me which content is in C:/Dev?"**, **"List contents of C:/Dev"**, or **"List files in src"** for a read-only local listing. Relative folders use this chat's project; an absolute path also works from General chats. The app reads immediate names/types in a background worker, shows a checked time, and records **No AI model used**. It displays at most 100 entries and labels partial listings. It does not recurse or read file contents. Missing folders, file paths, access errors, and cancellation are shown as actual outcomes. Network/device paths require a local destination for this action. Listings and project identity answers appear in the conversation and its Context details receipt.
+
+### Repository questions and automatic fallback
+
+With a project associated with the chat, ask **“Where is the Build plan checked before execution?”** or **“Explain how this project chooses its provider.”** The analysis route indexes supported UTF-8 source files and supplies excerpts with source IDs. Models can search and read additional project files. It checks citations against the supplied text and unchanged on-disk file hashes; a short local grounding review can reject unsupported explanations. This improves evidence quality but cannot prove that every explanation is correct.
+
+The route tries up to two installed local models with distinct weight digests, then up to two distinct **trusted** external CLI providers (Codex, Claude, or Copilot). The selected provider is preferred among trusted external providers. Models explicitly report inability, and the app also checks actual outputs instead of relying on their confidence. The full current conversation and question are retained across handoffs; gathered source evidence is fitted to each model's context. A model whose context is too small is skipped rather than silently losing chat history.
+
+In project **Provider settings**, use **Automatically try trusted external providers when local repository analysis cannot answer** to control external escalation. Trust is required separately for each provider. Local-only operation remains available by disabling this setting. No model download, account creation, or sign-in happens as part of fallback. The current route appears while working, and the saved reply receipt includes attempts, failures, source hashes, and the answering model. Exhausting the chain records an unresolved result.
+
+Analysis tools only search/read; they do not edit files or expose a shell. Indexing is bounded to 4,000 supported files, 12 MB total, eight seconds, and 1 MB per file, excluding links, credential paths, dependencies, build output, and app metadata. Large or unsupported repositories may need a narrower question. Each local route has four tool/answer turns (45 seconds per inference) and one grounding review (30 seconds). External CLI calls have a 90-second ceiling each; their internal token use and subscription cost can be unknown. These rules apply to repository questions; Build retains its separate execution approvals and routing.
+
+The CLI uses the same analysis service:
+
+```powershell
+.venv\Scripts\molicoder-exec.exe ask "Where is plan approval checked?" --project C:\Dev\LocalModelChat --report answer.json
+```
+
+Add `--local-only` to prevent external fallback, or `--database PATH` for an isolated test profile. Exit code 0 means an answer passed the configured evidence checks; 2 means unresolved. Read-only analysis does not require a clean Git checkout or an execution branch.
 
 ### Activity, failures, and recovery
 
@@ -76,7 +95,7 @@ Failures remain visible with their effect and a relevant recovery action, includ
 
 ### Settings and appearance
 
-Settings stays open while navigating **General**, **Models & providers**, **Projects & Build**, **Usage & limits**, **Kandev**, and **Diagnostics**. Model cards separate installation, sign-in, model choice, and readiness. Connection checks make no inference request; paid test messages keep their separate approval and cap. API connections currently support capped tests, while main Chat uses local Ollama models. Project model overrides offer an explicit Provider default choice.
+Settings stays open while navigating **General**, **Models & providers**, **Projects & Build**, **Usage & limits**, **Kandev**, and **Diagnostics**. Model cards separate installation, sign-in, model choice, and readiness. Connection checks make no inference request; paid test messages keep their separate approval and cap. API connections currently support capped tests. General Chat uses local Ollama; repository analysis can continue through trusted official CLIs. Project model overrides offer an explicit Provider default choice.
 
 Use **Theme** in the header to choose **Matrix** or **Light**, or change appearance and text size in General. Preferences save immediately; project model overrides have their own Save action. Kandev's embedded web content keeps its own appearance settings. Windows packages use the supplied logo for executable, shortcut, and window icons; regenerate the multi-resolution icon with `.venv\Scripts\python.exe scripts\build_windows_icon.py` before packaging.
 

@@ -138,29 +138,37 @@ def test_last_selected_older_chat_survives_restart_and_archiving(qtbot, tmp_path
     assert store.get_conversation(older.id) is not None
 
 
-def test_switch_cancels_old_stream_and_blocks_cross_project_during_build(qtbot, tmp_path, monkeypatch):
+@pytest.mark.parametrize('repository_mode', [False, True])
+def test_switch_cancels_old_stream_and_blocks_cross_project_during_build(qtbot, tmp_path, monkeypatch, repository_mode):
     class Worker(QObject):
         content_delta = Signal(str)
         thinking_delta = Signal(str)
         completed = Signal(object)
         failed = Signal(str)
         finished = Signal()
+        route_changed = Signal(object)
+        repository_analysis = repository_mode
 
         def __init__(self, *args):
             super().__init__()
             self.cancelled = False
+            self.model = args[1]
+            self.provider = 'ollama'
+            self.request_id = 'old-request'
         def start(self): pass
         def cancel(self): self.cancelled = True
         def isRunning(self): return False
 
     monkeypatch.setattr('local_model_chat.ui.main_window.ChatWorker', Worker)
+    monkeypatch.setattr('local_model_chat.ui.main_window.RepositoryChatWorker', Worker)
     store = ChatStore(tmp_path / 'workers.db')
     a = project(store, tmp_path, 'A')
     b = project(store, tmp_path, 'B')
     w = MainWindow(store, FakeClient(), start_ollama_check=False)
     qtbot.addWidget(w)
     choose(w, a.id)
-    w.composer.setPlainText('Explain Python functions')
+    w.composer.setPlainText('Where is this project behavior implemented?' if repository_mode else 'Explain Python functions')
+    assert w._repository_request(w.composer.toPlainText()) is repository_mode
     w._send_message()
     old = w.chat_worker
     choose(w, b.id)
@@ -169,6 +177,7 @@ def test_switch_cancels_old_stream_and_blocks_cross_project_during_build(qtbot, 
     old.content_delta.emit('Wrong project')
     old.completed.emit(GenerationMetrics())
     old.finished.emit()
+    old.route_changed.emit({'phase': 'started', 'request_id': 'old-request', 'provider': 'codex', 'model': 'wrong-project'})
     assert not store.list_messages(current)
     assert not w._retired_chat_workers
     w.orchestration_worker = object()

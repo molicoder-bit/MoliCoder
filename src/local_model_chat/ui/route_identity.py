@@ -40,6 +40,11 @@ def refresh_route_identity(w):
                  if offering else 'provider/model unavailable')
         text = f'API test running · {route}'
     elif w.view_stack.currentWidget() == w.chat_view:
+        if getattr(w.chat_worker, 'repository_analysis', False):
+            text = f"Inspecting repository · {w.chat_worker.provider} · {w.chat_worker.model}"
+            w.route_identity.setText(text)
+            w.route_identity.setToolTip('Automatic fallback preserves the question and gathered repository evidence. Final sources are checked on disk.')
+            return
         if getattr(w.chat_worker, 'local_read', False):
             w.route_identity.setText('Reading local folder · No AI model used')
             w.route_identity.setToolTip(str(w.chat_worker.path))

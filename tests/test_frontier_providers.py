@@ -57,6 +57,39 @@ def test_codex_commands_are_read_only_for_planning_and_writable_only_in_worktree
     assert str(tmp_path.resolve()) in execute_command
 
 
+@pytest.mark.parametrize('provider_type', [CodexProvider, ClaudeProvider, CopilotProvider])
+def test_repository_analysis_uses_read_only_commands_without_a_plan_schema(tmp_path, monkeypatch, provider_type):
+    binary = tmp_path / 'provider.exe'
+    binary.touch()
+    provider = provider_type(binary=binary, model='configured-model')
+    captured = {}
+    output_paths = []
+    def invoke(command, prompt, **kwargs):
+        captured.update(command=command, prompt=prompt, kwargs=kwargs)
+        if '-o' in command:
+            output = Path(command[command.index('-o')+1])
+            output_paths.append(output)
+            output.write_text('{"status":"answered"}', encoding='utf-8')
+        return ProviderResult('completed', 'stdout framing', model='configured-model', model_source='configured',
+                              events=({'result': '{"status":"answered"}'},))
+    monkeypatch.setattr(provider, '_invoke', invoke)
+    result = provider.analyze(tmp_path, 'Question and source evidence')
+    command = captured['command']
+    assert '--output-schema' not in command and '--json-schema' not in command
+    assert captured['kwargs']['purpose'] == 'repository_analysis'
+    assert captured['kwargs']['timeout_seconds'] == 90
+    assert result.message == '{"status":"answered"}' and result.model_source == 'configured'
+    if provider.name == 'codex':
+        assert command[command.index('-s')+1] == 'read-only'
+        assert '--approve-for-me' not in command
+    elif provider.name == 'claude':
+        assert command[command.index('--tools')+1] == 'Read,Glob,Grep'
+        assert command[command.index('--permission-mode')+1] == 'plan'
+    else:
+        assert '--deny-tool' in command and 'shell' in command and 'write' in command
+    assert all(not p.exists() for p in output_paths)
+
+
 def test_opencode_uses_documented_headless_flags_and_requires_profile(monkeypatch, tmp_path) -> None:
     binary = tmp_path / "opencode.exe"
     binary.touch()

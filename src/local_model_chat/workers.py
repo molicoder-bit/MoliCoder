@@ -74,6 +74,48 @@ class ChatWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class RepositoryChatWorker(QThread):
+    content_delta = Signal(str)
+    thinking_delta = Signal(str)
+    completed = Signal(object)
+    failed = Signal(str)
+    route_changed = Signal(object)
+    repository_analysis = True
+
+    def __init__(self, client, model, messages, options, policy, project):
+        super().__init__()
+        self.client, self.model, self.messages = client, model, messages
+        self.options, self.policy, self.project = options, policy, project
+        self.provider = 'ollama'
+        self.request_id = str(uuid4())
+        self._cancelled = False
+        self.analysis = None
+
+    def cancel(self):
+        self._cancelled = True
+        if self.analysis:
+            self.analysis.cancel()
+
+    def run(self):
+        from .repository_analysis import RepositoryAnalysis
+        try:
+            self.analysis = RepositoryAnalysis(self.policy.registry.store, self.project, self.client,
+                preferred_model=self.model, policy=self.policy, cancelled=lambda: self._cancelled,
+                on_route=self.route_changed.emit)
+            self.analysis.request_id = self.request_id
+            result = self.analysis.answer(self.messages[-1]['content'], self.messages[:-1])
+            if self._cancelled:
+                self.completed.emit(GenerationMetrics(done_reason='cancelled'))
+                return
+            self.route_changed.emit(dict(result.receipt, phase='completed'))
+            self.content_delta.emit(result.content)
+            self.completed.emit(result.metrics)
+        except InterruptedError:
+            self.completed.emit(GenerationMetrics(done_reason='cancelled'))
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class DirectoryReadWorker(QThread):
     completed = Signal(object)
     local_read = True

@@ -45,6 +45,7 @@ class ProviderResult:
     model: str = ""
     error: str = ""
     events: tuple[dict, ...] = field(default_factory=tuple)
+    model_source: str = 'unknown'
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,6 +401,7 @@ class CliFrontierProvider:
         result = ProviderResult(
             status, message, input_tokens, output_tokens, seconds,
             reported_model or self.model, error[-4000:] if status != "completed" else "", tuple(events),
+            model_source='reported' if reported_model else 'configured' if self.model else 'unknown',
         )
         self._emit("provider_finished", {
             "provider": self.name, "purpose": purpose, "status": status,
@@ -487,6 +489,42 @@ class CliFrontierProvider:
                         + f"\n\nPrevious response:\n{previous}"
                     )
         raise ProviderExecutionError(last_error or "provider did not produce a valid plan")
+
+    def analyze(self, root: Path, prompt: str, *, timeout_seconds: float = 90.0) -> ProviderResult:
+        """Read-only answer invocation, independent of implementation/plan schemas."""
+        output = None
+        if self.name == 'codex':
+            output = Path(tempfile.gettempdir()) / f'molicoder-analysis-{os.getpid()}-{time.time_ns()}.json'
+            command = self._base(root, 'read-only') + ['-o', str(output), '--ephemeral', '--skip-git-repo-check', '-']
+        elif self.name == 'claude':
+            command = [str(self.discover_binary() or 'claude'), '-p', '--output-format', 'json',
+                       '--permission-mode', 'plan', '--no-session-persistence', '--tools', 'Read,Glob,Grep',
+                       '--allowedTools', 'Read,Glob,Grep']
+            if self.model:
+                command += ['--model', self.model]
+        elif self.name == 'copilot':
+            command, _ = self.plan_command(root)
+        else:
+            raise ProviderUnavailable('Read-only analysis is unavailable for this provider')
+        try:
+            result = self._invoke(command,
+                'Answer this repository question without editing files, running commands or accessing credentials. '
+                'Use only the supplied source evidence. Return the requested answer JSON, not a plan.\n\n' + prompt,
+                cwd=root, purpose='repository_analysis', timeout_seconds=timeout_seconds)
+            text = result.message
+            if output and output.is_file():
+                text = output.read_text(encoding='utf-8')
+            else:
+                for event in result.events:
+                    if isinstance(event.get('result'), str):
+                        text = event['result']
+                    item = event.get('item', {})
+                    if isinstance(item, dict) and item.get('type') == 'agent_message':
+                        text = item.get('text', text)
+            return replace(result, message=text)
+        finally:
+            if output:
+                output.unlink(missing_ok=True)
 
     def execute(self, worktree: str | Path, prompt: str, *, timeout_seconds: float = 1200.0) -> ProviderResult:
         root = Path(worktree).resolve()

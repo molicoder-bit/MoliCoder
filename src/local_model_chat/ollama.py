@@ -111,6 +111,8 @@ class OllamaClient:
         temperature: float,
         top_p: float,
         keep_alive: str = "5m",
+        timeout_seconds: float = 3600,
+        response_format: dict | str | None = None,
     ) -> ChatResponse:
         payload: dict[str, Any] = {
             "model": model,
@@ -127,8 +129,10 @@ class OllamaClient:
         }
         if tools:
             payload["tools"] = tools
+        if response_format is not None:
+            payload['format'] = response_format
         started = time.monotonic()
-        response = dict(self._request("/api/chat", payload, timeout=3600))
+        response = dict(self._request("/api/chat", payload, timeout=timeout_seconds))
         if response.get("error"):
             raise OllamaError(str(response["error"]))
         message = response.get("message", {})
