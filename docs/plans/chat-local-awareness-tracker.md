@@ -1,6 +1,6 @@
 # Chat project identity and local folder queries
 
-**Status: implementation and verification complete; 1.3.4 installation waiting for the running app to close.**
+**Status: complete — version 1.3.4 installed and verified on 2026-10-16.**
 
 - [x] LA01 Recognize conversational questions about the current project's identity and answer from the conversation's saved project association.
 - [x] LA02 Include basic project name/path/type metadata in model requests and their context estimates/receipts, without reading project files automatically.
@@ -8,7 +8,7 @@
 - [x] LA04 Enumerate only immediate names/types in a background worker; bound the result and show missing/access-denied/cancelled outcomes truthfully.
 - [x] LA05 Integrate local read progress, cancellation, provenance and history without inference or a Build run.
 - [x] LA06 Verify project switching, no-project clarification, literal filenames, limits, errors, worker isolation, and model request metadata.
-- [ ] LA07 Update usage documentation, package/smoke-check the release, and record delivery/install status accurately.
+- [x] LA07 Update usage documentation, package/smoke-check the release, and record delivery/install status accurately.
 
 ## Evidence
 
@@ -19,4 +19,4 @@
 - Final native Windows local-awareness suite: **16 passed**. Full Windows regression: **528 passed, 6 skipped** in 219.38 seconds. Skipped tests require opt-in live inference; focused/native counts overlap the full suite and must not be summed.
 - Both 1.3.4 package checks passed: desktop/legacy-data/migration recovery and embedded-browser startup. Built executable SHA-256: `E63E496F1A3C14B0D9CEE9F39941FE289176301670BAC4D37D9AD820A06031AE`.
 - Implementation source `9f2fca9` is pushed to `main`; no user history was rewritten or repaired in place.
-- Windows installation is waiting for the user to close the existing app. The app and its live records have not been force-closed or edited. Verification above is local Windows evidence, not a claim of a newly completed hosted platform matrix.
+- After the user confirmed closure, installed **1.3.4** at `C:\Users\luism\AppData\Local\Programs\MoliCoder\MoliCoder.exe` with no app process running. The installed executable matches the verified SHA-256 above and passed its desktop/migration smoke check. The desktop shortcut was refreshed; the previous installation is retained at `C:\Users\luism\AppData\Local\Programs\MoliCoder.previous-20261016-041101-b9176926e9464f699d5b3f17e888020a`. Verification above is local Windows evidence, not a claim of a newly completed hosted platform matrix.
