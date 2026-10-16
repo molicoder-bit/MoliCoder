@@ -68,6 +68,8 @@ def main() -> int:
                 raise RuntimeError('Interrupted fixture was not reconciled')
             if not list(Path(temporary).glob('smoke.sqlite3.pre-v15-*.bak')):
                 raise RuntimeError('Legacy schema backup was not created')
+            from .ui.chat_smoke import verify_local_chat
+            verify_local_chat(window, project.id, conversation.id, temporary, app)
             doctor_report(discover_environment(), load_manifests())
             window.close()
         return 0

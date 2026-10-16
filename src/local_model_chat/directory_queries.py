@@ -27,13 +27,19 @@ class DirectoryListing:
 
 def directory_question(message: str) -> DirectoryQuestion | None:
     text = message.strip()
-    text = re.sub(r'^(?:ok(?:ay)?|good|well)[,!]?\s+', '', text, flags=re.I)
+    acknowledgment = (r"^(?:ok(?:ay)?|all right|alright|good|great|thanks|thank you|well)"
+                      r"(?:\s+(?:that['’]s good|sounds good|great|thanks))?"
+                      r"(?:[,!.]\s*|\s+(?=(?:can|could|would|please|tell|show|list|what|which)\b))")
+    for _ in range(3):
+        text = re.sub(acknowledgment, '', text, count=1, flags=re.I)
     text = re.sub(r'^(?:(?:can|could|would) you\s+(?:please\s+)?|please\s+)', '', text, flags=re.I)
-    text = re.sub(r'^tell me\s+', '', text, flags=re.I).rstrip('?').strip()
+    text = re.sub(r'\s+please[?.!]?$', '', text, flags=re.I).rstrip('?').strip()
+    noun = r'(?:contents?|files(?: and folders)?|folders(?: and files)?|items|directories|entries)'
+    query = r'(?:show(?: me)?|list|display|tell me|give me|get me)(?: (?:a|the))?(?: (?:list|listing) of)?(?: (?:all|the))*'
     patterns = (
-        r"(?:what|which)\s+(?:files(?: and folders)?|folders|contents?|items|directories)\s+(?:are|is)\s+(?:in|inside|under)\s+(.+)",
-        r"what(?:'s| is)\s+(?:in|inside)\s+(.+)",
-        r"(?:show(?: me)?|list|display)\s+(?:the\s+)?(?:contents?|files(?: and folders)?|folders|items)(?:\s+(?:of|in|inside|under))?\s+(.+)",
+        rf"(?:(?:tell|show) me )?(?:what|which)\s+(?:(?:are|is)\s+)?(?:the\s+)?{noun}\s+(?:(?:are|is)\s+)?(?:in|inside|under|of)\s+(.+)",
+        r"(?:(?:tell|show) me )?what(?:['’]s| is)\s+(?:in|inside|under)\s+(.+)",
+        rf"{query}\s+{noun}\s+(?:of|in|inside|under)\s+(.+)",
         r"(?:show(?: me)?|list|dir|ls)\s+(.+)",
     )
     for index, pattern in enumerate(patterns):
@@ -41,7 +47,9 @@ def directory_question(message: str) -> DirectoryQuestion | None:
         if not match:
             continue
         target = match[1].strip()
-        if target[:1] in {'"', "'", '“'}:
+        target = re.sub(r'^(?:(?:the|a) )?(?:folder|directory|path)\s+', '', target, flags=re.I)
+        quoted = target[:1] in {'"', "'", '“'}
+        if quoted:
             closing = '”' if target.startswith('“') else target[0]
             if not target.endswith(closing) or len(target) < 3:
                 return None
@@ -50,7 +58,7 @@ def directory_question(message: str) -> DirectoryQuestion | None:
         if project_reference:
             target = '.'
         # A generic "list ideas" remains ordinary conversation.
-        if index in {1, 3} and not project_reference and not re.match(r'^(?:[A-Za-z]:[/\\]|[/\\~.]|.+[/\\])', target):
+        if index in {1, 3} and not project_reference and not quoted and not re.match(r'^(?:[A-Za-z]:[/\\]|[/\\~.]|[^\s:/\\]+[/\\])', target):
             continue
         return DirectoryQuestion(target)
     return None

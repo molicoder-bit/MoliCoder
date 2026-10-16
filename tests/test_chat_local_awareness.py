@@ -29,6 +29,10 @@ def test_project_identity_uses_records_and_explains_general_chat(tmp_path, text)
 @pytest.mark.parametrize('text', [
     'OK, can you tell me which content is in c:/Dev?', 'List contents of "c:/Dev"',
     "What's in c:/Dev?", 'show me c:/Dev', 'dir c:/Dev',
+    "Ok that's good, can you tell me the contents of the folder c:/Dev?",
+    'Thanks, could you show me what is inside the directory "c:/Dev"?',
+    'Can you give me a list of all the files in c:/Dev please?',
+    'Can you tell me the contents of c:/Dev?',
 ])
 def test_reported_folder_question_variants(text):
     assert directory_question(text).target.lower() == 'c:/dev'
@@ -41,7 +45,8 @@ def test_folder_paths_relative_clarification_and_unrelated_chat(tmp_path):
     assert directory_target(directory_question('List my project folder'), project) == tmp_path
     result = MainController(store).handle('List files in src', None)
     assert result.action_state == 'awaiting_clarification'
-    for text in ('list ideas', "what's in a name", 'Explain how to list directory entries', 'delete C:/Dev'):
+    for text in ('list ideas', "what's in a name", 'Explain how to list directory entries', 'delete C:/Dev',
+                 'List ideas about C:/Dev', "Don't list contents of C:/Dev", 'Explain how to list contents of C:/Dev'):
         assert directory_question(text) is None
     with pytest.raises(ValueError, match='network'):
         directory_target(directory_question('List contents of "//server/share"'), project)
@@ -112,13 +117,21 @@ def test_project_metadata_follows_conversation_instead_of_old_model_guess(qtbot,
     assert w.store.message_receipt(reply.id)['model_source'] == 'no_inference'
 
 
-def test_folder_read_uses_background_worker_and_persists_no_model_receipt(qtbot, tmp_path):
+@pytest.mark.parametrize('user_message', [
+    'OK, can you tell me which content is in "{path}"?',
+    "Ok that's good, can you tell me the contents of the folder \"{path}\"?",
+    'Thanks, could you show me what is inside the directory "{path}"?',
+])
+def test_folder_read_uses_background_worker_and_persists_no_model_receipt(qtbot, tmp_path, monkeypatch, user_message):
     root = tmp_path / 'listing';root.mkdir()
     (root / 'hello.txt').write_text('secret file contents')
     w = MainWindow(ChatStore(tmp_path / 'listing.db'), FakeClient(), start_ollama_check=False)
     qtbot.addWidget(w)
     w.show()
-    w.composer.setPlainText(f'OK, can you tell me which content is in "{root}"?')
+    def forbid_model(*args, **kwargs):
+        pytest.fail('A folder listing must not fall through to model inference')
+    monkeypatch.setattr('local_model_chat.ui.main_window.ChatWorker', forbid_model)
+    w.composer.setPlainText(user_message.format(path=root))
     w._send_message()
     qtbot.waitUntil(lambda: w.chat_worker is None)
     reply = w.store.list_messages(w.current_conversation_id)[-1]
@@ -153,3 +166,21 @@ def test_late_local_read_cannot_write_into_new_chat(qtbot, tmp_path, monkeypatch
     old.finished.emit()
     assert old._cancelled and not w.store.list_messages(w.current_conversation_id)
     assert not w._retired_chat_workers
+
+
+def test_packaged_smoke_journey_uses_the_reopened_chat_and_real_reader(qtbot, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    from local_model_chat.domain import Message
+    from local_model_chat.ui.chat_smoke import verify_local_chat
+    store = ChatStore(tmp_path / 'smoke.db')
+    old = store.create_conversation('molicoder:latest', 'Previously saved chat')
+    store.add_message(Message(None, old.id, 'user', 'Saved user history'))
+    store.add_message(Message(None, old.id, 'assistant', 'I cannot browse directories.'))
+    project = store.upsert_project('Fixture project', str(tmp_path), 'python')
+    w = MainWindow(ChatStore(store.path), FakeClient(), start_ollama_check=False)
+    qtbot.addWidget(w)
+    def forbid_model(*args, **kwargs):
+        pytest.fail('Packaged Chat journey attempted model inference')
+    monkeypatch.setattr('local_model_chat.ui.main_window.ChatWorker', forbid_model)
+    verify_local_chat(w, project.id, old.id, tmp_path, QApplication.instance())
+    assert store.list_messages(old.id)[0].content == 'Saved user history'
