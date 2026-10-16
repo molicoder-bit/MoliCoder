@@ -2,6 +2,8 @@
 
 **Status: complete — delivered in 1.3.1 on 2026-10-15.**
 
+Header navigation follow-up for 1.3.3 is tracked below; the original delivery evidence remains historical.
+
 Each project owns many conversations. A conversation belongs to at most one project; unassigned conversations appear under General chats. Existing associations and message history are preserved.
 
 ## Implementation
@@ -28,3 +30,13 @@ Native Windows screenshots in Matrix and Light were rendered with demonstration 
 - Installed at `C:\Users\luism\AppData\Local\Programs\MoliCoder\MoliCoder.exe` while the app was closed. Desktop shortcut refreshed; previous installation preserved at `C:\Users\luism\AppData\Local\Programs\MoliCoder.previous-20261015-212618-a03179953fa24a7289290f401fce5f76`.
 - Built and installed executable SHA-256 match: `C813E646CEE488841C0B117645C4C634D72E6F7BBF97C40B10841D2B33704B28`.
 - Results above are local Windows verification for 1.3.1. The preceding 1.3.0 supported-platform CI results remain recorded in [workspace usability verification](workspace-usability-verification.md).
+
+## Header navigation follow-up — 2026-10-16
+
+- [x] PC11 Rename History to Chat history and visibly label the project selector Project.
+- [x] PC12 Add the adjacent Chats dropdown, scoped to the selected project or General chats, and keep it synchronized with selection, New chat, rename, and deletion.
+- [x] PC13 Preserve Chat/Build navigation and drafts; fit the labeled selectors in both themes at the supported minimum size.
+- [x] PC14 Run focused project/chat navigation regressions and update README usage.
+- [ ] PC15 Package and smoke-check 1.3.3, install when the app is closed, and record/push delivery evidence.
+
+Verification: **22 focused tests passed** covering header, project chats, New chat, and usability journeys. The final header suite also passed **3 native Windows tests** after the history-dismissal refinement; counts overlap. A two-row header keeps Project and Chats adjacent without crowding branding, mode controls, or Chat history. Native fixture screenshots at 1020 × 680 logical pixels were visually checked in [Matrix](../images/usability/header-chats-matrix.png) and [Light](../images/usability/header-chats-light.png). Single-chat scopes show their current chat; selecting another is enabled when multiple chats exist. README labels and the main screenshot now match the header. Package delivery is pending.

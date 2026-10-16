@@ -364,7 +364,7 @@ class MainWindow(QMainWindow):
         self.build_project_title = QLabel("No project selected")
         self.build_project_title.setObjectName("projectHeading")
         layout.addWidget(self.build_project_title)
-        self.build_project_meta = QLabel("Choose a project above, or add one through History.")
+        self.build_project_meta = QLabel("Choose a project above, or add one through Chat history.")
         self.build_project_meta.setObjectName("muted")
         self.build_project_meta.setWordWrap(True)
         layout.addWidget(self.build_project_meta)
@@ -2830,7 +2830,7 @@ class MainWindow(QMainWindow):
         project = self.store.get_project(self.current_project_id) if self.current_project_id is not None else None
         scope = f"{project.name} chats" if project else "General chats"
         self.chats_scope_label.setText(f"{scope} · {len(conversations)}")
-        self.history_dialog.setWindowTitle(f"History — {scope}")
+        self.history_dialog.setWindowTitle(f"Chat history — {scope}")
         for conversation in conversations:
             item = QListWidgetItem(conversation.title)
             item.setData(Qt.ItemDataRole.UserRole, conversation.id)
@@ -2928,6 +2928,8 @@ class MainWindow(QMainWindow):
             self._apply_preset_controls()
         self._render_messages(self.store.list_messages(conversation.id))
         self._refresh_context_meter()
+        from .workspace import sync_chats
+        sync_chats(self)
 
     def _message_bubble(self, message):
         bubble = ChatBubble(message.role, message.content, message.thinking)

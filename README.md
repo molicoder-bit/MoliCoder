@@ -39,9 +39,9 @@ Local Ollama chat needs no cloud account. Optional external agents and services 
 
 Matrix is the default theme: black surfaces, green accents, and monospace text, with the supplied MoliCode logo in the header. Use **New chat** to start a conversation in one click from Chat or Build. **Chat** supports conversation and read-only planning; **Build** starts explicitly reviewed execution. Switching between them preserves drafts.
 
-![MoliCoder Chat in the default Matrix theme](docs/images/usability/chat-matrix.png)
+![MoliCoder Chat with labeled Project and Chats selectors in the Matrix theme](docs/images/usability/header-chats-matrix.png)
 
-Screenshots use demonstration records and make no inference calls. [Light theme](docs/images/usability/chat-light.png) · [Active Build](docs/images/usability/build-active-matrix.png) · [Visible failure](docs/images/usability/build-failed-light.png) · [Settings](docs/images/usability/settings-light.png).
+Screenshots use demonstration records and make no inference calls. [Light theme](docs/images/usability/header-chats-light.png) · [Active Build](docs/images/usability/build-active-matrix.png) · [Visible failure](docs/images/usability/build-failed-light.png) · [Settings](docs/images/usability/settings-light.png).
 
 ### Current work and model identity
 
@@ -51,9 +51,9 @@ The readable identity area distinguishes the **last reply/call** from the model 
 
 ### Choose the target explicitly
 
-The app starts in general Chat with **No project**. Choose a folder for repository work, or enable **Settings → General → Remember last workspace** to restore the last explicit selection. Build shows its target folder and offers Open folder / Create project without a History detour. Opening an existing project conversation shows its saved association. An active Build keeps its target while New chat remains available.
+The app starts in general Chat with **No project**. Choose a folder for repository work, or enable **Settings → General → Remember last workspace** to restore the last explicit selection. Build shows its target folder and offers Open folder / Create project without a Chat history detour. Opening an existing project conversation shows its saved association. An active Build keeps its target while New chat remains available.
 
-Each project has its own **chat history**, with any number of conversations. Choose a project to see only its chats under **History → Projects / conversations**; the heading shows the project and chat count. **New chat** creates another conversation in that project. Switching projects restores the chat you last selected there, including its unsent draft and attachments during the current session. The chat selection also survives restarting the app. Choose **General chats · No project** for conversations without a project. Existing chats keep their saved associations; unassigned older chats remain General chats. Removing a project from the list preserves its chat history; add the same folder again to reopen it.
+Each project has its own **chat history**, with any number of conversations. Use the labeled **Project** selector in the header; the adjacent **Chats** dropdown immediately lists that project's conversations and opens the chat you choose. It shows the current chat and becomes selectable when there is more than one. **Chat history → Projects / conversations** also provides the full list with rename/delete actions. **New chat** creates another conversation in that project. Switching projects restores the chat you last selected there, including its unsent draft and attachments during the current session. The chat selection also survives restarting the app. Choose **General chats · No project** for conversations without a project; their chats appear in the same Chats dropdown. Existing chats keep their saved associations; unassigned older chats remain General chats. Removing a project from the list preserves its chat history; add the same folder again to reopen it.
 
 Project history preview: [Matrix](docs/images/usability/project-chats-matrix.png) · [Light](docs/images/usability/project-chats-light.png). [Completed implementation and verification tracker](docs/plans/project-chat-tracker.md).
 
@@ -61,7 +61,7 @@ Continuing an existing chat sends its complete saved user/assistant history, fol
 
 To copy several messages, drag from one message body into another, or click a start position and **Shift-click** an end position. Selection scrolls when you drag near the transcript edge. **Ctrl+A / Ctrl+C** (Command on macOS) works across the transcript when a message has focus; composer shortcuts still apply only to your draft. **Select all** selects displayed message text, including expanded reasoning; **Copy chat** copies the current conversation with speaker labels and Markdown, excluding hidden reasoning and unsent drafts. Each message's own Copy button remains available. [Continuity and selection verification](docs/plans/chat-continuity-selection-tracker.md).
 
-Explicit simple folder requests use a local confirmation showing the exact path, including destinations outside a Git project. Missing or invalid destinations produce clarification. Created, already-existing, cancelled, and failed actions are recorded under **History → Local actions**. Coding agents still cannot escape their worktree scope.
+Explicit simple folder requests use a local confirmation showing the exact path, including destinations outside a Git project. Missing or invalid destinations produce clarification. Created, already-existing, cancelled, and failed actions are recorded under **Chat history → Local actions**. Coding agents still cannot escape their worktree scope.
 
 ### Activity, failures, and recovery
 

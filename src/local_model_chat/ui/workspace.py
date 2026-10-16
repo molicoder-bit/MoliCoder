@@ -19,7 +19,8 @@ def build_workspace(w):
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
     bar = QFrame(); bar.setObjectName('topbar')
-    row = QHBoxLayout(bar); row.setContentsMargins(20, 12, 20, 12)
+    header = QVBoxLayout(bar); header.setContentsMargins(20, 12, 20, 12)
+    row = QHBoxLayout(); header.addLayout(row)
     logo_path = Path(__file__).parents[1] / 'assets' / 'molicodeLogo.png'
     w.setWindowIcon(QIcon(str(logo_path.with_name('MoliCoder.ico'))))
     logo = QLabel(); logo.setObjectName('brandLogo'); logo.setFixedSize(46, 46)
@@ -28,13 +29,14 @@ def build_workspace(w):
     row.addWidget(logo)
     title = QLabel('MoliCoder'); title.setObjectName('appTitle'); row.addWidget(title)
     w.project_switch = QComboBox(); w.project_switch.setMinimumWidth(150)
+    w.project_switch.setMaximumWidth(340)
+    w.project_switch.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
     w.project_switch.setAccessibleName('Project selector')
     w.project_switch.setEditable(True)
     w.project_switch.setInsertPolicy(QComboBox.NoInsert)
     w.project_switch.completer().setFilterMode(Qt.MatchContains)
     w.project_switch.completer().setCaseSensitivity(Qt.CaseInsensitive)
     w.project_switch.currentIndexChanged.connect(lambda: select_project(w))
-    row.addWidget(w.project_switch)
     w.sidebar = w._build_sidebar()
     w.history_dialog = QDialog(w); w.history_dialog.setWindowTitle('Projects and conversations')
     history_layout = QVBoxLayout(w.history_dialog)
@@ -58,8 +60,23 @@ def build_workspace(w):
     w.theme_selector.addItem('Light', 'light')
     w.theme_selector.currentIndexChanged.connect(lambda: select_theme(w))
     row.addWidget(w.theme_selector)
-    row.addWidget(button('History', lambda: show_history(w)))
+    w.chat_history_button = button('Chat history', lambda: show_history(w))
+    row.addWidget(w.chat_history_button)
     row.addWidget(button('Settings', lambda: show_settings(w)))
+    scope_row = QHBoxLayout(); header.addLayout(scope_row)
+    w.project_selector_label = QLabel('Project')
+    w.project_selector_label.setBuddy(w.project_switch)
+    scope_row.addWidget(w.project_selector_label)
+    scope_row.addWidget(w.project_switch, 1)
+    w.chat_selector_label = QLabel('Chats')
+    w.chat_switch = QComboBox()
+    w.chat_switch.setAccessibleName('Chats in selected project')
+    w.chat_switch.setMinimumContentsLength(20)
+    w.chat_switch.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+    w.chat_switch.activated.connect(lambda: select_chat(w))
+    w.chat_selector_label.setBuddy(w.chat_switch)
+    scope_row.addWidget(w.chat_selector_label)
+    scope_row.addWidget(w.chat_switch, 2)
     layout.addWidget(bar)
     strip = QFrame(); strip.setObjectName('usageStrip')
     strip_row = QHBoxLayout(strip); strip_row.setContentsMargins(22, 8, 22, 8)
@@ -167,7 +184,42 @@ def sync_projects(w):
     for project in w.registry.list():
         w.project_switch.addItem(project.name, project.id)
     w.project_switch.setCurrentIndex(max(0, w.project_switch.findData(w.current_project_id)))
+    w.project_switch.lineEdit().setCursorPosition(0)
+    w.project_switch.setToolTip(w.project_switch.currentText())
     w.project_switch.blockSignals(False)
+
+
+def sync_chats(w):
+    """Mirror the scoped history list without changing the selected conversation."""
+    chats = [w.chat_list.item(index) for index in range(w.chat_list.count())]
+    signature = (w.current_project_id, w.current_conversation_id,
+                 tuple((item.data(Qt.UserRole), item.text()) for item in chats))
+    if signature == getattr(w, '_chat_signature', None):
+        return
+    w._chat_signature = signature
+    w.chat_switch.blockSignals(True)
+    w.chat_switch.clear()
+    for item in chats:
+        w.chat_switch.addItem(item.text(), item.data(Qt.UserRole))
+        w.chat_switch.setItemData(w.chat_switch.count() - 1, item.toolTip(), Qt.ToolTipRole)
+    w.chat_switch.setCurrentIndex(w.chat_switch.findData(w.current_conversation_id))
+    w.chat_switch.setEnabled(len(chats) > 1)
+    detail = f'{len(chats)} chats in this project' if w.current_project_id is not None else f'{len(chats)} general chats'
+    if len(chats) == 1:
+        detail += ' · Use New chat to create another'
+    w.chat_switch.setToolTip(f'{w.chat_switch.currentText()}\n{detail}')
+    w.chat_switch.blockSignals(False)
+
+
+def select_chat(w):
+    conversation_id = w.chat_switch.currentData()
+    for index in range(w.chat_list.count()):
+        item = w.chat_list.item(index)
+        if item.data(Qt.UserRole) == conversation_id:
+            w.chat_list.setCurrentItem(item)
+            w._set_view('chat')
+            w.history_dialog.hide()
+            return
 
 
 def open_drawer(w, name):
