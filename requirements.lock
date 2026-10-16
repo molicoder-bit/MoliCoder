@@ -4,4 +4,5 @@ pytest==9.1.1
 pytest-qt==4.5.0
 cryptography==50.0.2
 zstandard==0.25.0
+mypy==2.4.0
 

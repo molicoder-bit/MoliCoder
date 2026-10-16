@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,7 @@ from pathlib import Path
 
 from local_model_chat.molicoder.planner.schema import parse_plan
 from local_model_chat.molicoder.providers import ProviderResult
+from local_model_chat.molicoder.runtime import build_validator
 from local_model_chat.molicoder.validate import ProjectValidator, ValidationCommand
 from test_build_plan_approval import approve, fixture, git
 
@@ -163,6 +165,32 @@ def test_s054_syntax_error_fails_verification(tmp_path):
     assert "syntax error" in result.error
     assert provider.calls == 1
     assert not (root / "calc.py").exists()
+
+
+def test_s055_type_error_fails_configured_static_check(tmp_path):
+    root, store, provider, orchestrator = _run(
+        tmp_path, "typed.py", {"typed.py": "def length(text: str) -> int:\n    return text\n"},
+        lambda _path: "validation passed",
+    )
+    config_dir = root / ".molicoder"
+    config_dir.mkdir(exist_ok=True)
+    (config_dir / "project.json").write_text(json.dumps({
+        "version": 1, "kind": "python", "constraints": [],
+        "validation": [{
+            "name": "mypy", "kind": "type", "timeout_seconds": 30,
+            "argv": ["{python}", "-m", "mypy", "--strict", "--cache-dir", ".molicoder/mypy-cache", "typed.py"],
+        }],
+    }), encoding="utf-8")
+    validate = lambda path: build_validator(path, environment_root=root).run_and_summarize()
+    orchestrator.validate = validate
+    orchestrator.validate_task = lambda path, _task: validate(path)
+    run_id, result = _execute(store, orchestrator)
+    assert result.status == "needs_attention"
+    assert "type/mypy" in result.error
+    assert "Incompatible return value type" in result.error
+    assert provider.calls == 1
+    assert store.list_run_tasks(run_id)[0].status == "needs_attention"
+    assert not (root / "typed.py").exists()
 
 
 def test_s056_success_text_without_change_is_not_completion(tmp_path):

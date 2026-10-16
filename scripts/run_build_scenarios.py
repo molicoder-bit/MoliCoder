@@ -64,6 +64,7 @@ CASES = {
     "S052": "tests/test_build_level5_execution.py::test_s052_fix_incorrect_function_and_pass_existing_tests",
     "S053": "tests/test_build_level5_execution.py::test_s053_added_unit_test_runs_and_rejects_mutant",
     "S054": "tests/test_build_level5_execution.py::test_s054_syntax_error_fails_verification",
+    "S055": "tests/test_build_level5_execution.py::test_s055_type_error_fails_configured_static_check",
     "S056": "tests/test_build_level5_execution.py::test_s056_success_text_without_change_is_not_completion",
     "S057": "tests/test_build_level5_execution.py::test_s057_out_of_scope_file_is_rejected",
     "S058": "tests/test_build_level5_execution.py::test_s058_long_validation_reports_progress_times_out_and_cancels",
