@@ -125,7 +125,9 @@ def test_s001_s002_plan_approval_and_exact_output(tmp_path, filename, content):
     root, store, _project, executor, orchestrator = fixture(tmp_path, filename, content)
     prepared = orchestrator.run(f"Write {filename}", mode="FRONTIER_ONLY")
     assert prepared.status == "awaiting_approval"
-    assignment = store.get_latest_plan_record(prepared.run_id)["payload"]["task_assignments"]["write"]
+    planned = store.get_latest_plan_record(prepared.run_id)["payload"]
+    assert len(planned["tasks"]) == 1 and planned["tasks"][0]["depends_on"] == []
+    assignment = planned["task_assignments"]["write"]
     assert assignment["runner"] == "provider_cli"
     assert assignment["provider"] == "scripted" and assignment["model"] == "fixture-model"
     assert executor.calls == 0

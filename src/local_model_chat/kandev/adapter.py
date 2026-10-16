@@ -115,10 +115,22 @@ class KandevTaskAdapter:
                     after_cursor = payload["cursor"]
                     break
         events = []
+        seen_cursors = {after_cursor}
+        if self.store is not None:
+            for recorded in self.store.list_events(ref.run_id):
+                if recorded.task_id != ref.task_id or not recorded.kind.startswith("kandev_"):
+                    continue
+                try:
+                    payload = json.loads(recorded.payload_json)
+                except json.JSONDecodeError:
+                    continue
+                if payload.get("remote_task_id") == ref.remote_task_id and isinstance(payload.get("cursor"), str):
+                    seen_cursors.add(payload["cursor"])
         for raw in self.api.events(ref.remote_task_id, after_cursor):
             cursor = str(raw.get("cursor") or "")
-            if not cursor or cursor == after_cursor:
+            if not cursor or cursor in seen_cursors:
                 continue
+            seen_cursors.add(cursor)
             payload = raw.get("payload")
             event = KandevEvent(
                 ref, cursor, str(raw.get("kind") or "unknown"),

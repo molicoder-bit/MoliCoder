@@ -68,14 +68,14 @@ def _required_text(value: Any, field: str) -> str:
     return value.strip()
 
 
-def parse_plan(value: str | dict[str, Any]) -> Plan:
+def parse_plan(value: str | dict[str, Any], *, max_tasks: int = 5) -> Plan:
     payload = _decode(value) if isinstance(value, str) else value
     if not isinstance(payload, dict):
         raise PlanValidationError("plan must be an object")
     objective = _required_text(payload.get("objective"), "objective")
     raw_tasks = payload.get("tasks")
-    if not isinstance(raw_tasks, list) or not 1 <= len(raw_tasks) <= 5:
-        raise PlanValidationError("tasks must contain between 1 and 5 items")
+    if not isinstance(raw_tasks, list) or not 1 <= len(raw_tasks) <= max_tasks:
+        raise PlanValidationError(f"tasks must contain between 1 and {max_tasks} items")
     tasks: list[PlanTask] = []
     keys: set[str] = set()
     for index, item in enumerate(raw_tasks):

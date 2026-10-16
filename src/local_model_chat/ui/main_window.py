@@ -8,7 +8,7 @@ from dataclasses import replace, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from PySide6.QtCore import QDir, QFile, Qt, QTimer, QUrl
+from PySide6.QtCore import QFile, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
@@ -1374,10 +1374,10 @@ class MainWindow(QMainWindow):
             if event.kind == "run_recovery_observed"
         ), None) if run and not kandev_owned else None
         self.recoverable_run_id = int(run["id"]) if run and available else None
-        self.build_resume_button.setEnabled(available and observed is None and self.orchestration_worker is None)
+        self.build_resume_button.setEnabled(available and self.orchestration_worker is None)
         self.build_resume_button.setText(
             "Reconcile Kandev run" if kandev_owned else
-            "Resume blocked pending review" if observed is not None else "Resume preserved run"
+            "Review interrupted run" if observed is not None else "Resume preserved run"
         )
         self.build_open_worktree_button.setEnabled(bool(path and path.is_dir()))
         self.build_discard_button.setEnabled(available and not kandev_owned and self.orchestration_worker is None)
@@ -1432,12 +1432,12 @@ class MainWindow(QMainWindow):
         if run["provider"] == "kandev":
             self._reconcile_kandev_run(project, run)
             return
-        provider_name = str(self.build_provider.currentData() or run.get("provider") or "codex")
+        provider_name = str(run.get("provider") or self.build_provider.currentData() or "codex")
         preferences = self.store.get_project_preferences(project.id)
         if provider_name not in preferences.trusted_providers:
             QMessageBox.information(self, "Provider permission required", "Trust the selected provider in Provider settings before resuming.")
             return
-        model = preferences.model_overrides.get(provider_name, "")
+        model = str(run.get("model") or "")
         mode = str(run.get("mode") or "HYBRID")
         request = str(run.get("request") or "")
         scope = (
@@ -1530,9 +1530,8 @@ class MainWindow(QMainWindow):
             return
         path = Path(str(run.get("worktree") or "")).resolve()
         managed_root = (data_dir() / "worktrees").resolve()
-        try:
-            path.relative_to(managed_root)
-        except ValueError:
+        if (not path.is_relative_to(managed_root) or path.name != "workspace"
+                or path.parent.name != f"run-{run['id']}"):
             QMessageBox.critical(self, "Unsafe worktree path", f"Refusing to remove an unmanaged path:\n{path}")
             return
         if QMessageBox.question(
@@ -1540,16 +1539,23 @@ class MainWindow(QMainWindow):
             f"Permanently remove the isolated worktree for run {run['id']}?\n{path}\nThe real project checkout is not changed.",
         ) != QMessageBox.StandardButton.Yes:
             return
-        branch = f"molicoder/run-{run['id']}"
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        subprocess.run(
-            ["git", "-C", project.path, "worktree", "remove", "--force", str(path)],
-            capture_output=True, check=False, creationflags=creationflags,
+        actual_branch = subprocess.run(
+            ["git", "-C", str(path), "branch", "--show-current"],
+            capture_output=True, text=True, check=False, creationflags=creationflags,
         )
-        if path.exists():
-            QDir(str(path)).removeRecursively()
+        if actual_branch.returncode != 0 or actual_branch.stdout.strip() != f"molicoder/run-{run['id']}":
+            QMessageBox.critical(self, "Unsafe worktree path", "The saved worktree branch does not match this run.")
+            return
+        removed = subprocess.run(
+            ["git", "-C", project.path, "worktree", "remove", "--force", str(path)],
+            capture_output=True, text=True, check=False, creationflags=creationflags,
+        )
+        if removed.returncode != 0 or path.exists():
+            QMessageBox.critical(self, "Worktree removal failed", (removed.stderr or removed.stdout or "Git did not remove the worktree.").strip())
+            return
         subprocess.run(
-            ["git", "-C", project.path, "branch", "-D", branch],
+            ["git", "-C", project.path, "branch", "-D", f"molicoder/run-{run['id']}"],
             capture_output=True, check=False, creationflags=creationflags,
         )
         self.store.update_run_state(int(run["id"]), "failed", worktree="", recovery_reason="discarded by user")
@@ -2385,6 +2391,16 @@ class MainWindow(QMainWindow):
                 "task_started": "Execute · task in progress", "task_completed": "Check · task verified",
                 "integration_started": "Apply · validating integration", "run_completed": "Complete · verified result",
                 "run_needs_attention": "Needs attention · inspect validation", "run_failed": "Needs attention · inspect activity"}.get(kind)
+            if kind in {"task_started", "task_completed", "task_failed"}:
+                active_run_id = getattr(getattr(self.orchestration_worker, "orchestrator", None), "_active_run_id", None)
+                if active_run_id is not None:
+                    task_states = {task.status for task in self.store.list_run_tasks(active_run_id)}
+                    if task_states & {"running", "retrying", "verifying"}:
+                        stage = "Execute · task in progress"
+                    elif task_states & {"failed", "review_required", "needs_attention"}:
+                        stage = "Needs attention · inspect validation"
+                    elif task_states and task_states == {"completed"}:
+                        stage = "Check · task verified"
             if stage: self.run_stage.setText(stage)
         if kind == "provider_heartbeat":
             elapsed = float(payload.get("elapsed_seconds", 0) or 0)
@@ -2667,12 +2683,24 @@ class MainWindow(QMainWindow):
             if run["mode"] == "LOCAL_OFFLINE" else
             "Cost: exact provider charges are unknown; no paid API budget is inferred.\n\n"
         )
+        recovery_event = next((
+            json.loads(event.payload_json) for event in reversed(self.store.list_events(run_id))
+            if event.kind == "plan_recovery_proposed"
+        ), None)
+        recovery_text = (
+            f"Accepted checkpoint: {recovery_event.get('accepted_checkpoint', 'unknown')}\n"
+            f"Accepted tasks retained: {recovery_event.get('accepted_tasks', 0)}\n"
+            f"Unverified output stash: {recovery_event.get('unverified_stash') or 'none'}\n"
+            "An unfinished provider attempt may have had external effects. Review its preserved output before approving a retry.\n"
+            if recovery_event else ""
+        )
         detail = (
             f"Plan revision {plan['id']} for {self.registry.selected().name if self.registry.selected() else 'unknown project'}\n"
             f"Objective: {plan['payload'].get('objective', '')}\n"
             f"Runner: {'Kandev' if run['provider'] == 'kandev' else 'Internal Build'}; "
             f"provider/model: {run['provider']}/{run['model'] or 'provider default'}\n"
             + (f"Reason for fresh approval: {run['recovery_reason']}\n" if run.get("recovery_reason") else "")
+            + recovery_text
             + cost_text
             + f"Runner policy: {json.dumps(plan['payload'].get('runner_policy', {}), ensure_ascii=False)}\n\n"
             + "\n\n".join(rows)
@@ -3037,16 +3065,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Project is active", "Finish or cancel the active build first.")
             return
         managed_root = (data_dir() / "worktrees").resolve()
-        candidates: list[tuple[Path, str]] = []
+        candidates: list[tuple[int, Path, str]] = []
         for run in self.store.list_project_runs(project.id):
             if run["status"] not in {"failed", "cancelled", "needs_attention"} or not run.get("worktree"):
                 continue
             path = Path(str(run["worktree"])).resolve()
-            try:
-                path.relative_to(managed_root)
-            except ValueError:
+            if (not path.is_relative_to(managed_root) or path.name != "workspace"
+                    or path.parent.name != f"run-{run['id']}"):
                 continue
-            candidates.append((path, f"molicoder/run-{run['id']}"))
+            candidates.append((int(run["id"]), path, f"molicoder/run-{run['id']}"))
         if not candidates:
             QMessageBox.information(self, "No worktrees", "There are no verified failed run worktrees to clean.")
             return
@@ -3057,18 +3084,25 @@ class MainWindow(QMainWindow):
             return
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         removed = 0
-        for path, branch in candidates:
-            subprocess.run(
+        for run_id, path, branch in candidates:
+            actual_branch = subprocess.run(
+                ["git", "-C", str(path), "branch", "--show-current"],
+                capture_output=True, text=True, check=False, creationflags=creationflags,
+            )
+            if actual_branch.returncode != 0 or actual_branch.stdout.strip() != branch:
+                continue
+            result = subprocess.run(
                 ["git", "-C", project.path, "worktree", "remove", "--force", str(path)],
                 capture_output=True, check=False, creationflags=creationflags,
             )
-            if path.exists():
-                QDir(str(path)).removeRecursively()
+            if result.returncode != 0 or path.exists():
+                continue
             subprocess.run(
                 ["git", "-C", project.path, "branch", "-D", branch],
                 capture_output=True, check=False, creationflags=creationflags,
             )
-            removed += int(not path.exists())
+            self.store.update_run_state(run_id, "failed", worktree="", recovery_reason="worktree cleaned by user")
+            removed += 1
         QMessageBox.information(self, "Cleanup complete", f"Removed {removed} verified managed worktree(s).")
 
     def _load_conversation_list(self, select_first: bool = False, select_id: int | None = None) -> None:

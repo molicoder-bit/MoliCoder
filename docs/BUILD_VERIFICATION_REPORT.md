@@ -1,34 +1,36 @@
 # Build verification report
 
-Date: 2026-10-16. Scope: this checkout, deterministic scripted providers, temporary Git projects/SQLite databases, fake Kandev API. No paid providers, real Kandev server, or real model were run.
+Date: 2026-10-16. Scope: this checkout, deterministic scripted providers, temporary Git projects and SQLite databases, Qt test fixtures, and a fake Kandev API. The curriculum did not invoke paid providers, a live Kandev server, or an autonomous coding model.
 
-## Results
+## Measured result
 
-The full-catalog machine report is `docs/reports/build-scenarios-2026-10-16.json`; the runner also writes `artifacts/build-scenarios/latest.json` locally with per-case pytest/JUnit evidence paths. It lists each ID, level, outcome, test node, and elapsed time. Results: **65 PASS, 0 FAIL, 0 BLOCKED, 55 NOT_RUN**. This is a coverage count, not a 100% reliability claim.
+The complete 120-scenario catalog reported **109 PASS, 0 FAIL, 0 BLOCKED, 11 NOT_RUN** (90.8% PASS). The machine-readable [scenario report](reports/build-scenarios-2026-10-16.json) records every ID, its test node, outcome, elapsed time, and local pytest/JUnit evidence path. `artifacts/build-scenarios/latest.json` is the working copy of the report. An ID is counted as PASS only when its mapped pytest assertion ran successfully.
 
-| Level | Passing IDs | PASS / total | Main uncovered behavior |
-| ---: | --- | ---: | --- |
-| 0 | S001–S010 | 10 / 10 | Scripted providers and local Apply only; real planner/model quality unmeasured |
-| 1 | S011–S020 | 10 / 10 | Deterministic UI fixtures; unsupported operation is production deployment |
-| 2 | S028–S029 | 2 / 10 | Planner-quality and active parallel-scheduling cases not registered |
-| 3 | S031–S036, S038–S039 | 8 / 10 | Compatible model override and replanning after partial completion |
-| 4 | S041, S043–S045, S049–S050 | 6 / 10 | Complex capability selection, budget gating, model overrides |
-| 5 | S051–S060 | 10 / 10 | Scripted execution and local type-check fixture; live model quality unmeasured |
-| 6 | S061–S070 | 10 / 10 | Scripted providers; broader replanning remains untested |
-| 7 | S071–S075 | 5 / 10 | Multi-task Kandev and live integration |
-| 8 | S082 | 1 / 10 | Parallelism, complex graphs, and conflict behavior |
-| 9 | S091–S092 | 2 / 10 | Safe replay of in-flight work and multi-task recovery |
-| 10 | S107 | 1 / 10 | Remaining security and UI consistency cases |
-| 11 | none | 0 / 10 | Complex end-to-end workflows |
+| Level | PASS / total | Remaining IDs |
+| ---: | ---: | --- |
+| 0 | 10 / 10 | — |
+| 1 | 10 / 10 | — |
+| 2 | 6 / 10 | S022, S024, S027, S030 |
+| 3 | 9 / 10 | S037 |
+| 4 | 10 / 10 | — |
+| 5 | 10 / 10 | — |
+| 6 | 10 / 10 | — |
+| 7 | 6 / 10 | S076–S079 |
+| 8 | 10 / 10 | — |
+| 9 | 10 / 10 | — |
+| 10 | 10 / 10 | — |
+| 11 | 8 / 10 | S119–S120 |
 
-Existing broader pytest coverage includes planners, scheduler, worktrees, validation, repair, Kandev adapter, storage, UI, and recovery. The complete suite reported **601 passed, 6 skipped in 365.55 s** after S058 and before S055/S091/S092. After the recovery audit change, the affected storage, orchestrator, UI, and Level 9 suites reported **72 passed**, and the full scenario catalog reported **65 PASS, 55 NOT_RUN**. The six skips require opt-in real Codex, Claude, or Ollama runs. Individual scenario evidence is in the local JSON/JUnit artifacts. Earlier in this work, one combined targeted run ended in a Windows/Qt access violation in a model-install test; that test passed alone and the whole UI module passed on rerun. Its root cause remains unconfirmed.
+## What the passing cases establish
 
-## Verified invariants in the registered scenarios
+The active desktop Build path saves a reviewable plan before execution and requires an exact revision, digest, project, Git base, and runner-policy approval. Stale approval and changed project HEAD stop work. Scoped edits run in a managed worktree, receive independent allowlisted checks, and remain isolated until reviewed Apply. A repair that needs a new file proposes a fresh scope revision and preserves earlier accepted task checkpoints. A dead-owner run can be reviewed against its Git state, stash unverified edits, and resume unfinished tasks after new approval without replaying completed work or resetting crash-recovery attempt counts. Unverified commits block replay.
 
-The active internal and Kandev runtime paths wait for an exact plan approval before mutating execution. A plan revision change denies stale approval at task boundaries and before Apply, including if a new revision is approved during the last task. Explicit rejection records a denied decision and leaves the plan available. Internal plan editing validates a new graph, regenerates assignments, and requires new approval; an added task then executes and applies, and a changed dependency alters execution order. Unsupported runner overrides are rejected with an explanation. A changed project HEAD stops internal execution before the scripted provider runs. Internal simple file scenarios create verifiable artifacts in an isolated worktree and leave the source checkout clean pending Apply. Exact artifact checks let an already satisfied file pass without a new commit and carry an empty directory into the selected checkout during confirmed Apply. Level 1 UI cases block missing, absent, non-Git, and simulated read-only projects, keep a pending plan bound to its original project, and answer Chat status from persisted records. Invalid cyclic/missing task graphs stop before scheduling. A bounded edit uses the local route when eligible; injected provider outage/auth failures stop without project changes. A recoverable quota fault uses the predeclared fallback within two attempts, while opaque CLI cost stays unknown. Level 5 cases run independent arithmetic tests, reject a syntactically invalid edit and a configured static type error, reject a false success without a diff, catch an out-of-scope file, prove progress/timeout/cancellation for a long-running validation command, preserve isolated partial output on provider cancellation, and stop Apply when a final project test finds a regression. Level 6 cases pass failed test evidence into bounded repairs, reject a new regression, preserve an independent test oracle, and stop after repeated identical failures or the attempt ceiling. A later repair that changes an extra file now proposes a scope-only plan revision, preserves a completed task checkpoint, waits for new approval, reruns the unfinished task, and applies after validation; a first-attempt extra file remains a failure. A simulated outage is classified and handed to an available route. Disabled Kandev permits internal Build; enabled Kandev now checks live health/version and a read-only task lookup before reporting adapter readiness. Kandev fake adapter launches once only after explicit harness approval and preserves its external task identity across reconciliation. A two-task dependency chain starts its child only after its parent has a passing persisted completion record.
+The separate `WorktreeOrchestrator` backend has approval-gated deterministic tests for parallel independent work, dependency diamonds, failed prerequisites, same-file integration conflicts, prompt activation of ready dependents, and a 20-task graph. The desktop's active internal path remains sequential. Fake Kandev tests cover a single remote task, readiness checks, external identity preservation, duplicate-event suppression, stale-status handling, and explicit reconciliation after failure or connection loss.
 
-## Limits and next work
+Security cases exercise path traversal, symlink escape, credential-file reads and search, untrusted repository instructions, unsupported external actions, and recognized credential redaction in provider, executor, and persisted runner output. A separate validator regression confirms recognized bearer tokens are redacted before command output is saved to `.molicoder/logs`. UI cases cover pause/resume through worker state, Chat navigation during Build, and rapid task-event display. Level 11 uses independent Python and Node tests for application changes, a feedback-guided repair, and an approval conflict during execution. These scripted fixtures verify workflow and acceptance behavior; they do not measure an autonomous model's ability to design or implement arbitrary features.
 
-S091 confirms that a plan awaiting approval survives a fresh store and orchestrator instance, still denies unapproved execution, and starts exactly once after fresh approval. S092 confirms that startup observes an interrupted worktree and blocks blind provider replay. It does not establish a safe continuation path for that unfinished task.
+## Remaining limits
 
-The active internal path is sequential. It records proposed per-task assignments from one selected runner policy, but cannot override individual runner/model choices or negotiate arbitrary capabilities. The Kandev path still represents one task and has no multi-task dependency mapping. Pending internal plans can be edited; after execution starts, only a failed repair's file scope can expand while the task graph and completed task specifications stay fixed. The full run/task state machine, atomic graph scheduling in the active path, comprehensive fault injection, and crash-safe multi-task replay are incomplete. The 55 `NOT_RUN` scenarios must be implemented progressively; their absence cannot be inferred as passing from the broader unit suite. Exact paid CLI token charges and real-provider planning quality remain unmeasured.
+The 11 `NOT_RUN` IDs have no registered executable scenario case. S022/S024/S027/S030 need specific decomposition and ordering assertions; S037 needs editable per-task model override; S076–S079 need a multi-task Kandev board with dependency and assignment synchronization; S119 needs a large mixed-complexity Kandev project; S120 needs a full-system adversarial reliability exercise. General post-execution graph replanning, crash-safe replay in the parallel backend, and exact paid CLI spend accounting also remain open. The Kandev and model-dependent claims above are limited to mocks or scripted providers unless explicitly stated otherwise.
+
+The broader regression suite reported **638 passed, 6 skipped in 430.39 seconds**. After the final validation-log redaction change, the focused security and validator suites reported **16 passed**; the new log-redaction test was added after the broader run had started. The six opt-in skips require real Codex, Claude, or Ollama runs.

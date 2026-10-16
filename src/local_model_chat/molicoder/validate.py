@@ -15,6 +15,7 @@ from typing import Callable
 
 from ..knowledge import ProjectKnowledge
 from ..storage import ChatStore
+from .providers import redact_text
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,6 +210,7 @@ class ProjectValidator:
             return structural
         for index, command in enumerate(selected, start=1):
             exit_code, output = self._run_command(command)
+            output = redact_text(output)
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
             safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", command.name).strip("-") or "validation"
             log_path = self.log_dir / f"{timestamp}-{index}-{safe_name}.log"
@@ -224,7 +226,7 @@ class ProjectValidator:
         structural_errors = self._structural_errors()
         if not structural_errors:
             return ValidationReport(True, ())
-        output = "\n".join(f"ERROR {message}" for message in structural_errors) + "\n"
+        output = redact_text("\n".join(f"ERROR {message}" for message in structural_errors) + "\n")
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         log_path = self.log_dir / f"{timestamp}-0-structural-safety.log"
         log_path.write_text(output, encoding="utf-8")

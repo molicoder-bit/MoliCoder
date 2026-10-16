@@ -262,10 +262,14 @@ class ToolDispatcher:
             raise ValueError(f"invalid regular expression: {exc}") from exc
         matches: list[str] = []
         for path in self.root.rglob(glob):
-            if not path.is_file() or not is_allowed(path):
+            try:
+                safe_path = self._resolve(str(path.relative_to(self.root)))
+            except (PermissionError, ValueError):
+                continue
+            if not safe_path.is_file() or not is_allowed(safe_path):
                 continue
             try:
-                text = load_attachment(path).text
+                text = load_attachment(safe_path).text
             except AttachmentError:
                 continue
             for number, line in enumerate(text.splitlines(), start=1):

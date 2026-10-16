@@ -14,6 +14,7 @@ from ..storage import ChatStore
 from ..molicoder.validate import assess_architectural_invariants
 from .adapter import KandevTaskAdapter
 from .contracts import KandevTaskRef, KandevTaskSnapshot
+from .rest import KandevTransportError
 from .worktree import verify_kandev_worktree
 
 
@@ -47,9 +48,27 @@ class KandevRunOrchestrator:
         ref = snapshot.ref
         state = snapshot.state
         detail = snapshot.detail or state
+        saved = self.store.get_run(ref.run_id)
+        accepted = self.store.get_task_completion(ref.task_id)
+        if saved and saved["status"] in {"ready_to_apply", "completed"} and accepted is not None:
+            if state in {"ready", "running"}:
+                self._event(ref, "kandev_stale_status_ignored", {
+                    "remote_state": state, "accepted_checkpoint": accepted.revision,
+                })
+                return OrchestrationResult(
+                    ref.run_id, str(saved["status"]), 1, 1, "",
+                    Path(str(saved["worktree"])),
+                    self.store.list_run_tasks(ref.run_id)[0].branch,
+                    str(saved["base_commit"]), accepted.revision,
+                )
         local_state = state if state in self.store.TASK_STATES else "review_required"
         if state == "reconciliation_required":
             local_state = "review_required"
+        if state == "failed":
+            self._event(ref, "kandev_failure_review_required", {
+                "remote_task_id": ref.remote_task_id,
+                "reason": "Remote execution failed; reconcile before any retry or internal fallback",
+            })
         self.store.update_run_task(ref.task_id, local_state, 0, reason=snapshot.detail or f"Kandev reported {state}")
         self._event(ref, "kandev_task_observed", {
             "external_id": ref.external_id, "remote_task_id": ref.remote_task_id,
@@ -287,7 +306,15 @@ class KandevRunOrchestrator:
         if selection.get("base_commit") != run["base_commit"]:
             raise ValueError("Kandev base commit selection differs")
         ref = KandevTaskRef(run_id, task_id, expected)
-        snapshot = self.adapter.reconcile(ref)
+        try:
+            snapshot = self.adapter.reconcile(ref)
+        except KandevTransportError as exc:
+            reason = f"Kandev connection failed during reconciliation: {exc}"
+            self.store.update_run_state(run_id, "needs_attention", recovery_reason=reason)
+            self._event(ref, "kandev_reconnect_required", {
+                "external_id": ref.external_id, "reason": reason,
+            })
+            return OrchestrationResult(run_id, "needs_attention", 0, 1, reason)
         if snapshot.ref.remote_task_id:
             self.adapter.subscribe_events(snapshot.ref)
         return self._record(snapshot)

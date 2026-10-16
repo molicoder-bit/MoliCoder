@@ -6,6 +6,7 @@ from typing import Any, Protocol
 
 from .gateway import InferenceResponse
 from .tools import TOOL_DEFINITIONS, ToolDispatcher, ToolParseError, parse_tool_calls
+from .providers import redact_text
 from ..actions.receipts import ActionReviewRequired
 
 
@@ -82,7 +83,7 @@ class AgentExecutor:
 
         def result(status: str, final: str, turns: int, error: str = "") -> ExecutionResult:
             return ExecutionResult(
-                status, final, turns, tool_count, error, tuple(trace),
+                status, redact_text(final), turns, tool_count, redact_text(error), tuple(trace),
                 prompt_tokens, output_tokens, time.monotonic() - started,
             )
         malformed_reprompted = False
@@ -112,7 +113,7 @@ class AgentExecutor:
                 return result("review_required", content, turn, str(exc))
             except ToolParseError as exc:
                 excerpt = " ".join(content.split())[:1000] or "<empty>"
-                trace.append(f"turn {turn}: invalid tool call ({exc}); model said: {excerpt}")
+                trace.append(redact_text(f"turn {turn}: invalid tool call ({exc}); model said: {excerpt}"))
                 if malformed_reprompted:
                     return result("failed", content, turn, str(exc))
                 malformed_reprompted = True
@@ -131,7 +132,7 @@ class AgentExecutor:
             if not calls:
                 if content.strip():
                     excerpt = " ".join(content.split())[:1000]
-                    trace.append(f"turn {turn}: no tool call; model said: {excerpt}")
+                    trace.append(redact_text(f"turn {turn}: no tool call; model said: {excerpt}"))
                     if not self.require_validation or validation_passed:
                         return result("completed", content.strip(), turn)
                     messages.append({"role": "assistant", "content": content})
@@ -176,7 +177,13 @@ class AgentExecutor:
                 except (OSError, ValueError) as exc:
                     output = f"Tool error: {exc}"
                     failed = True
-                trace.append(f"{call.name}({call.arguments!r}) -> {output[:500]}")
+                displayed_arguments = (
+                    {"path": call.arguments.get("path"), "content_bytes": len(str(call.arguments.get("content", "")).encode("utf-8"))}
+                    if call.name == "write_file" else
+                    {"path": call.arguments.get("path"), "replacement": "[OMITTED]"}
+                    if call.name == "replace_in_file" else call.arguments
+                )
+                trace.append(redact_text(f"{call.name}({displayed_arguments!r}) -> {output[:500]}"))
                 messages.append({"role": "tool", "name": call.name, "content": output})
                 if call.name == "run_validation":
                     validation_passed = output.lstrip().startswith("validation passed")

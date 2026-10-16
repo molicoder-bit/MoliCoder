@@ -25,7 +25,17 @@ from .fingerprint import classify_progress, failure_fingerprint
 from .scheduler import DagScheduler
 from .validate import assess_architectural_invariants
 from .worktree import IntegrationConflict, TaskWorkspace, WorktreeManager
-from .providers import FrontierProvider, ProviderResult, ProviderUnavailable
+from .providers import FrontierProvider, ProviderResult, ProviderUnavailable, redact_text
+
+
+def _redact_event_value(value):
+    if isinstance(value, str):
+        return redact_text(value)
+    if isinstance(value, dict):
+        return {key: _redact_event_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_event_value(item) for item in value]
+    return value
 
 
 class RepairProvider(Protocol):
@@ -76,6 +86,7 @@ class Phase2Orchestrator:
             raise ValueError(f"project folder does not exist: {self.root}")
 
     def _event(self, run_id: int, kind: str, payload: dict, task_id: int | None = None) -> None:
+        payload = _redact_event_value(payload)
         self.store.add_event(run_id, kind, payload, task_id)
         log_path = self.root / ".molicoder" / "logs" / f"run-{run_id}.jsonl"
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -168,6 +179,7 @@ class WorktreeOrchestrator(Phase2Orchestrator):
         planner: PlannerProvider,
         execute_task: Callable[[Path, str], RepairOutcome],
         validate_integration: Callable[[Path], str],
+        validate_task: Callable[[Path, object], str] | None = None,
         repair_conflict: Callable[[Path, str], RepairOutcome] | None = None,
         review_integration: Callable[[Path, str], str] | None = None,
         external_sources: tuple[object, ...] = (),
@@ -177,6 +189,7 @@ class WorktreeOrchestrator(Phase2Orchestrator):
         wait_if_paused: Callable[[], None] | None = None,
         on_event: Callable[[str, dict], None] | None = None,
         worktree_base: str | Path | None = None,
+        require_plan_approval: bool = False,
     ) -> None:
         self.store = store
         self.project = project
@@ -184,6 +197,7 @@ class WorktreeOrchestrator(Phase2Orchestrator):
         self.planner = planner
         self.execute_task = execute_task
         self.validate_integration = validate_integration
+        self.validate_task = validate_task
         self.repair_conflict = repair_conflict
         self.review_integration = review_integration
         self.external_sources = external_sources
@@ -194,6 +208,7 @@ class WorktreeOrchestrator(Phase2Orchestrator):
         self.on_event = on_event
         self._event_log_lock = threading.Lock()
         self.worktree_base = worktree_base
+        self.require_plan_approval = require_plan_approval
         if not self.root.is_dir():
             raise ValueError(f"project folder does not exist: {self.root}")
 
@@ -261,7 +276,18 @@ class WorktreeOrchestrator(Phase2Orchestrator):
         return OrchestrationResult(run_id, status, completed, total, error, integration_path, integration_branch)
 
     def run(self, request: str, *, mode: str = "LOCAL_ONLY") -> OrchestrationResult:
-        run_id = self.store.create_run(self.project.id, request, mode)
+        return self._run(request, mode=mode)
+
+    def execute_approved(self, run_id: int) -> OrchestrationResult:
+        if not self.require_plan_approval:
+            raise ValueError("Worktree plan approval is not enabled")
+        run, plan = require_approved_plan(self.store, run_id)
+        if int(run["project_id"]) != self.project.id or run["status"] != "awaiting_approval":
+            raise PermissionError("Worktree Build is not awaiting approval for this project")
+        return self._run(str(run["request"]), mode=str(run["mode"]), approved_run_id=run_id)
+
+    def _run(self, request: str, *, mode: str, approved_run_id: int | None = None) -> OrchestrationResult:
+        run_id = approved_run_id or self.store.create_run(self.project.id, request, mode)
         self._event(
             run_id,
             "run_started",
@@ -278,14 +304,51 @@ class WorktreeOrchestrator(Phase2Orchestrator):
         try:
             packet = Reconnaissance(self.root).build(request)
             self._event(run_id, "recon_completed", packet.to_dict())
-            plan = self.planner.plan(packet)
-            self._record_external(run_id)
-            self.store.save_plan(run_id, "generated", _planner_provider_name(self.planner), plan.to_dict())
-            (self.root / ".molicoder" / "plans" / f"plan-{run_id}.json").write_text(
-                json.dumps(plan.to_dict(), indent=2) + "\n", encoding="utf-8", newline=""
-            )
-            self._event(run_id, "plan_created", {"provider": _planner_provider_name(self.planner), "tasks": len(plan.tasks)})
+            if approved_run_id is None:
+                plan = self.planner.plan(packet)
+                if self.require_plan_approval:
+                    from .plan_scope import validate_plan_scope
+                    plan = validate_plan_scope(plan, self.root)
+                if not 1 <= len(plan.tasks) <= 20:
+                    raise ValueError("parallel worktree plans require between 1 and 20 tasks")
+                plan.ordered_tasks()
+                self._record_external(run_id)
+                payload = plan.to_dict()
+                if self.require_plan_approval:
+                    payload["runner_policy"] = {
+                        "backend": "worktree", "worker_model": self.worker_model,
+                        "max_workers": self.max_workers,
+                    }
+                revision = self.store.save_plan(run_id, "generated", _planner_provider_name(self.planner), payload)
+                (self.root / ".molicoder" / "plans" / f"plan-{run_id}.json").write_text(
+                    json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline=""
+                )
+                self._event(run_id, "plan_created", {"provider": _planner_provider_name(self.planner), "tasks": len(plan.tasks)})
+                if self.require_plan_approval:
+                    base = WorktreeManager(self.root, run_id=run_id, base_dir=self.worktree_base).base_commit
+                    self.store.update_run_state(run_id, "awaiting_approval", base_commit=base)
+                    self._event(run_id, "plan_awaiting_approval", {
+                        "revision": revision, "base_commit": base,
+                        "task_keys": [task.key for task in plan.tasks],
+                    })
+                    return OrchestrationResult(run_id, "awaiting_approval", 0, len(plan.tasks))
+            else:
+                approved_run, saved = require_approved_plan(self.store, run_id)
+                approved_plan_id = int(saved["id"])
+                approved_plan_digest = plan_digest(saved["payload"])
+                if str(approved_run["request"]) != request or str(approved_run["mode"]) != mode:
+                    raise PermissionError("Approved worktree Build request changed")
+                if saved["payload"].get("runner_policy") != {
+                    "backend": "worktree", "worker_model": self.worker_model,
+                    "max_workers": self.max_workers,
+                }:
+                    raise PermissionError("Approved worktree runner policy changed")
+                from .plan_scope import validate_plan_scope
+                plan = validate_plan_scope(parse_plan(saved["payload"], max_tasks=20), self.root)
             manager = WorktreeManager(self.root, run_id=run_id, base_dir=self.worktree_base)
+            if approved_run_id is not None and manager.base_commit != approved_run["base_commit"]:
+                raise PermissionError("Project HEAD changed after worktree plan approval")
+            self.store.update_run_state(run_id, "running", base_commit=manager.base_commit)
         except Exception as exc:
             return self._finish_worktree(run_id, "failed", 0, 0, error=str(exc))
 
@@ -307,6 +370,8 @@ class WorktreeOrchestrator(Phase2Orchestrator):
         def perform_task(task):
             task_id = task_ids[task.key]
             workspace = manager.create_task(task.key)
+            for dependency in task.depends_on:
+                manager.merge_into(workspace, workspaces_by_key[dependency])
             self.store.update_task_workspace(
                 task_id, worktree=str(workspace.path), branch=workspace.branch, base_commit=workspace.base_commit
             )
@@ -321,6 +386,10 @@ class WorktreeOrchestrator(Phase2Orchestrator):
                     packet.relevant_files + packet.architecture,
                 ),
             )
+            if outcome.status == "completed" and self.validate_task is not None:
+                validation = self.validate_task(workspace.path, task)
+                if not validation.lstrip().startswith("validation passed"):
+                    outcome = replace(outcome, status="failed", reason=validation)
             execution = outcome.execution
             executions = outcome.executions or (execution,)
             for attempt, attempted_execution in enumerate(executions, start=1):
@@ -348,6 +417,12 @@ class WorktreeOrchestrator(Phase2Orchestrator):
             changed = ()
             if outcome.status == "completed":
                 changed = manager.commit(workspace, f"MoliCoder task: {task.title}")
+                if self.require_plan_approval and any(
+                    not any(path == scope or path.startswith(scope.rstrip("/") + "/")
+                            for scope in task.expected_paths)
+                    for path in changed
+                ):
+                    raise PermissionError(f"task {task.key} changed paths outside its approved file scope")
                 self.store.update_task_workspace(
                     task_id, worktree=str(workspace.path), branch=workspace.branch,
                     base_commit=workspace.base_commit, changed_paths=changed,
@@ -394,8 +469,30 @@ class WorktreeOrchestrator(Phase2Orchestrator):
                 "worktree": str(workspace.path),
             }
 
+        def persist_verified_completion(task, workspace, changed) -> None:
+            if self.validate_task is None:
+                return
+            self.store.record_task_completion(
+                run_id, task_ids[task.key],
+                revision=manager._git("rev-parse", "HEAD", cwd=workspace.path).stdout.strip(),
+                checks=task.verification_checks,
+                validation_summary="validation passed by configured task validator",
+                output_artifacts=changed,
+                unmet_criteria=(), human_review_status="not_required",
+            )
+
         failure = ""
         futures = {}
+
+        def approval_current() -> bool:
+            if approved_run_id is None:
+                return True
+            try:
+                _, current = require_approved_plan(self.store, run_id)
+            except PermissionError:
+                return False
+            return int(current["id"]) == approved_plan_id and plan_digest(current["payload"]) == approved_plan_digest
+
         with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="molicoder-task") as pool:
             while completed < len(plan.tasks) and not failure:
                 self.wait_if_paused()
@@ -403,6 +500,9 @@ class WorktreeOrchestrator(Phase2Orchestrator):
                     failure = "cancelled by user"
                     break
                 while len(futures) < self.max_workers:
+                    if not approval_current():
+                        failure = "plan approval changed during parallel execution"
+                        break
                     ready = scheduler.ready()
                     if not ready:
                         break
@@ -410,7 +510,7 @@ class WorktreeOrchestrator(Phase2Orchestrator):
                     scheduler.start(task.key)
                     futures[pool.submit(perform_task, task)] = task
                 if not futures:
-                    failure = "no schedulable tasks"
+                    failure = failure or "no schedulable tasks"
                     break
                 done, _ = wait(tuple(futures), return_when=FIRST_COMPLETED)
                 for future in done:
@@ -436,6 +536,7 @@ class WorktreeOrchestrator(Phase2Orchestrator):
                             failure += f" ({outcome.execution.error})"
                         break
                     self.store.update_run_task(task_id, "completed", outcome.attempts)
+                    persist_verified_completion(task, workspace, changed)
                     scheduler.complete(task.key, changed)
                     completed += 1
                     self._event(
@@ -463,6 +564,7 @@ class WorktreeOrchestrator(Phase2Orchestrator):
                 if outcome.status == "completed":
                     scheduler.complete(task.key, changed)
                     self.store.update_run_task(task_id, "completed", outcome.attempts)
+                    persist_verified_completion(task, workspace, changed)
                     completed += 1
                     self._event(
                         run_id, "task_completed",
@@ -475,6 +577,8 @@ class WorktreeOrchestrator(Phase2Orchestrator):
                         run_id, "task_failed",
                         task_failure_payload(task, workspace, outcome), task_id,
                     )
+        if not failure and not approval_current():
+            failure = "plan approval changed before integration"
         if failure:
             status = "cancelled" if failure == "cancelled by user" else "failed"
             return self._finish_worktree(run_id, status, completed, len(plan.tasks), error=failure)
@@ -504,6 +608,12 @@ class WorktreeOrchestrator(Phase2Orchestrator):
             if not validation.lstrip().startswith("validation passed"):
                 return self._finish_worktree(
                     run_id, "failed", completed, len(plan.tasks), error=validation,
+                    integration_path=integration.path, integration_branch=integration.branch,
+                )
+            if not approval_current():
+                return self._finish_worktree(
+                    run_id, "failed", completed, len(plan.tasks),
+                    error="plan approval changed before integration acceptance",
                     integration_path=integration.path, integration_branch=integration.branch,
                 )
             if self.review_integration is not None:
@@ -633,6 +743,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         workspace=None,
         final_commit: str = "",
     ) -> OrchestrationResult:
+        error = redact_text(error)
         self.store.update_run_state(
             run_id, status,
             provider=self._active_provider.name,
@@ -853,6 +964,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         )
 
     def fail_unexpected(self, error: str) -> OrchestrationResult:
+        error = redact_text(error)
         run_id = self._active_run_id
         if run_id is None:
             raise RuntimeError(error)
@@ -1182,8 +1294,20 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             self._active_task_id = task_id
             if self.inference_gateway is not None:
                 self.inference_gateway.task_id = task_id
-            self.store.update_run_task(task_id, "ready", 0, reason="dependencies satisfied")
-            self.store.update_run_task(task_id, "running", 0)
+            prior_attempts = (
+                next(item.attempts for item in existing_tasks if item.key == task.key)
+                if (resume_approved_workspace and str(approved_run.get("recovery_reason") or "").startswith(
+                    "Interrupted task output"
+                )) else 0
+            )
+            if prior_attempts >= self.max_task_attempts:
+                return self._finish_run(
+                    run_id, "needs_attention", completed, len(plan.tasks),
+                    error=f"Task {task.key} exhausted its approved attempt limit before recovery",
+                    workspace=workspace,
+                )
+            self.store.update_run_task(task_id, "ready", prior_attempts, reason="dependencies satisfied")
+            self.store.update_run_task(task_id, "running", prior_attempts)
             self._event(run_id, "task_started", asdict(task) | {
                 "task_index": index, "task_total": len(plan.tasks), "worktree": str(workspace.path),
             }, task_id)
@@ -1193,9 +1317,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             prompt = self._task_prompt(
                 request, plan, task, packet, validation_error,
                 run_id=run_id, task_id=task_id,
-                base_commit=workspace.base_commit, remaining_attempts=self.max_task_attempts,
+                base_commit=workspace.base_commit, remaining_attempts=self.max_task_attempts - prior_attempts,
             )
-            attempts = 0
+            attempts = prior_attempts
             changed: tuple[str, ...] = ()
             verified_no_change = False
 
@@ -1211,7 +1335,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             if local_used or strategy == "LOCAL_OFFLINE":
                 self._event(run_id, "local_attempt_started", {"key": task.key, "reason": "bounded existing-file edit"}, task_id)
                 local_outcome = self.local_executor(workspace.path, prompt)
-                attempts = 1
+                attempts = prior_attempts + 1
                 if local_outcome.status == "review_required":
                     self.store.update_run_task(task_id, "review_required", attempts, reason=local_outcome.reason)
                     self._event(run_id, "task_review_required", {
@@ -1260,7 +1384,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 attempt_provider = self.provider
                 failed_fingerprints: set[str] = set()
                 validation_fingerprints: list[str] = []
-                for frontier_attempt in range(1, self.max_task_attempts + 1):
+                for frontier_attempt in range(prior_attempts + 1, self.max_task_attempts + 1):
                     attempts = frontier_attempt
                     if (local_used and frontier_attempt == 1) or frontier_attempt > 1:
                         try:
@@ -1323,6 +1447,10 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                         validation_error = "Opaque agent execution may have caused external side effects: " + str(exc)
                         opaque_review_required = True
                         break
+                    result = replace(
+                        result, message=redact_text(result.message), error=redact_text(result.error),
+                        events=tuple(_redact_event_value(event) for event in result.events),
+                    )
                     self._record_provider_result(run_id, task_id, frontier_attempt, result, attempt_provider)
                     if result.status == "cancelled":
                         self.store.update_run_task(task_id, "cancelled", attempts, reason="cancelled by user")
@@ -1454,7 +1582,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                         "reason": error[:500], "worktree": str(workspace.path),
                     }, task_id)
                 final_state = "review_required" if needs_review else wait_state or "needs_attention"
-                self.store.update_run_task(task_id, final_state, attempts, reason=error)
+                self.store.update_run_task(task_id, final_state, attempts, reason=redact_text(error))
                 self._event(run_id, "task_review_required" if needs_review else "task_failed", {
                     "key": task.key, "title": task.title, "reason": error,
                     "attempts": attempts, "provider": self._active_provider.name, "worktree": str(workspace.path),
@@ -1562,6 +1690,86 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             run_id, "completed", completed, len(plan.tasks), workspace=workspace, final_commit=final_commit,
         )
 
+    def _propose_interrupted_recovery(self, run_id: int, run: dict) -> OrchestrationResult:
+        """Preserve unverified edits and require fresh approval before continuing."""
+        from .plan_scope import validate_plan_scope
+        from .recovery import observe_interrupted_run
+
+        tasks = self.store.list_run_tasks(run_id)
+        completed = sum(task.status == "completed" for task in tasks)
+        path = Path(str(run.get("worktree") or "")).resolve()
+
+        def blocked(reason: str) -> OrchestrationResult:
+            self._event(run_id, "run_resume_blocked_interrupted", {"reason": reason})
+            return OrchestrationResult(run_id, "needs_attention", completed, len(tasks), reason, path)
+
+        if not self.require_plan_approval:
+            return blocked("Interrupted Build requires plan approval before continuation")
+        if str(run["provider"]) != self.provider.name or str(run["model"]) != self.provider.model:
+            return blocked("Interrupted Build provider/model changed; restore the saved route before recovery")
+        latest = self.store.get_latest_plan_record(run_id)
+        if latest is None:
+            return blocked("Interrupted Build plan is missing")
+        try:
+            plan = validate_plan_scope(parse_plan(latest["payload"]), self.root)
+            strategy = self.normalize_strategy(str(run["mode"]))
+            if (latest["payload"].get("runner_policy") != self._runner_policy(strategy)
+                    or latest["payload"].get("task_assignments") != self._task_assignments(plan, strategy)):
+                return blocked("Interrupted Build runner assignments differ from the saved plan")
+            if {task.key for task in tasks} != {task.key for task in plan.tasks}:
+                return blocked("Interrupted Build task graph differs from the saved plan")
+            manager = WorktreeManager(self.root, run_id=run_id, base_dir=self.worktree_base)
+            if manager.base_commit != run.get("base_commit"):
+                return blocked("Project HEAD changed since the interrupted Build; review before retry")
+            if path != (manager.base_dir / "workspace").resolve() or not path.is_dir():
+                return blocked("Interrupted Build workspace is missing or outside the managed run")
+            observed = observe_interrupted_run(self.store, run_id)
+            if observed.get("workspace_state") not in {"dirty", "clean_unverified", "clean"}:
+                return blocked(f"Interrupted Build worktree failed identity check: {observed.get('workspace_state')}")
+            accepted_head = str(run.get("base_commit") or "")
+            for task in tasks:
+                completion = self.store.get_task_completion(task.id)
+                if task.status == "completed" and completion is None:
+                    return blocked(f"Completed task {task.key} has no durable verification checkpoint")
+                if task.status != "completed" and completion is not None:
+                    return blocked(f"Task {task.key} has an unreviewed completion record")
+                if completion is not None:
+                    revision = completion.revision
+                    if manager._git("merge-base", "--is-ancestor", accepted_head, revision,
+                                    cwd=path, check=False).returncode != 0:
+                        return blocked("Accepted task checkpoints are not a linear verified history")
+                    accepted_head = revision
+            if observed.get("checkpoint") != accepted_head:
+                return blocked("Interrupted Build contains an unverified commit; review its checkpoint before retry")
+            if not any(task.status != "completed" for task in tasks):
+                return blocked("All tasks have completion records; review final validation before applying")
+            workspace = TaskWorkspace("workspace", path, f"molicoder/run-{run_id}", str(run["base_commit"]))
+            stash = manager.preserve_failed_attempt(
+                workspace, f"MoliCoder interrupted run {run_id} unverified output",
+            )
+            if manager._git("rev-parse", "HEAD", cwd=path).stdout.strip() != accepted_head or self._changed_paths(manager, path):
+                return blocked("Interrupted Build workspace changed while preserving unverified output")
+            revision = self.store.save_plan(
+                run_id, "interrupted_recovery_proposed", self.provider.name, latest["payload"],
+                expected_latest_id=int(latest["id"]),
+            )
+            self.store.update_run_state(
+                run_id, "awaiting_approval", final_commit=accepted_head,
+                recovery_reason="Interrupted task output was preserved for review; approve this revision to retry unfinished tasks",
+            )
+            self._event(run_id, "plan_recovery_proposed", {
+                "previous_revision": int(latest["id"]), "revision": revision,
+                "digest": plan_digest(latest["payload"]), "accepted_checkpoint": accepted_head,
+                "accepted_tasks": completed, "unverified_stash": stash,
+            })
+            return OrchestrationResult(
+                run_id, "awaiting_approval", completed, len(tasks),
+                "Review the recovered checkpoint and approve the new plan revision",
+                path, workspace.branch, workspace.base_commit, accepted_head,
+            )
+        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            return blocked(f"Interrupted Build recovery requires review: {exc}")
+
     def resume(self, run_id: int) -> OrchestrationResult:
         """Resume a preserved run worktree with a fresh provider context."""
         run = self.store.get_run(run_id)
@@ -1574,15 +1782,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             if event.kind == "run_recovery_observed"
         ), None)
         if recovery_observation is not None:
-            observed = json.loads(recovery_observation.payload_json)
-            state = str(observed.get("workspace_state") or "unknown")
-            reason = f"Interrupted Build requires checkpoint review before provider replay (worktree: {state})"
-            self._event(run_id, "run_resume_blocked_interrupted", {"reason": reason, "workspace_state": state})
-            tasks = self.store.list_run_tasks(run_id)
-            return OrchestrationResult(
-                run_id, "needs_attention", sum(task.status == "completed" for task in tasks),
-                len(tasks), reason, Path(str(run.get("worktree") or "")),
-            )
+            return self._propose_interrupted_recovery(run_id, run)
         path = Path(str(run.get("worktree") or "")).resolve()
         if not path.is_dir():
             raise ValueError("the preserved run worktree is missing")
