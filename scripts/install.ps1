@@ -49,13 +49,30 @@ try {
 
 $desktop = [Environment]::GetFolderPath("Desktop")
 $shortcutPath = Join-Path $desktop "MoliCoder.lnk"
+$installedIcon = Join-Path $installRoot "_internal\local_model_chat\assets\MoliCoder.ico"
+if (-not (Test-Path -LiteralPath $installedIcon)) {
+    throw "Installed icon not found: $installedIcon"
+}
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = Join-Path $installRoot "MoliCoder.exe"
-$shortcut.IconLocation = (Join-Path $installRoot "MoliCoder.exe") + ",0"
+$shortcut.IconLocation = $installedIcon
 $shortcut.WorkingDirectory = $installRoot
 $shortcut.Description = "Local-first coding orchestration with Ollama"
 $shortcut.Save()
+
+# Windows retains the icon from an older taskbar pin unless that shortcut is
+# updated too. Keep the existing pin and its position; only change its icon.
+$pinnedDirectory = Join-Path $env:APPDATA "Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
+$updatedPins = @()
+Get-ChildItem -LiteralPath $pinnedDirectory -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
+    $pinnedShortcut = $shell.CreateShortcut($_.FullName)
+    if ([System.String]::Equals($pinnedShortcut.TargetPath, $installedExecutable, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $pinnedShortcut.IconLocation = $installedIcon
+        $pinnedShortcut.Save()
+        $updatedPins += $_.FullName
+    }
+}
 
 # Refresh just the updated executable and shortcut in Explorer's icon cache.
 if (-not ("MoliCoderShellIconNotification" -as [type])) {
@@ -69,7 +86,7 @@ public static class MoliCoderShellIconNotification {
 }
 '@
 }
-foreach ($iconTarget in @($installedExecutable, $shortcutPath)) {
+foreach ($iconTarget in @($installedExecutable, $installedIcon, $shortcutPath) + $updatedPins) {
     [MoliCoderShellIconNotification]::SHChangeNotify(0x2000, 0x0005, $iconTarget, [IntPtr]::Zero)
 }
 
