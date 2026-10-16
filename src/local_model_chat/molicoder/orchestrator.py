@@ -17,6 +17,7 @@ from ..task_packet import TaskHandoff
 from .planner.base import PlannerProvider
 from .planner.schema import parse_plan
 from .plan_approval import plan_digest, require_approved_plan
+from .plan_review import plan_review_warnings
 from .artifact_checks import verify_artifact_checks
 from .intake import clarification_needed
 from .recon import Reconnaissance
@@ -840,10 +841,25 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             "max_task_attempts": self.max_task_attempts,
         }
 
-    def _task_assignments(self, plan, strategy: str) -> dict[str, dict]:
+    def _provider_for_model(self, model: str) -> FrontierProvider:
+        if model and model == self.provider.model:
+            return self.provider
+        if self.alternate_provider is not None and model and model == self.alternate_provider.model:
+            return self.alternate_provider
+        raise ValueError(f"Model {model!r} is not a configured Build provider model")
+
+    def _task_assignments(self, plan, strategy: str, model_overrides: dict[str, str] | None = None) -> dict[str, dict]:
+        model_overrides = model_overrides or {}
+        unknown = set(model_overrides) - {task.key for task in plan.tasks}
+        if unknown:
+            raise ValueError(f"Model override references unknown task: {sorted(unknown)[0]}")
         assignments = {}
         for task in plan.tasks:
-            local = self.local_executor is not None and self._local_eligible(task, self.root)
+            override = model_overrides.get(task.key)
+            selected_provider = self._provider_for_model(override) if override else self.provider
+            local = override is None and self.local_executor is not None and self._local_eligible(task, self.root)
+            if strategy == "LOCAL_OFFLINE" and override:
+                raise ValueError("Local offline Build cannot use a provider model override")
             if strategy == "LOCAL_OFFLINE":
                 runner = "local" if local else "unavailable"
             elif strategy == "HYBRID" and local:
@@ -852,12 +868,12 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 runner = "provider_cli"
             assignments[task.key] = {
                 "runner": runner,
-                "provider": "ollama" if runner == "local" else self.provider.name if runner == "provider_cli" else None,
-                "model": "molicoder:latest" if runner == "local" else self.provider.model if runner == "provider_cli" else None,
+                "provider": "ollama" if runner == "local" else selected_provider.name if runner == "provider_cli" else None,
+                "model": "molicoder:latest" if runner == "local" else selected_provider.model if runner == "provider_cli" else None,
                 "fallback_runner": "provider_cli" if runner == "local" and strategy == "HYBRID" else None,
                 "reason": "eligible bounded edit to existing files" if runner == "local" else
                           "local route cannot satisfy task capability" if runner == "unavailable" else
-                          "selected coding provider",
+                          "user-selected compatible model" if override else "selected coding provider",
             }
         return assignments
 
@@ -1022,12 +1038,12 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         raw = json.loads(edited) if isinstance(edited, str) else edited
         if not isinstance(raw, dict):
             raise ValueError("Edited plan must be a JSON object")
-        extra = set(raw) - {"objective", "tasks"}
+        extra = set(raw) - {"objective", "tasks", "task_model_overrides"}
         if extra:
             raise ValueError(
-                "Plan editor cannot override runner or model assignments; edit only objective and tasks"
+                "Plan editor cannot override runner or model assignments directly; use task_model_overrides"
                 if extra & {"runner_policy", "task_assignments", "runner", "model"}
-                else "Plan editor accepts only objective and tasks"
+                else "Plan editor accepts only objective, tasks, and task_model_overrides"
             )
         allowed_task_fields = {
             "key", "title", "objective", "risk", "depends_on", "expected_paths",
@@ -1038,6 +1054,20 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 raise ValueError("Plan task has unsupported fields; runner and model overrides are unavailable")
         from .plan_scope import validate_plan_scope
         plan = validate_plan_scope(parse_plan(raw), self.root)
+        model_overrides = raw.get("task_model_overrides", {})
+        if (not isinstance(model_overrides, dict)
+                or not all(isinstance(key, str) and isinstance(model, str) and model.strip()
+                           for key, model in model_overrides.items())):
+            raise ValueError("task_model_overrides must map task keys to configured model names")
+        unknown = set(model_overrides) - {task.key for task in plan.tasks}
+        if unknown:
+            raise ValueError(f"Model override references unknown task: {sorted(unknown)[0]}")
+        for model in model_overrides.values():
+            selected = self._provider_for_model(model)
+            if selected is not self.provider:
+                status = selected.probe()
+                if not (status.installed and status.auth_verified and status.authenticated):
+                    raise ValueError(f"Model {model!r} is not ready for Build execution")
         if run.get("worktree"):
             previous = parse_plan(latest["payload"])
             recorded = {task.key: task for task in self.store.list_run_tasks(run_id)}
@@ -1058,7 +1088,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         strategy = self.normalize_strategy(str(run["mode"]))
         payload = plan.to_dict() | {
             "runner_policy": self._runner_policy(strategy),
-            "task_assignments": self._task_assignments(plan, strategy),
+            "task_assignments": self._task_assignments(plan, strategy, model_overrides),
+            "task_model_overrides": model_overrides,
+            "review_warnings": plan_review_warnings(plan),
         }
         revision = self.store.save_plan(
             run_id, "user_revised", self.provider.name, payload,
@@ -1103,9 +1135,13 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         )
         if not stash_commit:
             raise ValueError("scope expansion had no failed attempt to preserve")
+        current_payload = self.store.get_latest_plan_record(run_id)["payload"]
+        model_overrides = current_payload.get("task_model_overrides", {})
         payload = revised_plan.to_dict() | {
             "runner_policy": self._runner_policy(strategy),
-            "task_assignments": self._task_assignments(revised_plan, strategy),
+            "task_assignments": self._task_assignments(revised_plan, strategy, model_overrides),
+            "task_model_overrides": model_overrides,
+            "review_warnings": plan_review_warnings(revised_plan),
         }
         revision = self.store.save_plan(
             run_id, "scope_expansion_proposed", self.provider.name, payload,
@@ -1176,7 +1212,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 plan_payload = plan.to_dict() | {
                     "runner_policy": self._runner_policy(strategy),
                     "task_assignments": self._task_assignments(plan, strategy),
+                    "review_warnings": plan_review_warnings(plan),
                 }
+                assignments = plan_payload["task_assignments"]
                 plan_revision = self.store.save_plan(run_id, "generated", _planner_provider_name(self.planner), plan_payload)
                 (self.root / ".molicoder" / "plans" / f"plan-{run_id}.json").write_text(
                     json.dumps(plan_payload, indent=2) + "\n", encoding="utf-8", newline="",
@@ -1210,7 +1248,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                     raise PermissionError("Approved runner policy changed")
                 plan = validate_plan_scope(parse_plan(saved["payload"]), self.root)
                 assignments = saved["payload"].get("task_assignments", {})
-                if assignments != self._task_assignments(plan, strategy):
+                if assignments != self._task_assignments(
+                    plan, strategy, saved["payload"].get("task_model_overrides", {}),
+                ):
                     raise PermissionError("Approved task assignments changed")
             manager = WorktreeManager(self.root, run_id=run_id, base_dir=self.worktree_base)
             if approved_run_id is not None and manager.base_commit != approved_run["base_commit"]:
@@ -1288,7 +1328,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             self._active_provider = self.provider
             self.wait_if_paused()
             if self.should_cancel():
-                self.provider.cancel()
+                self.cancel()
                 return self._finish_run(run_id, "cancelled", completed, len(plan.tasks), error="cancelled by user", workspace=workspace)
             task_id = task_ids[task.key]
             self._active_task_id = task_id
@@ -1381,7 +1421,12 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             if not changed and not verified_no_change:
                 wait_state = ""
                 opaque_review_required = False
-                attempt_provider = self.provider
+                assigned_model = assignments[task.key]["model"]
+                attempt_provider = (
+                    self._provider_for_model(assigned_model)
+                    if assignments[task.key]["runner"] == "provider_cli" and assigned_model else self.provider
+                )
+                self._active_provider = attempt_provider
                 failed_fingerprints: set[str] = set()
                 validation_fingerprints: list[str] = []
                 for frontier_attempt in range(prior_attempts + 1, self.max_task_attempts + 1):
@@ -1406,7 +1451,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                     )
                     self.wait_if_paused()
                     if self.should_cancel():
-                        self.provider.cancel()
+                        self.cancel()
                         self.store.update_run_task(task_id, "cancelled", attempts, reason="cancelled by user")
                         return self._finish_run(run_id, "cancelled", completed, len(plan.tasks), error="cancelled by user", workspace=workspace)
                     if not self._route_cooldowns.available(attempt_provider.name):
@@ -1414,7 +1459,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                         break
                     self._event(run_id, "provider_attempt_started", {
                         "key": task.key, "provider": attempt_provider.name, "attempt": frontier_attempt,
-                        "maximum_attempts": self.max_task_attempts,
+                    "maximum_attempts": self.max_task_attempts,
                     }, task_id)
                     opaque_attempt = getattr(attempt_provider, "enforcement_class", "") == "opaque_agent"
                     calls_before = getattr(attempt_provider, "calls", None) if opaque_attempt else None
@@ -1714,7 +1759,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             plan = validate_plan_scope(parse_plan(latest["payload"]), self.root)
             strategy = self.normalize_strategy(str(run["mode"]))
             if (latest["payload"].get("runner_policy") != self._runner_policy(strategy)
-                    or latest["payload"].get("task_assignments") != self._task_assignments(plan, strategy)):
+                    or latest["payload"].get("task_assignments") != self._task_assignments(
+                        plan, strategy, latest["payload"].get("task_model_overrides", {}),
+                    )):
                 return blocked("Interrupted Build runner assignments differ from the saved plan")
             if {task.key for task in tasks} != {task.key for task in plan.tasks}:
                 return blocked("Interrupted Build task graph differs from the saved plan")

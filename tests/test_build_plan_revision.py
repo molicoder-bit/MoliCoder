@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from local_model_chat.molicoder.planner.schema import parse_plan
-from local_model_chat.molicoder.providers import ProviderResult
+from local_model_chat.molicoder.providers import ProviderResult, ProviderStatus
 from test_build_plan_approval import approve, fixture
 
 
@@ -160,6 +160,58 @@ def test_s036_edited_dependency_controls_execution_order(tmp_path):
     result = orchestrator.execute_approved(prepared.run_id)
     assert result.status == "ready_to_apply", result.error
     assert executor.calls == ["first", "second"]
+
+
+def test_s037_compatible_task_model_override_is_approved_recorded_and_executed(tmp_path):
+    root, store, _project, primary, orchestrator = fixture(tmp_path, "hello.txt", "alternate\n")
+
+    class Alternate:
+        name = "alternate"
+        model = "alternate-model"
+
+        def __init__(self):
+            self.calls = 0
+
+        def probe(self):
+            return ProviderStatus(self.name, True, True, model=self.model, auth_verified=True)
+
+        def execute(self, worktree, _prompt, *, timeout_seconds=1200):
+            self.calls += 1
+            (Path(worktree) / "hello.txt").write_text("alternate\n", encoding="utf-8")
+            return ProviderResult("completed", "done", model=self.model)
+
+        def cancel(self):
+            pass
+
+    alternate = Alternate()
+    orchestrator.alternate_provider = alternate
+    prepared = orchestrator.run("Write hello.txt", mode="FRONTIER_ONLY")
+    first = store.get_latest_plan_record(prepared.run_id)
+    with pytest.raises(ValueError, match="not a configured Build provider model"):
+        orchestrator.revise_plan(prepared.run_id, first["id"], {
+            "objective": first["payload"]["objective"],
+            "tasks": first["payload"]["tasks"],
+            "task_model_overrides": {"write": "unconfigured-model"},
+        })
+    assert store.get_latest_plan_record(prepared.run_id)["id"] == first["id"]
+    approve(store, prepared.run_id)
+    revision = orchestrator.revise_plan(prepared.run_id, first["id"], {
+        "objective": first["payload"]["objective"],
+        "tasks": first["payload"]["tasks"],
+        "task_model_overrides": {"write": "alternate-model"},
+    })
+    saved = store.get_latest_plan_record(prepared.run_id)
+    assert saved["id"] == revision
+    assert saved["payload"]["task_assignments"]["write"]["model"] == "alternate-model"
+    assert saved["payload"]["task_assignments"]["write"]["provider"] == "alternate"
+    with pytest.raises(PermissionError):
+        orchestrator.execute_approved(prepared.run_id)
+    approve(store, prepared.run_id)
+    result = orchestrator.execute_approved(prepared.run_id)
+    assert result.status == "ready_to_apply", result.error
+    assert alternate.calls == 1 and primary.calls == 0
+    assert (result.integration_path / "hello.txt").read_text(encoding="utf-8") == "alternate\n"
+    assert not (root / "hello.txt").exists()
 
 
 def test_plan_editor_cannot_overwrite_a_newer_revision(tmp_path):

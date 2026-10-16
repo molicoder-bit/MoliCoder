@@ -70,6 +70,99 @@ def _execute(store, orchestrator):
     return orchestrator.execute_approved(prepared.run_id)
 
 
+def test_s022_config_creation_precedes_importing_code(tmp_path):
+    tasks = [
+        {**_task("config", path="config.py"), "objective": "Create config.py with VALUE"},
+        {**_task("importer", "config", path="feature.py"), "objective": "Import VALUE from config.py"},
+    ]
+    root, store, orchestrator = _setup(
+        tmp_path, tasks, max_workers=2,
+        validate_task=lambda path, task: "validation passed" if (
+            (Path(path) / task.expected_paths[0]).is_file()
+        ) else "validation failed",
+        validate_integration=lambda path: "validation passed" if (
+            (Path(path) / "config.py").read_text(encoding="utf-8") == "VALUE = 42\n"
+            and (Path(path) / "feature.py").read_text(encoding="utf-8") == "from config import VALUE\n"
+        ) else "validation failed",
+    )
+    order = []
+
+    def execute(worktree, prompt):
+        path = Path(worktree)
+        if "(config)" in prompt:
+            order.append("config")
+            (path / "config.py").write_text("VALUE = 42\n", encoding="utf-8")
+        else:
+            assert (path / "config.py").read_text(encoding="utf-8") == "VALUE = 42\n"
+            order.append("importer")
+            (path / "feature.py").write_text("from config import VALUE\n", encoding="utf-8")
+        return _completed()
+
+    orchestrator.execute_task = execute
+    prepared = orchestrator.run("Create a config file, then write code that imports it")
+    assert prepared.status == "awaiting_approval"
+    planned = store.get_latest_plan_record(prepared.run_id)["payload"]["tasks"]
+    assert [(task["key"], task["depends_on"]) for task in planned] == [
+        ("config", []), ("importer", ["config"]),
+    ]
+    approve(store, prepared.run_id)
+    result = orchestrator.execute_approved(prepared.run_id)
+    assert result.status == "completed", result.error
+    assert order == ["config", "importer"]
+    assert not (root / "feature.py").exists()
+
+
+def test_s024_three_step_chain_waits_for_each_verified_parent(tmp_path):
+    tasks = [_task("a"), _task("b", "a"), _task("c", "b")]
+    root, store, orchestrator = _setup(tmp_path, tasks, max_workers=3)
+    order = []
+
+    def execute(worktree, prompt):
+        key = next(task["key"] for task in tasks if f"({task['key']})" in prompt)
+        path = Path(worktree)
+        if key != "a":
+            parent = "a" if key == "b" else "b"
+            assert (path / f"{parent}.txt").read_text(encoding="utf-8") == f"{parent}\n"
+            saved = {task.key: task for task in store.list_run_tasks(run_id)}
+            assert store.get_task_completion(saved[parent].id) is not None
+        order.append(key)
+        (path / f"{key}.txt").write_text(f"{key}\n", encoding="utf-8")
+        return _completed()
+
+    orchestrator.execute_task = execute
+    prepared = orchestrator.run("Complete A, then B, then C")
+    run_id = prepared.run_id
+    approve(store, run_id)
+    result = orchestrator.execute_approved(run_id)
+    assert result.status == "completed", result.error
+    assert order == ["a", "b", "c"]
+    assert all((result.integration_path / f"{key}.txt").is_file() for key in order)
+    assert not (root / "c.txt").exists()
+
+
+def test_s027_explicit_user_order_is_recorded_and_enforced(tmp_path):
+    root, store, orchestrator = _setup(tmp_path, [_task("x"), _task("y", "x")], max_workers=2)
+    order = []
+
+    def execute(worktree, prompt):
+        key = "x" if "(x)" in prompt else "y"
+        if key == "y":
+            assert (Path(worktree) / "x.txt").is_file()
+        order.append(key)
+        (Path(worktree) / f"{key}.txt").write_text(f"{key}\n", encoding="utf-8")
+        return _completed()
+
+    orchestrator.execute_task = execute
+    prepared = orchestrator.run("Do X before Y")
+    payload = store.get_latest_plan_record(prepared.run_id)["payload"]
+    assert payload["tasks"][1]["depends_on"] == ["x"]
+    approve(store, prepared.run_id)
+    result = orchestrator.execute_approved(prepared.run_id)
+    assert result.status == "completed", result.error
+    assert order == ["x", "y"]
+    assert not (root / "y.txt").exists()
+
+
 def test_s081_s086_independent_tasks_overlap_and_integrate_distinct_worktrees(tmp_path):
     root, store, orchestrator = _setup(tmp_path, [_task("alpha"), _task("beta")])
     barrier = threading.Barrier(2, timeout=20)

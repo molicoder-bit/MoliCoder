@@ -31,6 +31,7 @@ class KandevRestConfig:
     workflow_step_id: str
     repository_id: str
     agent_profile_id: str
+    additional_agent_profile_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         parsed = urlparse(self.endpoint)
@@ -41,7 +42,7 @@ class KandevRestConfig:
         if self.version != "0.97.0":
             raise ValueError("Kandev REST contract is verified only for release 0.97.0")
         for value in (self.workspace_id, self.workflow_id, self.workflow_step_id,
-                      self.repository_id, self.agent_profile_id):
+                      self.repository_id, self.agent_profile_id, *self.additional_agent_profile_ids):
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", value):
                 raise ValueError("Kandev REST requires explicit bounded task IDs")
 
@@ -117,15 +118,29 @@ class KandevRestTaskApi:
     def create(self, external_id: str, objective: str) -> Mapping[str, object]:
         return self._create(external_id, objective, start_agent=False)
 
-    def create_and_launch(self, external_id: str, objective: str) -> Mapping[str, object]:
+    def create_and_launch(
+        self, external_id: str, objective: str, *,
+        blocked_by: tuple[str, ...] = (), agent_profile_id: str = "",
+    ) -> Mapping[str, object]:
         """Create a Kandev-owned run only with a separate agent-launch approval."""
-        return self._create(external_id, objective, start_agent=True)
+        return self._create(
+            external_id, objective, start_agent=True,
+            blocked_by=blocked_by, agent_profile_id=agent_profile_id,
+        )
 
-    def _create(self, external_id: str, objective: str, *, start_agent: bool) -> Mapping[str, object]:
+    def _create(
+        self, external_id: str, objective: str, *, start_agent: bool,
+        blocked_by: tuple[str, ...] = (), agent_profile_id: str = "",
+    ) -> Mapping[str, object]:
         if not re.fullmatch(r"[A-Za-z0-9._:-]{1,200}", external_id):
             raise ValueError("Kandev task external ID is invalid")
         if not objective.strip() or len(objective) > 12_000:
             raise ValueError("Kandev task objective is missing or too large")
+        if any(not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", value) for value in blocked_by):
+            raise ValueError("Kandev dependency task ID is invalid")
+        selected_profile = agent_profile_id or self.config.agent_profile_id
+        if selected_profile not in {self.config.agent_profile_id, *self.config.additional_agent_profile_ids}:
+            raise ValueError("Kandev agent profile is outside the configured allowlist")
         if self._store is None:
             raise PermissionError("Kandev task creation requires an exact authorization")
         AuthorizationPolicy(self._store).require(ActionRequest(
@@ -134,7 +149,7 @@ class KandevRestTaskApi:
         if start_agent:
             AuthorizationPolicy(self._store).require(ActionRequest(
                 None, "kandev_agent_launch",
-                f"{self.config.workspace_id}:{external_id}:{self.config.agent_profile_id}",
+                f"{self.config.workspace_id}:{external_id}:{selected_profile}",
                 ActionRisk.EXTERNAL,
             ))
         result = self._request("POST", "/tasks", {
@@ -148,9 +163,10 @@ class KandevRestTaskApi:
             # omitted. Build acceptance needs an isolated Git worktree.
             "executor_id": "exec-worktree",
             "repositories": [{"repository_id": self.config.repository_id}],
-            "agent_profile_id": self.config.agent_profile_id,
+            "agent_profile_id": selected_profile,
             "start_agent": start_agent,
             "prepare_session": False,
+            **({"blocked_by": list(blocked_by), "start_when_unblocked": True} if blocked_by else {}),
         })
         assert result is not None
         return result
@@ -177,9 +193,12 @@ class KandevRestTaskApi:
                 or session.get("task_id") != remote_task_id):
             raise KandevTransportError("Kandev session identity differs")
         enriched = dict(task)
-        for field in ("worktree_path", "worktree_branch", "base_commit_sha", "repository_id"):
+        for field in ("worktree_path", "worktree_branch", "base_commit_sha", "repository_id", "agent_profile_id"):
             if isinstance(session.get(field), str):
                 enriched[field] = session[field]
+        profile_snapshot = session.get("agent_profile_snapshot")
+        if isinstance(profile_snapshot, dict) and isinstance(profile_snapshot.get("model"), str):
+            enriched["model"] = profile_snapshot["model"]
         return enriched
 
     def find_by_external_id(self, external_id: str) -> Mapping[str, object] | None:

@@ -66,6 +66,37 @@ def test_pinned_rest_create_lookup_and_read_use_exact_endpoint_and_identity(tmp_
     assert read.full_url.endswith("/tasks/task-1")
 
 
+def test_pinned_rest_multi_task_create_binds_blockers_and_selected_profile(tmp_path) -> None:
+    store = ChatStore(tmp_path / "kandev.sqlite3")
+    for action, scope in (
+        ("kandev_task_create", "workspace-1:run:2"),
+        ("kandev_agent_launch", "workspace-1:run:2:profile-2"),
+    ):
+        store.record_action_authorization(
+            project_id=None, action=action, scope=scope,
+            risk="external", decision="approved", actor="user",
+            expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+        )
+    config = KandevRestConfig(
+        "http://127.0.0.1:38429/mcp", "0.97.0", "workspace-1", "workflow-1",
+        "step-1", "repo-1", "profile-1", ("profile-2",),
+    )
+    api = KandevRestTaskApi(config, store=store)
+    fake = FakeOpener()
+    fake.responses = [{"id": "task-2", "external_id": "run:2", "creation_complete": True}]
+    api._opener = fake
+    api.create_and_launch(
+        "run:2", "Build feature", blocked_by=("task-1",), agent_profile_id="profile-2",
+    )
+    body = json.loads(fake.requests[0].data)
+    assert body["blocked_by"] == ["task-1"]
+    assert body["start_when_unblocked"] is True
+    assert body["agent_profile_id"] == "profile-2" and body["start_agent"] is True
+    with pytest.raises(ValueError, match="allowlist"):
+        api.create_and_launch("run:3", "Build feature", agent_profile_id="other-profile")
+    assert len(fake.requests) == 1
+
+
 def test_rest_transport_requires_authorization_before_lifecycle_create() -> None:
     api = KandevRestTaskApi(_config())
     fake = FakeOpener()

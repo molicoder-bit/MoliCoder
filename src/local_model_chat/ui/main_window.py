@@ -2694,6 +2694,8 @@ class MainWindow(QMainWindow):
             "An unfinished provider attempt may have had external effects. Review its preserved output before approving a retry.\n"
             if recovery_event else ""
         )
+        review_warnings = plan["payload"].get("review_warnings", [])
+        warning_text = ("Plan review warnings:\n" + "\n".join(review_warnings) + "\n\n") if review_warnings else ""
         detail = (
             f"Plan revision {plan['id']} for {self.registry.selected().name if self.registry.selected() else 'unknown project'}\n"
             f"Objective: {plan['payload'].get('objective', '')}\n"
@@ -2701,6 +2703,7 @@ class MainWindow(QMainWindow):
             f"provider/model: {run['provider']}/{run['model'] or 'provider default'}\n"
             + (f"Reason for fresh approval: {run['recovery_reason']}\n" if run.get("recovery_reason") else "")
             + recovery_text
+            + warning_text
             + cost_text
             + f"Runner policy: {json.dumps(plan['payload'].get('runner_policy', {}), ensure_ascii=False)}\n\n"
             + "\n\n".join(rows)
@@ -2716,10 +2719,11 @@ class MainWindow(QMainWindow):
             draft = json.dumps({
                 "objective": plan["payload"].get("objective", ""),
                 "tasks": plan["payload"].get("tasks", []),
+                "task_model_overrides": plan["payload"].get("task_model_overrides", {}),
             }, ensure_ascii=False, indent=2)
             edited, accepted = QInputDialog.getMultiLineText(
                 self, "Revise Build plan",
-                "Edit objective and tasks as JSON. Runner/model overrides are unavailable. A saved edit needs new approval:",
+                "Edit objective and tasks as JSON. task_model_overrides maps task keys to configured provider models. A saved edit needs new approval:",
                 draft,
             )
             if not accepted:

@@ -15,7 +15,10 @@ class KandevTaskApi(Protocol):
 
     def capabilities(self) -> tuple[str, ...]: ...
     def create(self, external_id: str, objective: str) -> Mapping[str, object]: ...
-    def create_and_launch(self, external_id: str, objective: str) -> Mapping[str, object]: ...
+    def create_and_launch(
+        self, external_id: str, objective: str, *,
+        blocked_by: tuple[str, ...] = (), agent_profile_id: str = "",
+    ) -> Mapping[str, object]: ...
     def read(self, remote_task_id: str) -> Mapping[str, object] | None: ...
     def read_with_session(self, remote_task_id: str) -> Mapping[str, object] | None: ...
     def find_by_external_id(self, external_id: str) -> Mapping[str, object] | None: ...
@@ -69,19 +72,37 @@ class KandevTaskAdapter:
             state = "reconciliation_required"
         else:
             state = _STATES.get(str(raw.get("state") or "").lower(), "reconciliation_required")
+        raw_dependencies = raw.get("depends_on")
+        dependencies = tuple(
+            str(item["id"]) for item in raw_dependencies
+            if isinstance(item, Mapping) and isinstance(item.get("id"), str)
+        ) if isinstance(raw_dependencies, list) else ()
         return KandevTaskSnapshot(
             resolved, state, observed, str(raw.get("primary_session_id") or raw.get("session_id") or ""),
             str(raw.get("worktree_path") or ""), str(raw.get("event_cursor") or ""),
             "Unknown or unsettled remote state" if state == "reconciliation_required" else "",
             str(raw.get("worktree_branch") or ""), str(raw.get("base_commit_sha") or ""),
             str(raw.get("repository_id") or ""),
+            dependencies,
+            str(raw.get("agent_profile_id") or raw.get("primary_agent_profile_id") or ""),
+            raw.get("start_when_unblocked") is True,
+            str(raw.get("model") or ""),
         )
 
-    def create_task(self, ref: KandevTaskRef, objective: str) -> KandevTaskSnapshot:
+    def create_task(
+        self, ref: KandevTaskRef, objective: str, *,
+        blocked_by: tuple[str, ...] = (), agent_profile_id: str = "",
+    ) -> KandevTaskSnapshot:
         if self.probe().health_state != "ready":
             raise RuntimeError("Kandev task capabilities are incomplete")
         try:
-            raw = self.api.create_and_launch(ref.external_id, objective)
+            raw = (
+                self.api.create_and_launch(
+                    ref.external_id, objective,
+                    blocked_by=blocked_by, agent_profile_id=agent_profile_id,
+                ) if blocked_by or agent_profile_id else
+                self.api.create_and_launch(ref.external_id, objective)
+            )
         except KandevTransportError:
             # A transport failure may happen after Kandev accepted the create.
             # The stable external ID is the only safe recovery key; never retry
