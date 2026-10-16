@@ -12,5 +12,6 @@ dist/
 *.sqlite*
 exports/
 attachments/
+artifacts/
 .idea/
 .vscode/

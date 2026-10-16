@@ -108,7 +108,12 @@ class CodexCliPlanner:
         self.budget.consume("planning")
         prompt = (
             "Act only as a read-only planning consultant. Produce a small, dependency-aware coding plan "
-            "from this source-grounded evidence packet. Do not edit files.\n\n" + packet.to_prompt()
+            "from this source-grounded evidence packet. Do not edit files. "
+            "For an exact text-file result or empty directory, include an artifact_checks entry "
+            "on that task: file_equals with project-relative path and exact content, or "
+            "directory_empty with project-relative path. Include the path in expected_paths. "
+            "Use artifact_checks only when the requested result is exact and independently checkable.\n\n"
+            + packet.to_prompt()
         )
         started = time.monotonic()
         with tempfile.TemporaryDirectory(prefix="molicoder-codex-") as temp:

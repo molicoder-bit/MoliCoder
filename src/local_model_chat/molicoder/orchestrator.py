@@ -4,7 +4,7 @@ import json
 import subprocess
 import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Protocol
@@ -16,9 +16,12 @@ from ..storage import ChatStore
 from ..task_packet import TaskHandoff
 from .planner.base import PlannerProvider
 from .planner.schema import parse_plan
+from .plan_approval import plan_digest, require_approved_plan
+from .artifact_checks import verify_artifact_checks
+from .intake import clarification_needed
 from .recon import Reconnaissance
 from .repair import RepairOutcome, classify_task_failure
-from .fingerprint import failure_fingerprint
+from .fingerprint import classify_progress, failure_fingerprint
 from .scheduler import DagScheduler
 from .validate import assess_architectural_invariants
 from .worktree import IntegrationConflict, TaskWorkspace, WorktreeManager
@@ -558,6 +561,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         inference_gateway: object | None = None,
         model_reviewer: object | None = None,
         alternate_provider: FrontierProvider | None = None,
+        require_plan_approval: bool = False,
     ) -> None:
         self.store = store
         self.project = project
@@ -578,6 +582,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         self.inference_gateway = inference_gateway
         self.model_reviewer = model_reviewer
         self.alternate_provider = alternate_provider
+        self.require_plan_approval = require_plan_approval
         self._active_provider = provider
         self._event_log_lock = threading.Lock()
         self._active_run_id: int | None = None
@@ -690,7 +695,12 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             )),
             verified_work=verified_work,
         )
-        return handoff.render(project_kind=self.project.kind)
+        rendered = handoff.render(project_kind=self.project.kind)
+        if task.artifact_checks:
+            rendered += "\n\nApproved exact artifact checks:\n" + json.dumps(
+                task.artifact_checks, ensure_ascii=False, indent=2,
+            )
+        return rendered
 
     def _local_eligible(self, task, workspace: Path) -> bool:
         if task.risk != "low" or not 1 <= len(task.expected_paths) <= 2:
@@ -706,6 +716,39 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             if lowered & self._BLOCKED_LOCAL_NAMES:
                 return False
         return True
+
+    def _runner_policy(self, strategy: str) -> dict:
+        return {
+            "backend": "internal", "strategy": strategy,
+            "provider": self.provider.name, "model": self.provider.model,
+            "local_model": "molicoder:latest" if self.local_executor else None,
+            "fallback_provider": self.alternate_provider.name if self.alternate_provider else None,
+            "fallback_model": self.alternate_provider.model if self.alternate_provider else None,
+            "selection_reason": "local eligible tasks use the local executor in Hybrid mode; otherwise the selected provider",
+            "auto_apply": self.auto_apply,
+            "max_task_attempts": self.max_task_attempts,
+        }
+
+    def _task_assignments(self, plan, strategy: str) -> dict[str, dict]:
+        assignments = {}
+        for task in plan.tasks:
+            local = self.local_executor is not None and self._local_eligible(task, self.root)
+            if strategy == "LOCAL_OFFLINE":
+                runner = "local" if local else "unavailable"
+            elif strategy == "HYBRID" and local:
+                runner = "local"
+            else:
+                runner = "provider_cli"
+            assignments[task.key] = {
+                "runner": runner,
+                "provider": "ollama" if runner == "local" else self.provider.name if runner == "provider_cli" else None,
+                "model": "molicoder:latest" if runner == "local" else self.provider.model if runner == "provider_cli" else None,
+                "fallback_runner": "provider_cli" if runner == "local" and strategy == "HYBRID" else None,
+                "reason": "eligible bounded edit to existing files" if runner == "local" else
+                          "local route cannot satisfy task capability" if runner == "unavailable" else
+                          "selected coding provider",
+            }
+        return assignments
 
     def _changed_paths(self, manager: WorktreeManager, workspace: Path) -> tuple[str, ...]:
         output = manager._git("status", "--porcelain", "--untracked-files=all", cwd=workspace).stdout
@@ -739,6 +782,14 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         if unexpected:
             return "provider changed paths outside the approved task scope: " + ", ".join(unexpected)
         return ""
+
+    def _task_validation(self, task, manager: WorktreeManager, workspace: Path) -> str:
+        result = self._scope_error(task, manager, workspace) or self.validate_task(workspace, task)
+        if result.lstrip().startswith("validation passed"):
+            failures = verify_artifact_checks(workspace, task.artifact_checks)
+            if failures:
+                return "artifact validation failed: " + "; ".join(failures)
+        return result
 
     @staticmethod
     def _unmet_criteria(task) -> tuple[str, ...]:
@@ -825,9 +876,157 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 raise
             return self.fail_unexpected(str(exc))
 
-    def _run(self, request: str, *, mode: str = "HYBRID") -> OrchestrationResult:
+    def execute_approved(self, run_id: int) -> OrchestrationResult:
+        """Continue only the latest plan revision explicitly approved for this run."""
+        run, _plan = require_approved_plan(self.store, run_id)
+        if int(run["project_id"]) != self.project.id or run["status"] != "awaiting_approval":
+            raise PermissionError("Build is not awaiting approval for this project")
+        try:
+            return self._run(str(run["request"]), mode=str(run["mode"]), approved_run_id=run_id)
+        except Exception as exc:
+            if self._active_run_id is None:
+                raise
+            return self.fail_unexpected(str(exc))
+
+    def revise_plan(self, run_id: int, expected_revision: int, edited: str | dict) -> int:
+        """Save a new unapproved plan revision after validating task scope and DAG."""
+        if not self.require_plan_approval:
+            raise ValueError("Plan revision requires the approval-gated Build workflow")
+        run = self.store.get_run(run_id)
+        latest = self.store.get_latest_plan_record(run_id)
+        if (run is None or latest is None or int(run["project_id"]) != self.project.id
+                or run["status"] != "awaiting_approval"):
+            raise ValueError("Only a pending plan for this project can be revised")
+        if int(latest["id"]) != expected_revision:
+            raise ValueError("Plan revision changed while editing; reload the latest plan")
+        if (str(run["provider"]) != self.provider.name
+                or str(run["model"]) != self.provider.model):
+            raise ValueError("Build route changed; restore the planned provider before editing")
+        current_head = WorktreeManager(self.root, run_id=run_id, base_dir=self.worktree_base)._git(
+            "rev-parse", "HEAD", cwd=self.root,
+        ).stdout.strip()
+        if current_head != run["base_commit"]:
+            raise ValueError("Project HEAD changed; create a new plan for the new base")
+        raw = json.loads(edited) if isinstance(edited, str) else edited
+        if not isinstance(raw, dict):
+            raise ValueError("Edited plan must be a JSON object")
+        extra = set(raw) - {"objective", "tasks"}
+        if extra:
+            raise ValueError(
+                "Plan editor cannot override runner or model assignments; edit only objective and tasks"
+                if extra & {"runner_policy", "task_assignments", "runner", "model"}
+                else "Plan editor accepts only objective and tasks"
+            )
+        allowed_task_fields = {
+            "key", "title", "objective", "risk", "depends_on", "expected_paths",
+            "acceptance_criteria", "verification_checks", "artifact_checks",
+        }
+        for item in raw.get("tasks", []) if isinstance(raw.get("tasks"), list) else []:
+            if isinstance(item, dict) and set(item) - allowed_task_fields:
+                raise ValueError("Plan task has unsupported fields; runner and model overrides are unavailable")
+        from .plan_scope import validate_plan_scope
+        plan = validate_plan_scope(parse_plan(raw), self.root)
+        if run.get("worktree"):
+            previous = parse_plan(latest["payload"])
+            recorded = {task.key: task for task in self.store.list_run_tasks(run_id)}
+            if plan.objective != previous.objective or [task.key for task in plan.tasks] != [
+                task.key for task in previous.tasks
+            ]:
+                raise ValueError("A paused repair can change file scope only; task graph and objective are fixed")
+            for before, after in zip(previous.tasks, plan.tasks):
+                saved_task = recorded.get(before.key)
+                if saved_task is None:
+                    raise ValueError("A paused repair task is missing from persisted state")
+                if saved_task.status == "completed":
+                    if after != before:
+                        raise ValueError("A completed task cannot be changed in a repair revision")
+                elif (replace(after, expected_paths=before.expected_paths) != before
+                      or not set(before.expected_paths) <= set(after.expected_paths)):
+                    raise ValueError("A paused repair can only expand an unfinished task's file scope")
+        strategy = self.normalize_strategy(str(run["mode"]))
+        payload = plan.to_dict() | {
+            "runner_policy": self._runner_policy(strategy),
+            "task_assignments": self._task_assignments(plan, strategy),
+        }
+        revision = self.store.save_plan(
+            run_id, "user_revised", self.provider.name, payload,
+            expected_latest_id=expected_revision,
+        )
+        self._event(run_id, "plan_revised", {
+            "previous_revision": expected_revision, "revision": revision,
+            "digest": plan_digest(payload), "task_keys": [task.key for task in plan.tasks],
+        })
+        plan_path = self.root / ".molicoder" / "plans" / f"plan-{run_id}.json"
+        try:
+            plan_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="")
+        except OSError as exc:
+            self._event(run_id, "plan_export_failed", {"revision": revision, "reason": str(exc)[:500]})
+        return revision
+
+    def _propose_scope_revision(
+        self, run_id: int, plan, task, task_id: int, attempts: int,
+        completed: int, manager: WorktreeManager, workspace: TaskWorkspace,
+        approved_plan_id: int, strategy: str, error: str,
+    ) -> OrchestrationResult | None:
+        """Preserve a failed attempt and request approval for its extra file scope."""
+        from .plan_scope import validate_plan_scope
+
+        actual = self._changed_paths(manager, workspace.path)
+        allowed = tuple(path.strip("/").replace("\\", "/") for path in task.expected_paths)
+        extra = tuple(path for path in actual if not any(
+            path == scope or path.startswith(scope.rstrip("/") + "/") for scope in allowed
+        ))
+        if not extra or len(extra) > 20:
+            return None
+        workspace_root = workspace.path.resolve()
+        if any(not (workspace_root / path).resolve().is_relative_to(workspace_root) for path in extra):
+            raise ValueError("repair output escapes the isolated worktree")
+        revised_task = replace(task, expected_paths=tuple(dict.fromkeys((*task.expected_paths, *extra))))
+        revised_plan = validate_plan_scope(replace(plan, tasks=tuple(
+            revised_task if item.key == task.key else item for item in plan.tasks
+        )), self.root)
+        accepted_head = manager._git("rev-parse", "HEAD", cwd=workspace.path).stdout.strip()
+        stash_commit = manager.preserve_failed_attempt(
+            workspace, f"MoliCoder run {run_id} task {task.key} needs broader approved scope",
+        )
+        if not stash_commit:
+            raise ValueError("scope expansion had no failed attempt to preserve")
+        payload = revised_plan.to_dict() | {
+            "runner_policy": self._runner_policy(strategy),
+            "task_assignments": self._task_assignments(revised_plan, strategy),
+        }
+        revision = self.store.save_plan(
+            run_id, "scope_expansion_proposed", self.provider.name, payload,
+            expected_latest_id=approved_plan_id,
+        )
+        self.store.update_run_task(
+            task_id, "waiting_approval", attempts,
+            reason="repair changed paths outside the approved task scope",
+        )
+        self.store.update_run_state(
+            run_id, "awaiting_approval", worktree=str(workspace.path),
+            final_commit=accepted_head, recovery_reason=error,
+        )
+        self._event(run_id, "plan_scope_expansion_proposed", {
+            "previous_revision": approved_plan_id, "revision": revision,
+            "digest": plan_digest(payload), "task_key": task.key,
+            "additional_paths": extra, "accepted_checkpoint": accepted_head,
+            "failed_attempt_stash": stash_commit,
+        }, task_id)
+        plan_path = self.root / ".molicoder" / "plans" / f"plan-{run_id}.json"
+        try:
+            plan_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="")
+        except OSError as exc:
+            self._event(run_id, "plan_export_failed", {"revision": revision, "reason": str(exc)[:500]})
+        return OrchestrationResult(
+            run_id, "awaiting_approval", completed, len(plan.tasks),
+            "Repair needs approval for additional paths: " + ", ".join(extra),
+            workspace.path, workspace.branch, workspace.base_commit, accepted_head,
+        )
+
+    def _run(self, request: str, *, mode: str = "HYBRID", approved_run_id: int | None = None) -> OrchestrationResult:
         strategy = self.normalize_strategy(mode)
-        run_id = self.store.create_run(
+        run_id = approved_run_id or self.store.create_run(
             self.project.id, request, strategy,
             provider=self.provider.name, model=self.provider.model, log_version=2,
         )
@@ -837,60 +1036,143 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             self.inference_gateway.run_id = run_id
             self.inference_gateway.task_id = None
         log_path = self.root / ".molicoder" / "logs" / f"run-{run_id}.jsonl"
-        self._event(run_id, "run_started", {
+        self._event(run_id, "run_started" if approved_run_id is None else "run_approved_execution_started", {
             "request": request, "strategy": strategy, "provider": self.provider.name,
             "model": self.provider.model or None, "isolation": "single-run-worktree",
             "log_path": str(log_path), "log_version": 2,
         })
+        issue = clarification_needed(request)
+        if issue:
+            return self._finish_run(run_id, "needs_attention", 0, 0, error=issue)
         if self.route_decision is not None:
             self._event(run_id, "routing_decision", self.route_decision)
         if self.should_cancel():
             return self._finish_run(run_id, "cancelled", 0, 0, error="cancelled by user")
         self._event(run_id, "run_stage", {"stage": "preflight", "message": "Checking repository and provider"})
-        self.store.update_run_state(run_id, "preflight")
+        if approved_run_id is None:
+            self.store.update_run_state(run_id, "preflight")
         try:
             packet = Reconnaissance(self.root).build(request)
             self._event(run_id, "recon_completed", packet.to_dict())
-            self._event(run_id, "run_stage", {"stage": "planning", "message": f"{self.provider.name.title()} is creating the plan"})
-            self.store.update_run_state(run_id, "planning")
             from .plan_scope import validate_plan_scope
-            plan = validate_plan_scope(self.planner.plan(packet), self.root)
-            if len(plan.tasks) > 5:
-                raise ValueError("plan exceeds the five-task run limit")
-            self.store.save_plan(run_id, "generated", _planner_provider_name(self.planner), plan.to_dict())
-            (self.root / ".molicoder" / "plans" / f"plan-{run_id}.json").write_text(
-                json.dumps(plan.to_dict(), indent=2) + "\n", encoding="utf-8", newline="",
-            )
-            self._event(run_id, "plan_created", {"provider": _planner_provider_name(self.planner), "tasks": len(plan.tasks)})
+            if approved_run_id is None:
+                self._event(run_id, "run_stage", {"stage": "planning", "message": f"{self.provider.name.title()} is creating the plan"})
+                self.store.update_run_state(run_id, "planning")
+                plan = validate_plan_scope(self.planner.plan(packet), self.root)
+                if len(plan.tasks) > 5:
+                    raise ValueError("plan exceeds the five-task run limit")
+                plan_payload = plan.to_dict() | {
+                    "runner_policy": self._runner_policy(strategy),
+                    "task_assignments": self._task_assignments(plan, strategy),
+                }
+                plan_revision = self.store.save_plan(run_id, "generated", _planner_provider_name(self.planner), plan_payload)
+                (self.root / ".molicoder" / "plans" / f"plan-{run_id}.json").write_text(
+                    json.dumps(plan_payload, indent=2) + "\n", encoding="utf-8", newline="",
+                )
+                self._event(run_id, "plan_created", {
+                    "provider": _planner_provider_name(self.planner), "tasks": len(plan.tasks),
+                    "revision": plan_revision, "digest": plan_digest(plan_payload),
+                })
+                if self.require_plan_approval:
+                    base_commit = WorktreeManager(self.root, run_id=run_id, base_dir=self.worktree_base)._git(
+                        "rev-parse", "HEAD", cwd=self.root,
+                    ).stdout.strip()
+                    if not base_commit:
+                        raise ValueError("Cannot bind the plan to a Git base commit")
+                    self.store.update_run_state(run_id, "awaiting_approval", base_commit=base_commit)
+                    self._event(run_id, "plan_awaiting_approval", {
+                        "revision": plan_revision, "base_commit": base_commit,
+                        "task_keys": [task.key for task in plan.tasks],
+                    })
+                    return OrchestrationResult(run_id, "awaiting_approval", 0, len(plan.tasks))
+            else:
+                approved_run, saved = require_approved_plan(self.store, run_id)
+                approved_plan_id = int(saved["id"])
+                approved_plan_digest = plan_digest(saved["payload"])
+                if (str(approved_run["request"]) != request or str(approved_run["mode"]) != strategy
+                        or str(approved_run["provider"]) != self.provider.name
+                        or str(approved_run["model"]) != self.provider.model):
+                    raise PermissionError("Approved Build route or request changed")
+                policy = saved["payload"].get("runner_policy", {})
+                if policy != self._runner_policy(strategy):
+                    raise PermissionError("Approved runner policy changed")
+                plan = validate_plan_scope(parse_plan(saved["payload"]), self.root)
+                assignments = saved["payload"].get("task_assignments", {})
+                if assignments != self._task_assignments(plan, strategy):
+                    raise PermissionError("Approved task assignments changed")
             manager = WorktreeManager(self.root, run_id=run_id, base_dir=self.worktree_base)
-            workspace = manager.create_run()
+            if approved_run_id is not None and manager.base_commit != approved_run["base_commit"]:
+                raise PermissionError("Project HEAD changed after plan approval")
+            resume_approved_workspace = bool(approved_run_id is not None and approved_run.get("worktree"))
+            if resume_approved_workspace:
+                path = Path(str(approved_run["worktree"])).resolve()
+                if path != (manager.base_dir / "workspace").resolve() or not path.is_dir():
+                    raise ValueError("Approved repair workspace is missing or outside the managed run")
+                branch = manager._git("branch", "--show-current", cwd=path).stdout.strip()
+                if branch != f"molicoder/run-{run_id}":
+                    raise ValueError("Approved repair workspace branch changed")
+                head = manager._git("rev-parse", "HEAD", cwd=path).stdout.strip()
+                if head != approved_run.get("final_commit") or self._changed_paths(manager, path):
+                    raise ValueError("Approved repair checkpoint changed or contains unreviewed edits")
+                workspace = TaskWorkspace("workspace", path, branch, str(approved_run["base_commit"]))
+                existing_tasks = self.store.list_run_tasks(run_id)
+                if {task.key for task in existing_tasks} != {task.key for task in plan.tasks}:
+                    raise ValueError("Approved repair task graph differs from persisted tasks")
+                for item in existing_tasks:
+                    if item.status != "completed":
+                        continue
+                    completion = self.store.get_task_completion(item.id)
+                    if completion is None or manager._git(
+                        "merge-base", "--is-ancestor", completion.revision, head,
+                        cwd=path, check=False,
+                    ).returncode != 0:
+                        raise ValueError("Accepted task checkpoint is missing from the repair workspace")
+                self.store.reopen_run(run_id)
+            else:
+                workspace = manager.create_run()
             self.store.update_run_state(
                 run_id, "running", base_commit=workspace.base_commit,
                 worktree=str(workspace.path),
             )
-            self._event(run_id, "workspace_created", {
+            self._event(run_id, "workspace_reused" if resume_approved_workspace else "workspace_created", {
                 "worktree": str(workspace.path), "branch": workspace.branch, "base_commit": workspace.base_commit,
             })
         except Exception as exc:
             return self._finish_run(run_id, "needs_attention", 0, 0, error=str(exc))
 
         task_ids: dict[str, int] = {}
-        for task in plan.tasks:
-            task_ids[task.key] = self.store.create_run_task(
-                run_id, task.key, task.title, task.objective, task.risk,
-                acceptance_criteria=task.acceptance_criteria,
-                verification_checks=task.verification_checks,
-            )
-            self.store.update_task_workspace(
-                task_ids[task.key], worktree=str(workspace.path), branch=workspace.branch,
-                base_commit=workspace.base_commit,
-            )
-        for task in plan.tasks:
-            for dependency in task.depends_on:
-                self.store.add_task_dependency(task_ids[task.key], task_ids[dependency])
+        if resume_approved_workspace:
+            task_ids = {task.key: task.id for task in existing_tasks}
+        else:
+            for task in plan.tasks:
+                task_ids[task.key] = self.store.create_run_task(
+                    run_id, task.key, task.title, task.objective, task.risk,
+                    acceptance_criteria=task.acceptance_criteria,
+                    verification_checks=task.verification_checks,
+                )
+                self.store.update_task_workspace(
+                    task_ids[task.key], worktree=str(workspace.path), branch=workspace.branch,
+                    base_commit=workspace.base_commit,
+                )
+            for task in plan.tasks:
+                for dependency in task.depends_on:
+                    self.store.add_task_dependency(task_ids[task.key], task_ids[dependency])
 
-        completed = 0
+        completed = sum(item.status == "completed" for item in existing_tasks) if resume_approved_workspace else 0
         for index, task in enumerate(plan.ordered_tasks(), start=1):
+            if approved_run_id is not None:
+                try:
+                    _, current_plan = require_approved_plan(self.store, run_id)
+                    if (int(current_plan["id"]) != approved_plan_id
+                            or plan_digest(current_plan["payload"]) != approved_plan_digest):
+                        raise PermissionError("The approved plan revision changed")
+                except PermissionError as exc:
+                    return self._finish_run(
+                        run_id, "needs_attention", completed, len(plan.tasks),
+                        error=f"Plan approval changed during execution: {exc}", workspace=workspace,
+                    )
+            if resume_approved_workspace and next(item for item in existing_tasks if item.key == task.key).status == "completed":
+                continue
             self._active_provider = self.provider
             self.wait_if_paused()
             if self.should_cancel():
@@ -905,15 +1187,22 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             self._event(run_id, "task_started", asdict(task) | {
                 "task_index": index, "task_total": len(plan.tasks), "worktree": str(workspace.path),
             }, task_id)
+            validation_error = (
+                str(approved_run.get("recovery_reason") or "") if resume_approved_workspace else ""
+            )
             prompt = self._task_prompt(
-                request, plan, task, packet, run_id=run_id, task_id=task_id,
+                request, plan, task, packet, validation_error,
+                run_id=run_id, task_id=task_id,
                 base_commit=workspace.base_commit, remaining_attempts=self.max_task_attempts,
             )
-            validation_error = ""
             attempts = 0
             changed: tuple[str, ...] = ()
+            verified_no_change = False
 
-            local_used = strategy == "HYBRID" and self.local_executor is not None and self._local_eligible(task, workspace.path)
+            local_used = (
+                assignments[task.key]["runner"] == "local" if approved_run_id is not None else
+                strategy == "HYBRID" and self.local_executor is not None and self._local_eligible(task, workspace.path)
+            )
             if strategy == "LOCAL_OFFLINE" and not (self.local_executor and self._local_eligible(task, workspace.path)):
                 error = "Local offline mode only supports low-risk edits to one or two existing files."
                 self.store.update_run_task(task_id, "blocked", 0, reason=error)
@@ -936,10 +1225,11 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 if local_outcome.status == "completed":
                     self.store.update_run_task(task_id, "verifying", attempts, reason="checking local task output")
                     self._event(run_id, "validation_started", {"key": task.key, "attempt": attempts}, task_id)
-                    validation_error = self._scope_error(task, manager, workspace.path) or self.validate_task(workspace.path, task)
+                    validation_error = self._task_validation(task, manager, workspace.path)
                     if validation_error.lstrip().startswith("validation passed"):
                         try:
                             changed = manager.commit(workspace, f"MoliCoder checkpoint {task.key}: {task.title}")
+                            verified_no_change = not changed and bool(task.artifact_checks)
                         except Exception as exc:
                             validation_error = f"checkpoint failed: {exc}"
                 if validation_error.startswith("architectural review required:"):
@@ -951,18 +1241,19 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                         run_id, "needs_attention", completed, len(plan.tasks),
                         error=validation_error, workspace=workspace,
                     )
-                if not changed and strategy == "HYBRID":
+                if not changed and not verified_no_change and strategy == "HYBRID":
                     self._event(run_id, "provider_takeover", {"key": task.key, "provider": self.provider.name, "reason": validation_error or local_outcome.reason}, task_id)
-                elif not changed:
+                elif not changed and not verified_no_change:
                     error = validation_error or local_outcome.reason or "local validation failed"
                     self.store.update_run_task(task_id, "needs_attention", attempts)
                     return self._finish_run(run_id, "needs_attention", completed, len(plan.tasks), error=error, workspace=workspace)
 
-            if not changed:
+            if not changed and not verified_no_change:
                 wait_state = ""
                 opaque_review_required = False
                 attempt_provider = self.provider
                 failed_fingerprints: set[str] = set()
+                validation_fingerprints: list[str] = []
                 for frontier_attempt in range(1, self.max_task_attempts + 1):
                     attempts = frontier_attempt
                     if (local_used and frontier_attempt == 1) or frontier_attempt > 1:
@@ -1084,7 +1375,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                         break
                     self.store.update_run_task(task_id, "verifying", attempts, reason="checking provider task output")
                     self._event(run_id, "validation_started", {"key": task.key, "attempt": frontier_attempt}, task_id)
-                    validation_error = self._scope_error(task, manager, workspace.path) or self.validate_task(workspace.path, task)
+                    validation_error = self._task_validation(task, manager, workspace.path)
                     passed = validation_error.lstrip().startswith("validation passed")
                     self._event(run_id, "validation_finished", {
                         "key": task.key, "attempt": frontier_attempt, "passed": passed,
@@ -1098,6 +1389,12 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                             validation_error = f"checkpoint failed: {exc}"
                         if changed:
                             break
+                        if not validation_error.startswith("checkpoint failed:") and task.artifact_checks:
+                            verified_no_change = True
+                            self._event(run_id, "task_artifact_verified_without_git_change", {
+                                "key": task.key, "paths": [check["path"] for check in task.artifact_checks],
+                            }, task_id)
+                            break
                         if not validation_error.startswith("checkpoint failed:"):
                             validation_error = "provider completed without making a repository change"
                     if validation_error.startswith("architectural review required:"):
@@ -1106,10 +1403,19 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                         validation_error = "Opaque agent output requires review before retry: " + validation_error
                         opaque_review_required = True
                         break
+                    validation_fingerprints.append(failure_fingerprint(validation_error))
+                    progress = classify_progress(validation_fingerprints)
+                    if progress in {"stuck", "oscillating"}:
+                        self._event(run_id, "repair_stopped_no_progress", {
+                            "key": task.key, "attempt": frontier_attempt, "pattern": progress,
+                            "diagnostic_fingerprint": validation_fingerprints[-1],
+                        }, task_id)
+                        validation_error = f"repair {progress} after repeated validation failure: " + validation_error
+                        break
                     if frontier_attempt < self.max_task_attempts:
                         self._event(run_id, "repair_started", {"key": task.key, "reason": validation_error, "attempt": frontier_attempt + 1}, task_id)
 
-            if not changed:
+            if not changed and not verified_no_change:
                 error = validation_error or "provider did not complete the task"
                 recovery = classify_task_failure("failed", error, validation_summary=validation_error)
                 self._event(run_id, "task_recovery_decision", {
@@ -1118,6 +1424,18 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                     "fingerprint": recovery.fingerprint,
                 }, task_id)
                 needs_review = opaque_review_required or error.startswith("architectural review required:")
+                if (approved_run_id is not None and attempts > 1 and not needs_review
+                        and error.startswith("provider changed paths outside the approved task scope:")):
+                    try:
+                        proposal = self._propose_scope_revision(
+                            run_id, plan, task, task_id, attempts, completed,
+                            manager, workspace, approved_plan_id, strategy, error,
+                        )
+                    except (OSError, ValueError) as exc:
+                        error = f"scope revision proposal failed: {exc}; original failure: {error}"
+                    else:
+                        if proposal is not None:
+                            return proposal
                 if opaque_review_required:
                     self._event(run_id, "opaque_attempt_review_required", {
                         "key": task.key, "attempt": attempts, "provider": attempt_provider.name,
@@ -1141,7 +1459,8 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             )
             completion_record = self.store.record_task_completion(
                 run_id, task_id, revision=checkpoint, checks=task.verification_checks,
-                validation_summary=validation_error, output_artifacts=changed,
+                validation_summary=validation_error,
+                output_artifacts=changed or tuple(check["path"] for check in task.artifact_checks),
                 unmet_criteria=unmet,
                 human_review_status="pending" if unmet else "not_required",
             )
@@ -1160,18 +1479,39 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             self._event(run_id, "task_completed", {
                 "key": task.key, "title": task.title, "attempts": attempts,
                 "changed_paths": changed, "checkpoint": checkpoint, "worktree": str(workspace.path),
+                "verified_no_change": verified_no_change,
             }, task_id)
 
         self._event(run_id, "run_stage", {"stage": "validating", "message": "Running final project validation"})
         self.store.update_run_state(run_id, "validating")
         final_validation = self.validate(workspace.path)
+        if final_validation.lstrip().startswith("validation passed"):
+            failures = tuple(
+                failure for task in plan.tasks
+                for failure in verify_artifact_checks(workspace.path, task.artifact_checks)
+            )
+            if failures:
+                final_validation = "artifact validation failed: " + "; ".join(failures)
         if not final_validation.lstrip().startswith("validation passed"):
             return self._finish_run(
                 run_id, "needs_attention", completed, len(plan.tasks),
                 error=final_validation, workspace=workspace,
             )
+        if approved_run_id is not None:
+            try:
+                _, current_plan = require_approved_plan(self.store, run_id)
+                if (int(current_plan["id"]) != approved_plan_id
+                        or plan_digest(current_plan["payload"]) != approved_plan_digest):
+                    raise PermissionError("The approved plan revision changed")
+            except PermissionError as exc:
+                return self._finish_run(
+                    run_id, "needs_attention", completed, len(plan.tasks),
+                    error=f"Plan approval changed before apply: {exc}", workspace=workspace,
+                )
         final_commit = manager._git("rev-parse", "HEAD", cwd=workspace.path).stdout.strip()
-        if self.auto_apply:
+        if self.auto_apply and not any(
+            check["kind"] == "directory_empty" for task in plan.tasks for check in task.artifact_checks
+        ):
             self._event(run_id, "run_stage", {"stage": "applying", "message": "Applying validated checkpoints"})
             self.store.update_run_state(run_id, "applying", final_commit=final_commit)
             allowed, reason = manager.can_fast_forward_checkout(workspace)
@@ -1190,6 +1530,12 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             self._event(run_id, "changes_applied", {
                 "branch": workspace.branch, "base_commit": workspace.base_commit, "final_commit": final_commit,
             })
+        else:
+            return self._finish_run(
+                run_id, "ready_to_apply", completed, len(plan.tasks),
+                error="Validated result is ready for review and apply",
+                workspace=workspace, final_commit=final_commit,
+            )
         return self._finish_run(
             run_id, "completed", completed, len(plan.tasks), workspace=workspace, final_commit=final_commit,
         )
@@ -1227,6 +1573,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         target = next((task for task in tasks if task.status != "completed"), tasks[-1] if tasks else None)
         if target is None:
             raise ValueError("the saved run has no tasks")
+        target_plan = next(task for task in plan.tasks if task.key == target.key)
         self._active_task_id = target.id
         if self.inference_gateway is not None:
             self.inference_gateway.task_id = target.id
@@ -1254,6 +1601,13 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 continue
             self._event(run_id, "validation_started", {"key": target.key, "attempt": attempt, "resume": True}, target.id)
             validation_error = self.validate(path)
+            if validation_error.lstrip().startswith("validation passed"):
+                failures = tuple(
+                    failure for task in plan.tasks
+                    for failure in verify_artifact_checks(path, task.artifact_checks)
+                )
+                if failures:
+                    validation_error = "artifact validation failed: " + "; ".join(failures)
             passed = validation_error.lstrip().startswith("validation passed")
             self._event(run_id, "validation_finished", {
                 "key": target.key, "attempt": attempt, "passed": passed,
@@ -1264,7 +1618,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 final_commit = manager._git("rev-parse", "HEAD", cwd=path).stdout.strip()
                 unfinished = [task for task in tasks if task.status != "completed"]
                 unmet = self._unmet_criteria(target)
-                if not changed and not target.changed_paths:
+                if not changed and not target.changed_paths and not target_plan.artifact_checks:
                     unmet += ("No changed artifacts are attributed to this task",)
                 if len(unfinished) > 1:
                     unmet += ("Multiple unfinished tasks need separate verification",)
@@ -1276,7 +1630,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 self.store.record_task_completion(
                     run_id, target.id, revision=final_commit,
                     checks=target.verification_checks, validation_summary=validation_error,
-                    output_artifacts=changed or target.changed_paths,
+                    output_artifacts=changed or target.changed_paths or tuple(
+                        check["path"] for check in target_plan.artifact_checks
+                    ),
                     unmet_criteria=unmet,
                     human_review_status="pending" if unmet else "not_required",
                 )
@@ -1292,7 +1648,10 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                     )
                 self.store.update_run_task(target.id, "completed", max(target.attempts, attempt))
                 allowed, reason = manager.can_fast_forward_checkout(workspace)
-                if self.auto_apply and allowed:
+                if (self.auto_apply and allowed and not any(
+                    check["kind"] == "directory_empty"
+                    for task in plan.tasks for check in task.artifact_checks
+                )):
                     final_commit = manager.fast_forward_checkout(workspace)
                     self._event(run_id, "changes_applied", {
                         "branch": branch, "base_commit": workspace.base_commit,

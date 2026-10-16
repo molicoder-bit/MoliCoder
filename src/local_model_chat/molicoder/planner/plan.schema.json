@@ -21,7 +21,11 @@
           "depends_on": {"type": "array", "items": {"type": "string"}},
           "expected_paths": {"type": "array", "items": {"type": "string"}},
           "acceptance_criteria": {"type": "array", "minItems": 1, "maxItems": 5, "items": {"type": "string", "minLength": 1, "maxLength": 300}},
-          "verification_checks": {"type": "array", "minItems": 1, "maxItems": 5, "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"}}
+          "verification_checks": {"type": "array", "minItems": 1, "maxItems": 5, "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"}},
+          "artifact_checks": {"type": "array", "maxItems": 5, "items": {"oneOf": [
+            {"type": "object", "additionalProperties": false, "required": ["kind", "path", "content"], "properties": {"kind": {"const": "file_equals"}, "path": {"type": "string", "minLength": 1, "maxLength": 500}, "content": {"type": "string", "maxLength": 65536}}},
+            {"type": "object", "additionalProperties": false, "required": ["kind", "path"], "properties": {"kind": {"const": "directory_empty"}, "path": {"type": "string", "minLength": 1, "maxLength": 500}}}
+          ]}}
         }
       }
     }

@@ -15,6 +15,7 @@ from ..inference.registry import ProviderRegistry
 from ..inference.router import RouteRequest, choose_route
 from ..kandev.contracts import KandevConnection, KandevMode
 from ..kandev.adapter import KandevTaskAdapter
+from ..kandev.rest import KandevTransportError
 from ..kandev.run import KandevRunOrchestrator
 from ..intent import IntentKind
 from ..ollama import OllamaClient
@@ -172,14 +173,21 @@ def build_orchestrator(
 ) -> SequentialRunOrchestrator | KandevRunOrchestrator:
     connection = kandev_connection or KandevConnection()
     if connection.mode != KandevMode.DISABLED:
-        if (kandev_adapter is None or kandev_adapter.connection != connection
-                or kandev_adapter.probe().health_state != "ready"):
+        if kandev_adapter is None or kandev_adapter.connection != connection:
             raise ProviderUnavailable(
-                f"Kandev {connection.mode.value} execution is unavailable until adapter readiness is verified"
+                f"Kandev {connection.mode.value} execution is unavailable until adapter readiness is verified; "
+                "configure the local Kandev connection or disable it to use internal Build"
             )
+        try:
+            readiness = kandev_adapter.probe()
+        except KandevTransportError as exc:
+            raise ProviderUnavailable(f"Kandev connection check failed: {exc}") from None
+        if readiness.health_state != "ready":
+            raise ProviderUnavailable("Kandev adapter readiness failed: required task capabilities are unavailable")
         return KandevRunOrchestrator(
             store=store, project=project, adapter=kandev_adapter, on_event=on_event,
             authorize_launch=kandev_authorize_launch,
+            require_plan_approval=True,
             validate=lambda worktree: build_validator(
                 worktree, environment_root=Path(project.path).resolve(),
             ).run_and_summarize(),
@@ -308,7 +316,8 @@ def build_orchestrator(
             worktree, environment_root=root, task=task,
         ),
         on_event=on_event,
-        auto_apply=True,
+        auto_apply=False,
+        require_plan_approval=True,
         max_task_attempts=2,
         task_timeout_seconds=1200.0,
         route_decision=route_decision,

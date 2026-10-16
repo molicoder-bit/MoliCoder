@@ -45,7 +45,7 @@ class LocalPlanner:
             '{"key":"task-1","title":"...","objective":"...",'
             '"risk":"low","depends_on":[],"expected_paths":["src/file.py"],'
             '"acceptance_criteria":["The changed behavior is covered by a passing test"],'
-            '"verification_checks":["project-default"]}]}. '
+            '"verification_checks":["project-default"],"artifact_checks":[]}]}. '
             "The top-level object may contain only objective and tasks. "
             "Do not copy repository evidence fields into the output."
         )
@@ -55,7 +55,9 @@ class LocalPlanner:
                 "content": (
                     "You are MoliCoder's local planner. Convert repository evidence into a coding plan. "
                     "Each task needs key, title, objective, risk (low/medium/high), depends_on, "
-                    "expected_paths, acceptance_criteria, and verification_checks. "
+                    "expected_paths, acceptance_criteria, verification_checks, and optional artifact_checks. "
+                    "For an exact text-file result, use file_equals with path and exact content. "
+                    "For an empty directory, use directory_empty with path. Include checked paths in expected_paths. "
                     "Tasks must be small, explicit, single-file where possible, and mechanically verifiable. "
                     + output_contract
                 ),

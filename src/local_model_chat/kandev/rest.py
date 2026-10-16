@@ -64,6 +64,28 @@ class KandevRestTaskApi:
     def capabilities(self) -> tuple[str, ...]:
         return ("create", "read", "lookup_external_id", "events", "cancel", "launch")
 
+    def probe_health(self) -> None:
+        """Verify the pinned service version and task API without mutating state."""
+        parsed = urlparse(self.config.endpoint)
+        request = Request(f"http://{parsed.netloc}/health", headers={"Accept": "application/json"}, method="GET")
+        try:
+            with self._opener.open(request, timeout=5) as response:
+                payload = response.read(4097)
+        except HTTPError as exc:
+            raise KandevTransportError(f"Kandev health returned HTTP {exc.code}") from None
+        except (OSError, URLError):
+            raise KandevTransportError("Kandev endpoint is unavailable") from None
+        if len(payload) > 4096:
+            raise KandevTransportError("Kandev health response exceeds size limit")
+        try:
+            health = json.loads(payload)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise KandevTransportError("Kandev health returned invalid JSON") from None
+        if (not isinstance(health, dict) or health.get("status") != "ok"
+                or str(health.get("version") or "").removeprefix("v") != self.config.version):
+            raise KandevTransportError("Kandev health or version does not match the pinned contract")
+        self.find_by_external_id("molicoder:connection-probe:absent")
+
     def _request(self, method: str, path: str, body: Mapping[str, object] | None = None) -> Mapping[str, object] | None:
         headers = {"Accept": "application/json"}
         if self._token:

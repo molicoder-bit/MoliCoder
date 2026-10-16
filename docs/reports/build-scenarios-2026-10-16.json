@@ -1,0 +1,1960 @@
+{
+  "generated_at": "2026-10-16T14:58:04.210598+00:00",
+  "selection": {
+    "id": null,
+    "level": null,
+    "through_level": null,
+    "all": true,
+    "failed": false,
+    "kandev": false,
+    "repair": false,
+    "live": false
+  },
+  "counts": {
+    "PASS": 61,
+    "FAIL": 0,
+    "BLOCKED": 0,
+    "NOT_RUN": 59
+  },
+  "scenarios": [
+    {
+      "id": "S001",
+      "level": 0,
+      "title": "Create an empty file",
+      "category": "general",
+      "test": "tests/test_build_plan_approval.py::test_s001_s002_plan_approval_and_exact_output",
+      "outcome": "PASS",
+      "elapsed_seconds": 5.724,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S001.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s001_s002_plan_approval_and_exact_output[hello.txt-]",
+        "test_s001_s002_plan_approval_and_exact_output[greeting.txt-Hello World\\n]"
+      ],
+      "assertion_count": 2,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S001.xml"
+    },
+    {
+      "id": "S002",
+      "level": 0,
+      "title": "Write one line",
+      "category": "general",
+      "test": "tests/test_build_plan_approval.py::test_s001_s002_plan_approval_and_exact_output",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.964,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S002.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s001_s002_plan_approval_and_exact_output[hello.txt-]",
+        "test_s001_s002_plan_approval_and_exact_output[greeting.txt-Hello World\\n]"
+      ],
+      "assertion_count": 2,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S002.xml"
+    },
+    {
+      "id": "S003",
+      "level": 0,
+      "title": "Replace one word",
+      "category": "general",
+      "test": [
+        "tests/test_build_level0_scenarios.py",
+        "S003"
+      ],
+      "outcome": "PASS",
+      "elapsed_seconds": 6.826,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S003.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S003-before0-paths0-replace-expected0]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S004-before1-paths1-append-expected1]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S005-before2-paths2-rename-expected2]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S006-before3-paths3-delete-expected3]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S009-before4-paths4-config-expected4]"
+      ],
+      "assertion_count": 5,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S003.xml"
+    },
+    {
+      "id": "S004",
+      "level": 0,
+      "title": "Add one line to an existing file",
+      "category": "general",
+      "test": [
+        "tests/test_build_level0_scenarios.py",
+        "S004"
+      ],
+      "outcome": "PASS",
+      "elapsed_seconds": 6.923,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S004.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S003-before0-paths0-replace-expected0]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S004-before1-paths1-append-expected1]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S005-before2-paths2-rename-expected2]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S006-before3-paths3-delete-expected3]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S009-before4-paths4-config-expected4]"
+      ],
+      "assertion_count": 5,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S004.xml"
+    },
+    {
+      "id": "S005",
+      "level": 0,
+      "title": "Rename a file",
+      "category": "general",
+      "test": [
+        "tests/test_build_level0_scenarios.py",
+        "S005"
+      ],
+      "outcome": "PASS",
+      "elapsed_seconds": 6.862,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S005.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S003-before0-paths0-replace-expected0]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S004-before1-paths1-append-expected1]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S005-before2-paths2-rename-expected2]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S006-before3-paths3-delete-expected3]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S009-before4-paths4-config-expected4]"
+      ],
+      "assertion_count": 5,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S005.xml"
+    },
+    {
+      "id": "S006",
+      "level": 0,
+      "title": "Delete a specified temporary file",
+      "category": "general",
+      "test": [
+        "tests/test_build_level0_scenarios.py",
+        "S006"
+      ],
+      "outcome": "PASS",
+      "elapsed_seconds": 7.264,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S006.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S003-before0-paths0-replace-expected0]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S004-before1-paths1-append-expected1]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S005-before2-paths2-rename-expected2]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S006-before3-paths3-delete-expected3]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S009-before4-paths4-config-expected4]"
+      ],
+      "assertion_count": 5,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S006.xml"
+    },
+    {
+      "id": "S007",
+      "level": 0,
+      "title": "Create a directory",
+      "category": "general",
+      "test": "tests/test_build_level0_scenarios.py::test_s007_empty_directory_survives_review_and_apply",
+      "outcome": "PASS",
+      "elapsed_seconds": 4.028,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S007.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s007_empty_directory_survives_review_and_apply"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S007.xml"
+    },
+    {
+      "id": "S008",
+      "level": 0,
+      "title": "Create two independent text files",
+      "category": "general",
+      "test": "tests/test_build_level0_scenarios.py::test_s008_independent_files_have_no_dependency_edge",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.219,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S008.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s008_independent_files_have_no_dependency_edge"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S008.xml"
+    },
+    {
+      "id": "S009",
+      "level": 0,
+      "title": "Update one exact configuration value",
+      "category": "general",
+      "test": [
+        "tests/test_build_level0_scenarios.py",
+        "S009"
+      ],
+      "outcome": "PASS",
+      "elapsed_seconds": 6.988,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S009.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S003-before0-paths0-replace-expected0]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S004-before1-paths1-append-expected1]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S005-before2-paths2-rename-expected2]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S006-before3-paths3-delete-expected3]",
+        "test_s003_s004_s005_s006_s009_exact_file_operations[S009-before4-paths4-config-expected4]"
+      ],
+      "assertion_count": 5,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S009.xml"
+    },
+    {
+      "id": "S010",
+      "level": 0,
+      "title": "Repeat an already satisfied request",
+      "category": "general",
+      "test": "tests/test_build_level0_scenarios.py::test_s010_exact_already_satisfied_request_has_verified_no_change",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.559,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S010.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s010_exact_already_satisfied_request_has_verified_no_change"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S010.xml"
+    },
+    {
+      "id": "S011",
+      "level": 1,
+      "title": "Build without a selected project",
+      "category": "general",
+      "test": "tests/test_build_level1_preflight.py::test_s011_build_without_selected_project_stays_disabled",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.333,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S011.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s011_build_without_selected_project_stays_disabled"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S011.xml"
+    },
+    {
+      "id": "S012",
+      "level": 1,
+      "title": "Select a valid existing project",
+      "category": "general",
+      "test": "tests/test_build_level1_preflight.py::test_s012_valid_project_is_selected_for_build_preflight",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.265,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S012.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s012_valid_project_is_selected_for_build_preflight"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S012.xml"
+    },
+    {
+      "id": "S013",
+      "level": 1,
+      "title": "Select a nonexistent directory",
+      "category": "general",
+      "test": "tests/test_build_level1_preflight.py::test_s013_missing_project_folder_blocks_build",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.542,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S013.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s013_missing_project_folder_blocks_build"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S013.xml"
+    },
+    {
+      "id": "S014",
+      "level": 1,
+      "title": "Select a read-only directory",
+      "category": "general",
+      "test": "tests/test_build_level1_preflight.py::test_s014_read_only_project_blocks_before_planning",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.381,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S014.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s014_read_only_project_blocks_before_planning"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S014.xml"
+    },
+    {
+      "id": "S015",
+      "level": 1,
+      "title": "Select a directory that is not a Git repository",
+      "category": "general",
+      "test": "tests/test_build_level1_preflight.py::test_s015_non_git_project_is_explicitly_blocked",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.703,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S015.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s015_non_git_project_is_explicitly_blocked"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S015.xml"
+    },
+    {
+      "id": "S016",
+      "level": 1,
+      "title": "Submit an ambiguous request",
+      "category": "general",
+      "test": [
+        "tests/test_build_level1_preflight.py",
+        "S016"
+      ],
+      "outcome": "PASS",
+      "elapsed_seconds": 5.041,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S016.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S016-Fix the thing.-Clarify which file or behavior]",
+        "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S017-Delete this file and keep it unchanged.-same file cannot be deleted]",
+        "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S018-Deploy this app to production.-not a supported Build action]"
+      ],
+      "assertion_count": 3,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S016.xml"
+    },
+    {
+      "id": "S017",
+      "level": 1,
+      "title": "Submit a contradictory request",
+      "category": "general",
+      "test": [
+        "tests/test_build_level1_preflight.py",
+        "S017"
+      ],
+      "outcome": "PASS",
+      "elapsed_seconds": 5.192,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S017.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S016-Fix the thing.-Clarify which file or behavior]",
+        "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S017-Delete this file and keep it unchanged.-same file cannot be deleted]",
+        "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S018-Deploy this app to production.-not a supported Build action]"
+      ],
+      "assertion_count": 3,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S017.xml"
+    },
+    {
+      "id": "S018",
+      "level": 1,
+      "title": "Submit an unsupported operation",
+      "category": "general",
+      "test": [
+        "tests/test_build_level1_preflight.py",
+        "S018"
+      ],
+      "outcome": "PASS",
+      "elapsed_seconds": 5.162,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S018.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S016-Fix the thing.-Clarify which file or behavior]",
+        "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S017-Delete this file and keep it unchanged.-same file cannot be deleted]",
+        "test_s016_s017_s018_invalid_or_unsupported_request_waits_for_clarification[S018-Deploy this app to production.-not a supported Build action]"
+      ],
+      "assertion_count": 3,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S018.xml"
+    },
+    {
+      "id": "S019",
+      "level": 1,
+      "title": "Change the selected project while a build is pending approval",
+      "category": "general",
+      "test": "tests/test_build_level1_preflight.py::test_s019_pending_plan_cannot_be_approved_from_another_project",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.827,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S019.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s019_pending_plan_cannot_be_approved_from_another_project"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S019.xml"
+    },
+    {
+      "id": "S020",
+      "level": 1,
+      "title": "Submit a conversational question in Chat",
+      "category": "general",
+      "test": "tests/test_build_level1_preflight.py::test_s020_chat_status_answer_reads_persisted_state_without_starting_build",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.1,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S020.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s020_chat_status_answer_reads_persisted_state_without_starting_build"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S020.xml"
+    },
+    {
+      "id": "S021",
+      "level": 2,
+      "title": "Single independent change",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S022",
+      "level": 2,
+      "title": "Two sequential modifications",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S023",
+      "level": 2,
+      "title": "Two unrelated modifications",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S024",
+      "level": 2,
+      "title": "Three-step dependency chain",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S025",
+      "level": 2,
+      "title": "Multiple prerequisites",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S026",
+      "level": 2,
+      "title": "Mixed parallel and sequential work",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S027",
+      "level": 2,
+      "title": "Explicit user ordering requirement",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S028",
+      "level": 2,
+      "title": "Detect a cyclic dependency",
+      "category": "general",
+      "test": [
+        "tests/test_build_level2_graph.py",
+        "S028"
+      ],
+      "outcome": "PASS",
+      "elapsed_seconds": 1.798,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S028.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s028_s029_invalid_graph_never_reaches_execution[S028-tasks0-cycle]",
+        "test_s028_s029_invalid_graph_never_reaches_execution[S029-tasks1-missing dependency]"
+      ],
+      "assertion_count": 2,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S028.xml"
+    },
+    {
+      "id": "S029",
+      "level": 2,
+      "title": "Detect a missing dependency reference",
+      "category": "general",
+      "test": [
+        "tests/test_build_level2_graph.py",
+        "S029"
+      ],
+      "outcome": "PASS",
+      "elapsed_seconds": 1.606,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S029.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s028_s029_invalid_graph_never_reaches_execution[S028-tasks0-cycle]",
+        "test_s028_s029_invalid_graph_never_reaches_execution[S029-tasks1-missing dependency]"
+      ],
+      "assertion_count": 2,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S029.xml"
+    },
+    {
+      "id": "S030",
+      "level": 2,
+      "title": "Avoid excessive fragmentation",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S031",
+      "level": 3,
+      "title": "Submit a valid plan without approving it",
+      "category": "general",
+      "test": "tests/test_build_plan_approval.py::test_s031_s039_stale_plan_revision_cannot_execute",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.119,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S031.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s031_s039_stale_plan_revision_cannot_execute"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S031.xml"
+    },
+    {
+      "id": "S032",
+      "level": 3,
+      "title": "Approve a one-task plan",
+      "category": "general",
+      "test": "tests/test_build_plan_approval.py::test_s001_s002_plan_approval_and_exact_output",
+      "outcome": "PASS",
+      "elapsed_seconds": 3.77,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S032.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s001_s002_plan_approval_and_exact_output[hello.txt-]",
+        "test_s001_s002_plan_approval_and_exact_output[greeting.txt-Hello World\\n]"
+      ],
+      "assertion_count": 2,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S032.xml"
+    },
+    {
+      "id": "S033",
+      "level": 3,
+      "title": "Reject a plan",
+      "category": "general",
+      "test": "tests/test_build_plan_approval.py::test_s033_rejected_plan_is_persisted_without_execution",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.316,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S033.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s033_rejected_plan_is_persisted_without_execution"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S033.xml"
+    },
+    {
+      "id": "S034",
+      "level": 3,
+      "title": "Add a task before approval",
+      "category": "general",
+      "test": "tests/test_build_plan_revision.py::test_s034_add_task_through_review_requires_new_approval",
+      "outcome": "PASS",
+      "elapsed_seconds": 4.603,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S034.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s034_add_task_through_review_requires_new_approval"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S034.xml"
+    },
+    {
+      "id": "S035",
+      "level": 3,
+      "title": "Remove a task before approval",
+      "category": "general",
+      "test": "tests/test_build_plan_revision.py::test_s035_removing_parent_rejects_dangling_edge_then_saves_valid_revision",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.443,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S035.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s035_removing_parent_rejects_dangling_edge_then_saves_valid_revision"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S035.xml"
+    },
+    {
+      "id": "S036",
+      "level": 3,
+      "title": "Change a task dependency",
+      "category": "general",
+      "test": "tests/test_build_plan_revision.py::test_s036_edited_dependency_controls_execution_order",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.396,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S036.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s036_edited_dependency_controls_execution_order"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S036.xml"
+    },
+    {
+      "id": "S037",
+      "level": 3,
+      "title": "Override the proposed model",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S038",
+      "level": 3,
+      "title": "Override the runner",
+      "category": "general",
+      "test": "tests/test_build_plan_revision.py::test_s038_unsupported_runner_override_is_explained_without_execution",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.918,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S038.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s038_unsupported_runner_override_is_explained_without_execution"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S038.xml"
+    },
+    {
+      "id": "S039",
+      "level": 3,
+      "title": "Attempt execution with a stale approval",
+      "category": "general",
+      "test": "tests/test_build_plan_approval.py::test_s031_s039_stale_plan_revision_cannot_execute",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.251,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S039.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s031_s039_stale_plan_revision_cannot_execute"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S039.xml"
+    },
+    {
+      "id": "S040",
+      "level": 3,
+      "title": "Replan after approval",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S041",
+      "level": 4,
+      "title": "Trivial mechanical task",
+      "category": "general",
+      "test": "tests/test_build_level4_routing.py::test_s041_s043_simple_existing_file_uses_local_executor",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.045,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S041.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s041_s043_simple_existing_file_uses_local_executor"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S041.xml"
+    },
+    {
+      "id": "S042",
+      "level": 4,
+      "title": "Complex reasoning task",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S043",
+      "level": 4,
+      "title": "Locally executable task",
+      "category": "general",
+      "test": "tests/test_build_level4_routing.py::test_s041_s043_simple_existing_file_uses_local_executor",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.361,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S043.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s041_s043_simple_existing_file_uses_local_executor"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S043.xml"
+    },
+    {
+      "id": "S044",
+      "level": 4,
+      "title": "Provider unavailable",
+      "category": "general",
+      "test": [
+        "tests/test_build_level4_routing.py",
+        "S044"
+      ],
+      "outcome": "PASS",
+      "elapsed_seconds": 2.232,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S044.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s044_s045_provider_failure_stops_without_edits[S044-service unavailable-needs_attention]",
+        "test_s044_s045_provider_failure_stops_without_edits[S045-authentication required-waiting_auth]"
+      ],
+      "assertion_count": 2,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S044.xml"
+    },
+    {
+      "id": "S045",
+      "level": 4,
+      "title": "Missing authentication",
+      "category": "general",
+      "test": [
+        "tests/test_build_level4_routing.py",
+        "S045"
+      ],
+      "outcome": "PASS",
+      "elapsed_seconds": 2.521,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S045.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s044_s045_provider_failure_stops_without_edits[S044-service unavailable-needs_attention]",
+        "test_s044_s045_provider_failure_stops_without_edits[S045-authentication required-waiting_auth]"
+      ],
+      "assertion_count": 2,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S045.xml"
+    },
+    {
+      "id": "S046",
+      "level": 4,
+      "title": "Insufficient task budget",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S047",
+      "level": 4,
+      "title": "Explicit user model override",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S048",
+      "level": 4,
+      "title": "Incompatible model assignment",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S049",
+      "level": 4,
+      "title": "Recoverable provider failure",
+      "category": "general",
+      "test": "tests/test_build_level4_routing.py::test_s049_recoverable_failure_uses_approved_fallback_within_attempt_cap",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.989,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S049.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s049_recoverable_failure_uses_approved_fallback_within_attempt_cap"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S049.xml"
+    },
+    {
+      "id": "S050",
+      "level": 4,
+      "title": "Opaque subscription CLI usage",
+      "category": "general",
+      "test": "tests/test_build_level4_routing.py::test_s050_opaque_cli_usage_keeps_unknown_cost",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.746,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S050.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s050_opaque_cli_usage_keeps_unknown_cost"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S050.xml"
+    },
+    {
+      "id": "S051",
+      "level": 5,
+      "title": "Implement a basic arithmetic function",
+      "category": "general",
+      "test": "tests/test_build_level5_execution.py::test_s051_implement_arithmetic_against_independent_tests",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.665,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S051.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s051_implement_arithmetic_against_independent_tests"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S051.xml"
+    },
+    {
+      "id": "S052",
+      "level": 5,
+      "title": "Fix a deliberately incorrect function",
+      "category": "general",
+      "test": "tests/test_build_level5_execution.py::test_s052_fix_incorrect_function_and_pass_existing_tests",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.221,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S052.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s052_fix_incorrect_function_and_pass_existing_tests"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S052.xml"
+    },
+    {
+      "id": "S053",
+      "level": 5,
+      "title": "Add a unit test",
+      "category": "general",
+      "test": "tests/test_build_level5_execution.py::test_s053_added_unit_test_runs_and_rejects_mutant",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.324,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S053.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s053_added_unit_test_runs_and_rejects_mutant"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S053.xml"
+    },
+    {
+      "id": "S054",
+      "level": 5,
+      "title": "Introduce a syntax error intentionally",
+      "category": "general",
+      "test": "tests/test_build_level5_execution.py::test_s054_syntax_error_fails_verification",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.452,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S054.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s054_syntax_error_fails_verification"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S054.xml"
+    },
+    {
+      "id": "S055",
+      "level": 5,
+      "title": "Introduce a type error",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S056",
+      "level": 5,
+      "title": "Return success text without modifying the code",
+      "category": "general",
+      "test": "tests/test_build_level5_execution.py::test_s056_success_text_without_change_is_not_completion",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.626,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S056.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s056_success_text_without_change_is_not_completion"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S056.xml"
+    },
+    {
+      "id": "S057",
+      "level": 5,
+      "title": "Make an unauthorized extra file change",
+      "category": "general",
+      "test": "tests/test_build_level5_execution.py::test_s057_out_of_scope_file_is_rejected",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.899,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S057.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s057_out_of_scope_file_is_rejected"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S057.xml"
+    },
+    {
+      "id": "S058",
+      "level": 5,
+      "title": "Execute a long-running test",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S059",
+      "level": 5,
+      "title": "Cancel an executing task",
+      "category": "general",
+      "test": "tests/test_build_level5_execution.py::test_s059_cancel_running_task_keeps_partial_work_isolated",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.447,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S059.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s059_cancel_running_task_keeps_partial_work_isolated"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S059.xml"
+    },
+    {
+      "id": "S060",
+      "level": 5,
+      "title": "Verify the entire project after a successful task",
+      "category": "general",
+      "test": "tests/test_build_level5_execution.py::test_s060_final_project_regression_blocks_apply",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.221,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S060.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s060_final_project_regression_blocks_apply"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S060.xml"
+    },
+    {
+      "id": "S061",
+      "level": 6,
+      "title": "One simple incorrect implementation",
+      "category": "repair",
+      "test": "tests/test_build_level6_repair.py::test_s061_one_failed_implementation_then_verified_repair",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.601,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S061.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s061_one_failed_implementation_then_verified_repair"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S061.xml"
+    },
+    {
+      "id": "S062",
+      "level": 6,
+      "title": "Incorrect fix on the first attempt",
+      "category": "repair",
+      "test": "tests/test_build_level6_repair.py::test_s062_second_bad_attempt_is_rejected_before_third_repair",
+      "outcome": "PASS",
+      "elapsed_seconds": 3.454,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S062.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s062_second_bad_attempt_is_rejected_before_third_repair"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S062.xml"
+    },
+    {
+      "id": "S063",
+      "level": 6,
+      "title": "Repeated identical failure",
+      "category": "repair",
+      "test": "tests/test_build_level6_repair.py::test_s063_identical_validation_failures_stop_without_fourth_attempt",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.742,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S063.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s063_identical_validation_failures_stop_without_fourth_attempt"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S063.xml"
+    },
+    {
+      "id": "S064",
+      "level": 6,
+      "title": "Missing import or dependency reference",
+      "category": "repair",
+      "test": "tests/test_build_level6_repair.py::test_s064_missing_import_is_repaired_with_test_evidence",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.837,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S064.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s064_missing_import_is_repaired_with_test_evidence"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S064.xml"
+    },
+    {
+      "id": "S065",
+      "level": 6,
+      "title": "Wrong return type",
+      "category": "repair",
+      "test": "tests/test_build_level6_repair.py::test_s065_wrong_return_type_is_corrected",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.653,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S065.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s065_wrong_return_type_is_corrected"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S065.xml"
+    },
+    {
+      "id": "S066",
+      "level": 6,
+      "title": "Regression introduced by a repair",
+      "category": "repair",
+      "test": "tests/test_build_level6_repair.py::test_s066_regression_from_repair_requires_third_verified_attempt",
+      "outcome": "PASS",
+      "elapsed_seconds": 3.308,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S066.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s066_regression_from_repair_requires_third_verified_attempt"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S066.xml"
+    },
+    {
+      "id": "S067",
+      "level": 6,
+      "title": "Broken test oracle",
+      "category": "repair",
+      "test": "tests/test_build_level6_repair.py::test_s067_broken_oracle_is_not_changed_to_make_bad_result_pass",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.259,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S067.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s067_broken_oracle_is_not_changed_to_make_bad_result_pass"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S067.xml"
+    },
+    {
+      "id": "S068",
+      "level": 6,
+      "title": "Temporary infrastructure failure",
+      "category": "repair",
+      "test": "tests/test_build_level6_repair.py::test_s068_transient_outage_is_classified_and_uses_available_route",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.923,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S068.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s068_transient_outage_is_classified_and_uses_available_route"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S068.xml"
+    },
+    {
+      "id": "S069",
+      "level": 6,
+      "title": "Repair requires changing the approved scope",
+      "category": "repair",
+      "test": "tests/test_build_level6_repair.py::test_s069_scope_expansion_reapproves_and_preserves_completed_checkpoint",
+      "outcome": "PASS",
+      "elapsed_seconds": 5.985,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S069.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s069_scope_expansion_reapproves_and_preserves_completed_checkpoint"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S069.xml"
+    },
+    {
+      "id": "S070",
+      "level": 6,
+      "title": "Repair exceeds budget or retry ceiling",
+      "category": "repair",
+      "test": "tests/test_build_level6_repair.py::test_s070_retry_ceiling_preserves_failure_without_claiming_success",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.083,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S070.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s070_retry_ceiling_preserves_failure_without_claiming_success"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S070.xml"
+    },
+    {
+      "id": "S071",
+      "level": 7,
+      "title": "Kandev disabled",
+      "category": "kandev",
+      "test": "tests/test_build_level7_kandev.py::test_s071_disabled_kandev_executes_internal_build_without_adapter_call",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.246,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S071.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s071_disabled_kandev_executes_internal_build_without_adapter_call"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S071.xml"
+    },
+    {
+      "id": "S072",
+      "level": 7,
+      "title": "Kandev enabled but not installed",
+      "category": "kandev",
+      "test": "tests/test_build_level7_kandev.py::test_s072_enabled_without_adapter_gives_setup_guidance_and_no_run",
+      "outcome": "PASS",
+      "elapsed_seconds": 0.883,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S072.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s072_enabled_without_adapter_gives_setup_guidance_and_no_run"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S072.xml"
+    },
+    {
+      "id": "S073",
+      "level": 7,
+      "title": "Kandev installed but disconnected",
+      "category": "kandev",
+      "test": "tests/test_build_level7_kandev.py::test_s073_disconnected_or_unauthorized_kandev_is_not_ready",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.141,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S073.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s073_disconnected_or_unauthorized_kandev_is_not_ready[disconnected-Kandev endpoint is unavailable-1]",
+        "test_s073_disconnected_or_unauthorized_kandev_is_not_ready[unauthorized-Kandev returned HTTP 401-2]"
+      ],
+      "assertion_count": 2,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S073.xml"
+    },
+    {
+      "id": "S074",
+      "level": 7,
+      "title": "Kandev connected successfully",
+      "category": "kandev",
+      "test": "tests/test_build_level7_kandev.py::test_s074_successful_read_only_probe_discovers_capabilities",
+      "outcome": "PASS",
+      "elapsed_seconds": 0.889,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S074.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s074_successful_read_only_probe_discovers_capabilities"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S074.xml"
+    },
+    {
+      "id": "S075",
+      "level": 7,
+      "title": "Create one approved Kandev task",
+      "category": "kandev",
+      "test": "tests/test_kandev_run.py::test_selected_build_is_bound_to_kandev_before_dispatch_and_recovers",
+      "outcome": "PASS",
+      "elapsed_seconds": 1.2,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S075.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_selected_build_is_bound_to_kandev_before_dispatch_and_recovers"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S075.xml"
+    },
+    {
+      "id": "S076",
+      "level": 7,
+      "title": "Create multiple tasks",
+      "category": "kandev",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S077",
+      "level": 7,
+      "title": "Synchronize dependencies",
+      "category": "kandev",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S078",
+      "level": 7,
+      "title": "Synchronize model and runner assignments",
+      "category": "kandev",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S079",
+      "level": 7,
+      "title": "Automatic dependent task activation",
+      "category": "kandev",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S080",
+      "level": 7,
+      "title": "Kandev execution failure",
+      "category": "kandev",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S081",
+      "level": 8,
+      "title": "Two independent tasks execute concurrently",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S082",
+      "level": 8,
+      "title": "A simple dependency chain",
+      "category": "general",
+      "test": "tests/test_build_level8_dependencies.py::test_s082_successor_starts_after_parent_verification",
+      "outcome": "PASS",
+      "elapsed_seconds": 2.139,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S082.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s082_successor_starts_after_parent_verification"
+      ],
+      "assertion_count": 1,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S082.xml"
+    },
+    {
+      "id": "S083",
+      "level": 8,
+      "title": "Diamond dependency graph",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S084",
+      "level": 8,
+      "title": "One parent fails",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S085",
+      "level": 8,
+      "title": "Two tasks attempt to edit the same file",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S086",
+      "level": 8,
+      "title": "Independent files edited in separate worktrees",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S087",
+      "level": 8,
+      "title": "One task produces an artifact required by another",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S088",
+      "level": 8,
+      "title": "A dependent task becomes ready while another branch is running",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S089",
+      "level": 8,
+      "title": "One agent finishes far earlier than the others",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S090",
+      "level": 8,
+      "title": "Large dependency graph",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S091",
+      "level": 9,
+      "title": "Application closes while awaiting approval",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S092",
+      "level": 9,
+      "title": "Application closes while a task is running",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S093",
+      "level": 9,
+      "title": "Restart after one task succeeds in a five-task plan",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S094",
+      "level": 9,
+      "title": "Kandev disconnects mid-build",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S095",
+      "level": 9,
+      "title": "Duplicate completion event",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S096",
+      "level": 9,
+      "title": "Out-of-order status events",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S097",
+      "level": 9,
+      "title": "Interrupted repair attempt",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S098",
+      "level": 9,
+      "title": "Corrupted or missing checkpoint",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S099",
+      "level": 9,
+      "title": "User discards an isolated worktree",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S100",
+      "level": 9,
+      "title": "Resume a complex partially completed build",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S101",
+      "level": 10,
+      "title": "Attempt a path traversal outside the approved project",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S102",
+      "level": 10,
+      "title": "Attempt a symlink-based escape",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S103",
+      "level": 10,
+      "title": "Encounter malicious instructions in a repository file",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S104",
+      "level": 10,
+      "title": "Request access to a secret or credential",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S105",
+      "level": 10,
+      "title": "Runner prints a credential in its logs",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S106",
+      "level": 10,
+      "title": "Attempt an unapproved external side effect",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S107",
+      "level": 10,
+      "title": "Change the approved plan while agents are executing",
+      "category": "general",
+      "test": [
+        "tests/test_build_plan_approval.py",
+        "S107"
+      ],
+      "outcome": "PASS",
+      "elapsed_seconds": 3.263,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "artifacts\\build-scenarios\\20261016T145507236059Z\\S107.txt",
+      "reason": "Assertions passed",
+      "assertion_tests": [
+        "test_s107_plan_revision_change_during_execution_stops_next_task",
+        "test_s107_plan_revision_during_last_task_stops_apply_even_if_new_revision_is_approved"
+      ],
+      "assertion_count": 2,
+      "junit": "artifacts\\build-scenarios\\20261016T145507236059Z\\S107.xml"
+    },
+    {
+      "id": "S108",
+      "level": 10,
+      "title": "User pauses and resumes execution",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S109",
+      "level": 10,
+      "title": "User switches between Chat and Build during execution",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S110",
+      "level": 10,
+      "title": "UI state consistency under rapid events",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S111",
+      "level": 11,
+      "title": "Add a small feature to an existing application",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S112",
+      "level": 11,
+      "title": "Add an API endpoint with input validation",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S113",
+      "level": 11,
+      "title": "Add a frontend form connected to an existing API",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S114",
+      "level": 11,
+      "title": "Introduce a database migration and update application logic",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S115",
+      "level": 11,
+      "title": "Refactor a module without changing its public behavior",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S116",
+      "level": 11,
+      "title": "Implement a feature across frontend and backend",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S117",
+      "level": 11,
+      "title": "Diagnose a deliberately obscure multi-module bug",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S118",
+      "level": 11,
+      "title": "Introduce conflicting requirements during an active build",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S119",
+      "level": 11,
+      "title": "Run a large mixed-complexity project through Kandev",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    },
+    {
+      "id": "S120",
+      "level": 11,
+      "title": "Full-system adversarial reliability scenario",
+      "category": "general",
+      "test": null,
+      "outcome": "NOT_RUN",
+      "elapsed_seconds": 0,
+      "resource_usage": "unknown",
+      "approval_revision": "asserted by test when applicable",
+      "evidence": "",
+      "reason": "No executable scenario case is registered"
+    }
+  ]
+}

@@ -20,6 +20,7 @@ class PlanTask:
     expected_paths: tuple[str, ...] = ()
     acceptance_criteria: tuple[str, ...] = ("Configured validation must pass",)
     verification_checks: tuple[str, ...] = ("project-default",)
+    artifact_checks: tuple[dict[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,12 +98,26 @@ def parse_plan(value: str | dict[str, Any]) -> Plan:
             raise PlanValidationError(f"tasks[{index}].expected_paths must be a string list")
         criteria = item.get("acceptance_criteria", ["Configured validation must pass"])
         checks = item.get("verification_checks", ["project-default"])
+        artifact_checks = item.get("artifact_checks", [])
         if (not isinstance(criteria, list) or not 1 <= len(criteria) <= 5
                 or not all(isinstance(value, str) and 1 <= len(value.strip()) <= 300 for value in criteria)):
             raise PlanValidationError(f"tasks[{index}].acceptance_criteria must contain 1 to 5 checkable items")
         if (not isinstance(checks, list) or not 1 <= len(checks) <= 5
                 or not all(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", value) for value in checks)):
             raise PlanValidationError(f"tasks[{index}].verification_checks must name 1 to 5 approved checks")
+        if not isinstance(artifact_checks, list) or len(artifact_checks) > 5:
+            raise PlanValidationError(f"tasks[{index}].artifact_checks must contain at most 5 checks")
+        for check in artifact_checks:
+            if not isinstance(check, dict) or check.get("kind") not in {"file_equals", "directory_empty"}:
+                raise PlanValidationError(f"tasks[{index}].artifact_checks contains an unsupported check")
+            if (not isinstance(check.get("path"), str) or not check["path"].strip()
+                    or len(check["path"]) > 500):
+                raise PlanValidationError(f"tasks[{index}].artifact_checks requires a path")
+            expected_keys = {"kind", "path", "content"} if check["kind"] == "file_equals" else {"kind", "path"}
+            if set(check) != expected_keys or ("content" in check and not isinstance(check["content"], str)):
+                raise PlanValidationError(f"tasks[{index}].artifact_checks has invalid fields")
+            if "content" in check and len(check["content"]) > 65_536:
+                raise PlanValidationError(f"tasks[{index}].artifact_checks content is too large")
         tasks.append(
             PlanTask(
                 key,
@@ -113,6 +128,7 @@ def parse_plan(value: str | dict[str, Any]) -> Plan:
                 tuple(path.replace("\\", "/").strip() for path in expected_paths),
                 tuple(value.strip() for value in criteria),
                 tuple(checks),
+                tuple(dict(check) for check in artifact_checks),
             )
         )
     for task in tasks:

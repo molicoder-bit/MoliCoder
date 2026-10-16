@@ -8,6 +8,8 @@ from typing import Callable
 
 from ..domain import Project
 from ..molicoder.orchestrator import OrchestrationResult
+from ..molicoder.plan_approval import require_approved_plan
+from ..molicoder.planner.schema import parse_plan
 from ..storage import ChatStore
 from ..molicoder.validate import assess_architectural_invariants
 from .adapter import KandevTaskAdapter
@@ -23,6 +25,7 @@ class KandevRunOrchestrator:
         on_event: Callable[[str, dict], None] | None = None,
         validate: Callable[[Path], str] | None = None,
         authorize_launch: Callable[[KandevTaskRef], None] | None = None,
+        require_plan_approval: bool = False,
     ) -> None:
         self.store = store
         self.project = project
@@ -31,6 +34,7 @@ class KandevRunOrchestrator:
         self.on_event = on_event
         self.validate = validate
         self.authorize_launch = authorize_launch
+        self.require_plan_approval = require_plan_approval
         if not self.root.is_dir():
             raise ValueError("project folder does not exist")
 
@@ -170,22 +174,94 @@ class KandevRunOrchestrator:
         )
         task_id = self.store.create_run_task(run_id, "K1", "Kandev Build task", request, "high")
         ref = KandevTaskRef(run_id, task_id, f"molicoder:project:{self.project.id}:run:{run_id}:task:{task_id}")
+        if self.require_plan_approval:
+            plan = parse_plan({"objective": request, "tasks": [{
+                "key": "K1", "title": "Kandev Build task", "objective": request,
+                "risk": "high", "depends_on": [],
+                "acceptance_criteria": ["Configured validation must pass"],
+                "verification_checks": ["project-default"],
+            }]})
+            plan_payload = plan.to_dict() | {"runner_policy": {
+                "backend": "kandev", "endpoint": self.adapter.connection.endpoint,
+                "agent_profile_id": str(getattr(getattr(self.adapter.api, "config", None), "agent_profile_id", "")),
+                "model_assignment": "configured Kandev agent profile; per-task model selection unverified",
+            }}
+            revision = self.store.save_plan(run_id, "generated", "kandev", plan_payload)
+            self.store.update_run_state(run_id, "awaiting_approval")
+            self._event(ref, "plan_awaiting_approval", {
+                "revision": revision, "base_commit": base, "task_keys": ["K1"],
+                "runner": "kandev", "model_assignment": "configured Kandev agent profile",
+            })
+            return OrchestrationResult(run_id, "awaiting_approval", 0, 1)
+        return self._launch(ref, request, branch.stdout.strip(), base)
+
+    def execute_approved(self, run_id: int) -> OrchestrationResult:
+        run, plan = require_approved_plan(self.store, run_id)
+        if (int(run["project_id"]) != self.project.id or run["status"] != "awaiting_approval"
+                or run["provider"] != "kandev"):
+            raise PermissionError("Kandev Build is not awaiting approval for this project")
+        tasks = self.store.list_run_tasks(run_id)
+        if len(tasks) != 1 or tasks[0].key != "K1":
+            raise ValueError("Kandev plan task identity differs")
+        approved_plan = parse_plan(plan["payload"])
+        if (len(approved_plan.tasks) != 1 or approved_plan.objective != run["request"]
+                or approved_plan.tasks[0].key != tasks[0].key
+                or approved_plan.tasks[0].objective != tasks[0].objective
+                or approved_plan.tasks[0].depends_on):
+            raise PermissionError("Approved Kandev plan differs from the recorded task")
+        policy = plan["payload"].get("runner_policy", {})
+        if (policy.get("backend") != "kandev"
+                or policy.get("endpoint") != self.adapter.connection.endpoint
+                or policy.get("agent_profile_id") != str(getattr(getattr(self.adapter.api, "config", None), "agent_profile_id", ""))):
+            raise PermissionError("Approved Kandev runner policy changed")
+        if self.adapter.probe().health_state != "ready":
+            raise RuntimeError("Kandev is unavailable; the approved plan remains pending")
+        def git(*args: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["git", "-C", str(self.root), *args], capture_output=True, text=True,
+                encoding="utf-8", errors="replace", check=False, timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        head = git("rev-parse", "HEAD")
+        branch = git("branch", "--show-current")
+        dirty = git("status", "--porcelain", "--untracked-files=all")
+        if (head.returncode != 0 or head.stdout.strip() != run["base_commit"]
+                or branch.returncode != 0 or not branch.stdout.strip()
+                or dirty.returncode != 0 or dirty.stdout.strip()):
+            raise PermissionError("Project changed after Kandev plan approval")
+        ref = KandevTaskRef(run_id, tasks[0].id,
+                            f"molicoder:project:{self.project.id}:run:{run_id}:task:{tasks[0].id}")
+        self.store.update_run_state(run_id, "scheduling")
+        return self._launch(ref, str(run["request"]), branch.stdout.strip(), str(run["base_commit"]))
+
+    def _launch(self, ref: KandevTaskRef, request: str, branch: str, base: str) -> OrchestrationResult:
         self._event(ref, "kandev_owner_selected", {
             "external_id": ref.external_id, "connection_mode": self.adapter.connection.mode.value,
-            "endpoint": self.adapter.connection.endpoint, "project_branch": branch.stdout.strip(),
+            "endpoint": self.adapter.connection.endpoint, "project_branch": branch,
             "base_commit": base,
         })
         try:
             if self.authorize_launch is not None:
                 self.authorize_launch(ref)
+        except (PermissionError, ValueError) as exc:
+            self.store.update_run_task(ref.task_id, "waiting_approval", 0, reason=str(exc))
+            self.store.update_run_state(ref.run_id, "needs_attention", recovery_reason=str(exc))
+            self._event(ref, "kandev_launch_blocked", {"reason": str(exc)})
+            return OrchestrationResult(ref.run_id, "needs_attention", 0, 1, str(exc))
+        try:
             snapshot = self.adapter.create_task(ref, request)
+        except PermissionError as exc:
+            self.store.update_run_task(ref.task_id, "waiting_approval", 0, reason=str(exc))
+            self.store.update_run_state(ref.run_id, "needs_attention", recovery_reason=str(exc))
+            self._event(ref, "kandev_launch_blocked", {"reason": str(exc)})
+            return OrchestrationResult(ref.run_id, "needs_attention", 0, 1, str(exc))
         except Exception:
             # The create may have reached Kandev. Keep the local task bound to
             # its external ID, requiring reconciliation instead of fallback.
-            self.store.update_run_task(task_id, "review_required", 0, reason="Kandev create outcome needs reconciliation")
-            self.store.update_run_state(run_id, "needs_attention", recovery_reason="Kandev create outcome needs reconciliation")
+            self.store.update_run_task(ref.task_id, "review_required", 0, reason="Kandev create outcome needs reconciliation")
+            self.store.update_run_state(ref.run_id, "needs_attention", recovery_reason="Kandev create outcome needs reconciliation")
             self._event(ref, "kandev_reconciliation_required", {"external_id": ref.external_id})
-            return OrchestrationResult(run_id, "needs_attention", 0, 1, "Kandev create outcome needs reconciliation")
+            return OrchestrationResult(ref.run_id, "needs_attention", 0, 1, "Kandev create outcome needs reconciliation")
         return self._record(snapshot)
 
     def resume(self, run_id: int) -> OrchestrationResult:

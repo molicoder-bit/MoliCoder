@@ -323,12 +323,14 @@ class OrchestrationWorker(QThread):
     completed = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, orchestrator: Phase2Orchestrator, request: str, mode: str, resume_run_id: int | None = None) -> None:
+    def __init__(self, orchestrator: Phase2Orchestrator, request: str, mode: str, resume_run_id: int | None = None,
+                 approved_run_id: int | None = None) -> None:
         super().__init__()
         self.orchestrator = orchestrator
         self.request = request
         self.mode = mode
         self.resume_run_id = resume_run_id
+        self.approved_run_id = approved_run_id
         self._cancelled = threading.Event()
         self._resume = threading.Event()
         self._resume.set()
@@ -371,6 +373,8 @@ class OrchestrationWorker(QThread):
         try:
             if self.resume_run_id is not None:
                 result: OrchestrationResult = self.orchestrator.resume(self.resume_run_id)
+            elif self.approved_run_id is not None:
+                result = self.orchestrator.execute_approved(self.approved_run_id)
             else:
                 result = self.orchestrator.run(self.request, mode=self.mode)
             self.completed.emit(result)

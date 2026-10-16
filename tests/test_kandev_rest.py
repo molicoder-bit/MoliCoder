@@ -68,12 +68,33 @@ def test_pinned_rest_create_lookup_and_read_use_exact_endpoint_and_identity(tmp_
 
 def test_rest_transport_requires_authorization_before_lifecycle_create() -> None:
     api = KandevRestTaskApi(_config())
+    fake = FakeOpener()
+    fake.responses = [
+        {"status": "ok", "version": "v0.97.0"},
+        HTTPError("http://127.0.0.1", 404, "missing", {}, None),
+    ] * 2
+    api._opener = fake
     adapter = KandevTaskAdapter(
         KandevConnection(KandevMode.ATTACHED, "http://127.0.0.1:38429/mcp", "0.97.0"), api,
     )
     assert adapter.probe().health_state == "ready"
+    assert fake.requests[0].full_url == "http://127.0.0.1:38429/health"
+    assert fake.requests[1].get_method() == "GET"
     with pytest.raises(PermissionError, match="authorization"):
         adapter.create_task(KandevTaskRef(1, 2, "run:1"), "Build parser")
+
+
+def test_rest_probe_rejects_service_version_mismatch_before_task_lookup() -> None:
+    api = KandevRestTaskApi(_config())
+    fake = FakeOpener()
+    fake.responses = [{"status": "ok", "version": "v0.96.0"}]
+    api._opener = fake
+    adapter = KandevTaskAdapter(
+        KandevConnection(KandevMode.ATTACHED, "http://127.0.0.1:38429/mcp", "0.97.0"), api,
+    )
+    with pytest.raises(KandevTransportError, match="version does not match"):
+        adapter.probe()
+    assert len(fake.requests) == 1
 
 
 def test_rest_contract_rejects_unverified_version_and_remote_endpoints() -> None:

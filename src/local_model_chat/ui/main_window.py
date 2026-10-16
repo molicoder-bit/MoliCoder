@@ -445,7 +445,7 @@ class MainWindow(QMainWindow):
         evidence_button.clicked.connect(self._show_task_evidence)
         controls.addWidget(evidence_button)
         controls.addStretch()
-        self.build_run_button = QPushButton("Run build")
+        self.build_run_button = QPushButton("Generate plan")
         self.build_run_button.setObjectName("primary")
         self.build_run_button.setEnabled(False)
         self.build_run_button.clicked.connect(self._run_build)
@@ -2097,6 +2097,18 @@ class MainWindow(QMainWindow):
         request = self.build_request.toPlainText().strip()
         if project is None or not request:
             return
+        from ..molicoder.intake import clarification_needed
+        issue = clarification_needed(request)
+        if issue:
+            self.build_status.setText(issue)
+            return
+        try:
+            import tempfile
+            with tempfile.TemporaryFile(dir=project.path):
+                pass
+        except OSError as exc:
+            self.build_status.setText(f"The selected project folder is not writable: {exc}")
+            return
         if self.build_owner.currentData() == "kandev":
             self._run_kandev_build(project, request)
             return
@@ -2160,6 +2172,15 @@ class MainWindow(QMainWindow):
             )
         except (OSError, ValueError, ProviderUnavailable) as exc:
             QMessageBox.critical(self, "Build configuration error", str(exc))
+            return
+        pending_runs = self.store.list_project_runs(project.id)
+        pending_plan = next((run for run in pending_runs
+                             if run["status"] == "awaiting_approval"
+                             and run["request"] == request and run["mode"] == mode
+                             and run["provider"] == orchestrator.provider.name
+                             and run["model"] == orchestrator.provider.model), None)
+        if pending_plan:
+            self._review_build_plan(pending_plan["id"], orchestrator=orchestrator)
             return
         worker = OrchestrationWorker(orchestrator, request, mode)
         orchestrator.on_event = worker.relay_event
@@ -2256,9 +2277,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Kandev configuration", str(exc))
             return
         if QMessageBox.question(
-            self, "Start Kandev-owned Build",
-            f"Create and launch a Kandev task for {project.name} through {adapter.connection.endpoint}? "
-            "Kandev will own the agent session. Review its result before applying changes.",
+            self, "Generate Kandev Build plan",
+            f"Prepare a Kandev task plan for {project.name} through {adapter.connection.endpoint}? "
+            "You will review the saved plan before the agent launches.",
         ) != QMessageBox.StandardButton.Yes:
             return
         config = adapter.api.config
@@ -2283,6 +2304,13 @@ class MainWindow(QMainWindow):
             )
         except (OSError, ValueError, ProviderUnavailable) as exc:
             QMessageBox.critical(self, "Kandev Build configuration", str(exc))
+            return
+        pending_runs = self.store.list_project_runs(project.id)
+        pending_plan = next((run for run in pending_runs
+                             if run["status"] == "awaiting_approval"
+                             and run["request"] == request and run["provider"] == "kandev"), None)
+        if pending_plan:
+            self._review_build_plan(pending_plan["id"], orchestrator=orchestrator)
             return
         worker = OrchestrationWorker(orchestrator, request, str(self.build_strategy.currentData() or "HYBRID"))
         orchestrator.on_event = worker.relay_event
@@ -2511,6 +2539,9 @@ class MainWindow(QMainWindow):
         self.last_run_id = result.run_id
         recorded_run = self.store.get_run(result.run_id)
         kandev_owned = bool(recorded_run and recorded_run.get("provider") == "kandev")
+        if result.status == "awaiting_approval":
+            self._review_build_plan(result.run_id)
+            return
         project = self.registry.selected()
         metrics = RunAnalytics(self.store).project_summary(project.id) if project else None
         usage = (
@@ -2535,7 +2566,7 @@ class MainWindow(QMainWindow):
             self.build_status.setText(
                 (f"Kandev run {result.run_id} passed local validation. Review and apply when ready. {result.error}{usage}"
                  if kandev_owned else
-                 f"Run {result.run_id} passed validation but the checkout changed. Review and apply when ready. {result.error}{usage}")
+                 f"Run {result.run_id} passed validation. Review and apply when ready. {result.error}{usage}")
             )
             self._show_integration_diff(result.integration_path, result.base_commit)
         else:
@@ -2579,6 +2610,156 @@ class MainWindow(QMainWindow):
         if not self.build_run_button.isEnabled():
             terminal_status += f"\nNext run: {self.build_status.text()}"
         self.build_status.setText(terminal_status)
+        pending = getattr(self, "_pending_approved_build", None)
+        if pending is not None:
+            self._pending_approved_build = None
+            self._launch_approved_build(*pending)
+
+    def _review_build_plan(self, run_id: int, *, orchestrator=None) -> None:
+        """The approval is for the persisted plan revision, not the request text."""
+        from ..molicoder.plan_approval import approval_scope
+
+        run = self.store.get_run(run_id)
+        plan = self.store.get_latest_plan_record(run_id)
+        if run is None or plan is None or run["status"] != "awaiting_approval":
+            self.build_status.setText("Build plan is unavailable for review.")
+            return
+        selected = self.registry.selected()
+        if selected is None or selected.id != run["project_id"]:
+            self.build_status.setText("Select the plan's project before approving it.")
+            return
+        tasks = plan["payload"].get("tasks", [])
+        task_states = {task.key: task.status for task in self.store.list_run_tasks(run_id)}
+        rows = []
+        for task in tasks:
+            deps = ", ".join(task.get("depends_on", [])) or "none"
+            checks = ", ".join(task.get("verification_checks", []))
+            artifacts = json.dumps(task.get("artifact_checks", []), ensure_ascii=False)
+            assignment = plan["payload"].get("task_assignments", {}).get(task.get("key"), {})
+            runner = assignment.get("runner", "kandev" if run["provider"] == "kandev" else "unassigned")
+            model = assignment.get("model") or ("configured profile" if runner == "kandev" else "provider default")
+            rows.append(
+                f"{task.get('key')}: {task.get('title')}\n"
+                f"  Current state: {task_states.get(task.get('key'), 'pending')}\n"
+                f"  Runner/model: {runner} / {model}\n"
+                f"  File scope: {', '.join(task.get('expected_paths', [])) or 'unspecified'}\n"
+                f"  Dependencies: {deps}; checks: {checks}; artifact checks: {artifacts}\n"
+                f"  Acceptance: {'; '.join(task.get('acceptance_criteria', []))}"
+            )
+        cost_text = (
+            "Cost: local inference only; no paid API charge is expected.\n\n"
+            if run["mode"] == "LOCAL_OFFLINE" else
+            "Cost: exact provider charges are unknown; no paid API budget is inferred.\n\n"
+        )
+        detail = (
+            f"Plan revision {plan['id']} for {self.registry.selected().name if self.registry.selected() else 'unknown project'}\n"
+            f"Objective: {plan['payload'].get('objective', '')}\n"
+            f"Runner: {'Kandev' if run['provider'] == 'kandev' else 'Internal Build'}; "
+            f"provider/model: {run['provider']}/{run['model'] or 'provider default'}\n"
+            + (f"Reason for fresh approval: {run['recovery_reason']}\n" if run.get("recovery_reason") else "")
+            + cost_text
+            + f"Runner policy: {json.dumps(plan['payload'].get('runner_policy', {}), ensure_ascii=False)}\n\n"
+            + "\n\n".join(rows)
+        )
+        self.build_details.setPlainText(detail)
+        self.build_status.setText(f"Plan revision {plan['id']} awaits approval. Review the tasks and checks.")
+        owner = self.orchestration_worker
+        editor = orchestrator or (owner.orchestrator if owner is not None else None)
+        decision = self._plan_review_decision(detail, can_edit=run["provider"] != "kandev" and editor is not None)
+        if decision == "dismiss":
+            return
+        if decision == "edit":
+            draft = json.dumps({
+                "objective": plan["payload"].get("objective", ""),
+                "tasks": plan["payload"].get("tasks", []),
+            }, ensure_ascii=False, indent=2)
+            edited, accepted = QInputDialog.getMultiLineText(
+                self, "Revise Build plan",
+                "Edit objective and tasks as JSON. Runner/model overrides are unavailable. A saved edit needs new approval:",
+                draft,
+            )
+            if not accepted:
+                return
+            try:
+                revision = editor.revise_plan(run_id, int(plan["id"]), edited)
+            except (OSError, ValueError, PermissionError) as exc:
+                QMessageBox.warning(self, "Plan revision rejected", str(exc))
+                self.build_status.setText("The plan edit was not saved. Review and correct it before approval.")
+                return
+            self.build_status.setText(f"Saved plan revision {revision}; review the new task graph and assignments.")
+            self._review_build_plan(run_id, orchestrator=editor)
+            return
+        if decision != "approve":
+            self.store.record_action_authorization(
+                project_id=int(run["project_id"]), action="build_plan_execute",
+                scope=approval_scope(run, int(plan["id"]), plan["payload"]),
+                risk=ActionRisk.MUTATION.value, decision="denied", actor="local_user_reviewed_plan",
+                expires_at=(datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+                reason=f"rejected Build plan revision {plan['id']}",
+            )
+            self.store.add_event(run_id, "plan_rejected", {"revision": plan["id"]})
+            self.build_status.setText(f"Plan revision {plan['id']} was rejected. It remains available for review.")
+            return
+        self.store.record_action_authorization(
+            project_id=int(run["project_id"]), action="build_plan_execute",
+            scope=approval_scope(run, int(plan["id"]), plan["payload"]),
+            risk=ActionRisk.MUTATION.value, decision="approved", actor="local_user_reviewed_plan",
+            expires_at=(datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+            reason=f"approved Build plan revision {plan['id']}",
+        )
+        if owner is None:
+            if orchestrator is None:
+                self.build_status.setText("Plan approved. Start the saved run from Build recovery.")
+                return
+            self._launch_approved_build(orchestrator, run_id)
+            return
+        self._pending_approved_build = (owner.orchestrator, run_id)
+        if self.orchestration_worker is None:
+            from PySide6.QtCore import QTimer
+            pending = self._pending_approved_build
+            self._pending_approved_build = None
+            QTimer.singleShot(0, lambda: self._launch_approved_build(*pending))
+
+    def _plan_review_decision(self, detail: str, *, can_edit: bool) -> str:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Review Build plan")
+        dialog.setText(detail + "\n\nApprove this exact revision for isolated execution?")
+        approve = dialog.addButton("Approve plan", QMessageBox.ButtonRole.AcceptRole)
+        edit = dialog.addButton("Edit plan JSON", QMessageBox.ButtonRole.ActionRole) if can_edit else None
+        reject = dialog.addButton("Reject plan", QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(reject)
+        dialog.exec()
+        clicked = dialog.clickedButton()
+        if clicked is approve:
+            return "approve"
+        if clicked is edit:
+            return "edit"
+        return "reject" if clicked is reject else "dismiss"
+
+    def _launch_approved_build(self, orchestrator, run_id: int) -> None:
+        run = self.store.get_run(run_id)
+        if run is None:
+            self.build_status.setText("Approved Build run is missing.")
+            return
+        worker = OrchestrationWorker(
+            orchestrator, str(run["request"]), str(run["mode"]), approved_run_id=run_id,
+        )
+        orchestrator.on_event = worker.relay_event
+        worker.event.connect(lambda kind, payload, owner=worker: self._build_event(kind, payload) if self.orchestration_worker is owner else None)
+        worker.completed.connect(lambda result, owner=worker: self._build_completed(result) if self.orchestration_worker is owner else None)
+        worker.failed.connect(lambda error, owner=worker: self._build_failed(error) if self.orchestration_worker is owner else None)
+        worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
+        self.orchestration_worker = worker
+        self.build_status.setText(f"Executing approved plan for run {run_id}…")
+        self.build_request.setEnabled(False)
+        self.build_owner.setEnabled(False)
+        self.build_mode.setEnabled(False)
+        self.build_provider.setEnabled(False)
+        self.build_fallback_provider.setEnabled(False)
+        self.build_pause_button.setEnabled(True)
+        self.build_cancel_button.setEnabled(True)
+        self._build_activity_timer.start()
+        worker.start()
 
     def _show_integration_diff(self, integration_path: Path | None, base_commit: str = "") -> None:
         project = self.registry.selected()
@@ -2606,6 +2787,9 @@ class MainWindow(QMainWindow):
             self.changes_view.setPlainText((diff + "\n" + patch)[:100000])
 
     def _merge_last_build(self) -> None:
+        from ..molicoder.artifact_checks import empty_directory_targets, verify_artifact_checks
+        from ..molicoder.plan_approval import plan_digest
+        from ..molicoder.planner.schema import parse_plan
         project = self.registry.selected()
         recorded_run = self.store.get_run(self.last_run_id) if self.last_run_id else None
         if project and recorded_run and recorded_run.get("provider") == "kandev":
@@ -2630,32 +2814,89 @@ class MainWindow(QMainWindow):
             self._load_project_list(select_id=project.id)
             return
         branch = self.last_integration_branch
-        if project is None or not branch:
+        if (project is None or not branch or recorded_run is None
+                or recorded_run["project_id"] != project.id
+                or recorded_run["status"] != "ready_to_apply"):
             return
         state = read_git_state(project.path)
         if not state.available or state.dirty:
             QMessageBox.warning(self, "Cannot merge", "The project checkout must be a clean named branch before merging.")
             return
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        def git_head(path, ref):
+            result = subprocess.run(
+                ["git", "-C", str(path), "rev-parse", ref],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                check=False, creationflags=creationflags,
+            )
+            return result.stdout.strip() if result.returncode == 0 else ""
+        if (branch != f"molicoder/run-{self.last_run_id}"
+                or git_head(project.path, "HEAD") != recorded_run["base_commit"]
+                or git_head(project.path, branch) != recorded_run["final_commit"]
+                or not recorded_run["final_commit"]):
+            QMessageBox.warning(self, "Cannot apply", "The validated checkpoint or project base changed. Review the run again.")
+            return
+        try:
+            approved_plan = self.store.get_latest_plan_record(self.last_run_id)
+            revisions = [json.loads(event.payload_json) for event in self.store.list_events(self.last_run_id)
+                         if event.kind in {"plan_created", "plan_revised", "plan_scope_expansion_proposed"}]
+            creation = revisions[-1] if revisions else None
+            if (approved_plan is None or creation is None
+                    or creation.get("revision") != approved_plan["id"]
+                    or creation.get("digest") != plan_digest(approved_plan["payload"])):
+                raise ValueError("The executed plan revision changed. Review the run again.")
+            plan = parse_plan(approved_plan["payload"])
+            source = Path(str(recorded_run["worktree"]))
+            failures = tuple(
+                failure for task in plan.tasks
+                for failure in verify_artifact_checks(source, task.artifact_checks)
+            )
+            if failures:
+                raise ValueError("; ".join(failures))
+            directory_targets = empty_directory_targets(source, Path(project.path), plan)
+        except (OSError, ValueError, PermissionError) as exc:
+            QMessageBox.warning(self, "Cannot apply", str(exc))
+            return
         if QMessageBox.question(
             self,
             "Merge validated build",
-            f"Fast-forward the validated branch {branch} into {state.branch}?",
+            f"Apply the validated result from {branch} into {state.branch}?"
+            + ("\nCreate empty directories: " + ", ".join(
+                str(target.relative_to(Path(project.path))) for target in directory_targets
+            ) if directory_targets else ""),
         ) != QMessageBox.StandardButton.Yes:
             return
-        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         merged = subprocess.run(
             ["git", "-C", project.path, "-c", "user.name=MoliCoder", "-c", "user.email=molicoder@localhost",
              "merge", "--ff-only", branch],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             check=False, creationflags=creationflags,
         )
-        if merged.returncode != 0:
+        if merged.returncode != 0 or git_head(project.path, "HEAD") != recorded_run["final_commit"]:
             subprocess.run(
                 ["git", "-C", project.path, "merge", "--abort"],
                 capture_output=True, check=False, creationflags=creationflags,
             )
             QMessageBox.critical(self, "Merge failed", (merged.stdout + merged.stderr)[-4000:])
             return
+        try:
+            for target in directory_targets:
+                target.mkdir(parents=True, exist_ok=True)
+            failures = tuple(
+                failure for task in plan.tasks
+                for failure in verify_artifact_checks(Path(project.path), task.artifact_checks)
+            )
+            if failures:
+                raise ValueError("; ".join(failures))
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Apply incomplete", str(exc))
+            return
+        if recorded_run and recorded_run["status"] == "ready_to_apply":
+            self.store.finish_run(self.last_run_id, "completed")
+            self.store.add_event(self.last_run_id, "changes_applied", {
+                "branch": branch, "base_commit": recorded_run["base_commit"],
+                "final_commit": recorded_run["final_commit"],
+            })
         self.build_merge_button.setEnabled(False)
         self.build_status.setText(f"Applied validated branch {branch} to {state.branch}. Review and push manually when ready.")
         self._load_project_list(select_id=project.id)

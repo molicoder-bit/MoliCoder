@@ -44,6 +44,9 @@ class KandevTaskAdapter:
         self.on_event = on_event
 
     def probe(self) -> KandevConnection:
+        health_check = getattr(self.api, "probe_health", None)
+        if callable(health_check):
+            health_check()
         capabilities = self.api.capabilities()
         required = {"create", "read", "lookup_external_id", "events", "cancel", "launch"}
         health = "ready" if self.connection.mode != KandevMode.DISABLED and required.issubset(capabilities) else "limited"

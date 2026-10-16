@@ -1296,6 +1296,18 @@ class ChatStore:
             ).fetchone()
         return json.loads(row[0]) if row else None
 
+    def get_latest_plan_record(self, run_id: int) -> dict | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT id, run_id, source, provider, json, created_at FROM plans WHERE run_id = ? ORDER BY id DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        record = dict(row)
+        record["payload"] = json.loads(record.pop("json"))
+        return record
+
     def reopen_run(self, run_id: int) -> None:
         with closing(self._connect()) as connection:
             connection.execute(
@@ -1304,9 +1316,19 @@ class ChatStore:
             )
             connection.commit()
 
-    def save_plan(self, run_id: int, source: str, provider: str, payload: dict) -> int:
+    def save_plan(
+        self, run_id: int, source: str, provider: str, payload: dict,
+        *, expected_latest_id: int | None = None,
+    ) -> int:
         now = datetime.now().isoformat(timespec="microseconds")
         with closing(self._connect()) as connection:
+            if expected_latest_id is not None:
+                connection.execute("BEGIN IMMEDIATE")
+                latest = connection.execute(
+                    "SELECT id FROM plans WHERE run_id = ? ORDER BY id DESC LIMIT 1", (run_id,),
+                ).fetchone()
+                if latest is None or int(latest[0]) != expected_latest_id:
+                    raise ValueError("Plan revision changed while editing; reload the latest plan")
             cursor = connection.execute(
                 "INSERT INTO plans(run_id, source, provider, json, created_at) VALUES (?, ?, ?, ?, ?)",
                 (run_id, source, provider, json.dumps(payload, ensure_ascii=False), now),

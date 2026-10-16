@@ -1,4 +1,5 @@
 import subprocess
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +8,7 @@ from local_model_chat.kandev.adapter import KandevTaskAdapter
 from local_model_chat.kandev.contracts import KandevConnection, KandevMode
 from local_model_chat.kandev.run import KandevRunOrchestrator
 from local_model_chat.molicoder.runtime import build_orchestrator
+from local_model_chat.molicoder.plan_approval import approval_scope
 from local_model_chat.storage import ChatStore
 
 
@@ -62,13 +64,30 @@ def _service(tmp_path):
     return store, project, connection, api, adapter
 
 
+def _approve_and_launch(store, orchestrator, run_id):
+    run = store.get_run(run_id)
+    plan = store.get_latest_plan_record(run_id)
+    assert run["status"] == "awaiting_approval" and plan is not None
+    store.record_action_authorization(
+        project_id=run["project_id"], action="build_plan_execute",
+        scope=approval_scope(run, plan["id"], plan["payload"]), risk="mutation",
+        decision="approved", actor="scenario_harness",
+        expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+    )
+    return orchestrator.execute_approved(run_id)
+
+
 def test_selected_build_is_bound_to_kandev_before_dispatch_and_recovers(tmp_path):
     store, project, connection, api, adapter = _service(tmp_path)
     orchestrator = build_orchestrator(
         store=store, project=project, kandev_connection=connection, kandev_adapter=adapter,
     )
     assert isinstance(orchestrator, KandevRunOrchestrator)
-    result = orchestrator.run("Build parser")
+    prepared = orchestrator.run("Build parser")
+    assert prepared.status == "awaiting_approval" and api.launches == 0
+    with pytest.raises(PermissionError):
+        orchestrator.execute_approved(prepared.run_id)
+    result = _approve_and_launch(store, orchestrator, prepared.run_id)
     assert result.status == "running" and api.launches == 1
     run = store.get_run(result.run_id)
     assert run["provider"] == "kandev"
@@ -96,10 +115,12 @@ def test_kandev_launch_authorizer_receives_persisted_owner_before_dispatch(tmp_p
         events = store.list_events(ref.run_id)
         observed.append((run["provider"], ref.external_id, events[-1].kind))
 
-    result = build_orchestrator(
+    orchestrator = build_orchestrator(
         store=store, project=project, kandev_connection=connection,
         kandev_adapter=adapter, kandev_authorize_launch=authorize,
-    ).run("Build parser")
+    )
+    prepared = orchestrator.run("Build parser")
+    result = _approve_and_launch(store, orchestrator, prepared.run_id)
     assert result.status == "running" and api.launches == 1
     assert observed == [(
         "kandev", f"molicoder:project:{project.id}:run:{result.run_id}:task:1",
@@ -107,11 +128,29 @@ def test_kandev_launch_authorizer_receives_persisted_owner_before_dispatch(tmp_p
     )]
 
 
+def test_kandev_denied_launch_is_not_reported_as_uncertain_remote_create(tmp_path):
+    store, project, connection, api, adapter = _service(tmp_path)
+    def deny(_ref):
+        raise PermissionError("agent launch authorization was revoked")
+    orchestrator = build_orchestrator(
+        store=store, project=project, kandev_connection=connection,
+        kandev_adapter=adapter, kandev_authorize_launch=deny,
+    )
+    prepared = orchestrator.run("Build parser")
+    result = _approve_and_launch(store, orchestrator, prepared.run_id)
+    assert result.status == "needs_attention" and api.launches == 0
+    assert store.list_run_tasks(result.run_id)[0].status == "waiting_approval"
+    assert any(event.kind == "kandev_launch_blocked" for event in store.list_events(result.run_id))
+    assert not any(event.kind == "kandev_reconciliation_required" for event in store.list_events(result.run_id))
+
+
 def test_missing_remote_task_keeps_kandev_ownership_and_requires_review(tmp_path):
     store, project, connection, api, adapter = _service(tmp_path)
-    result = build_orchestrator(
+    orchestrator = build_orchestrator(
         store=store, project=project, kandev_connection=connection, kandev_adapter=adapter,
-    ).run("Build parser")
+    )
+    prepared = orchestrator.run("Build parser")
+    result = _approve_and_launch(store, orchestrator, prepared.run_id)
     api.tasks.clear()
     observed = KandevRunOrchestrator(store=store, project=project, adapter=adapter).resume(result.run_id)
     assert observed.status == "needs_attention"
@@ -132,9 +171,11 @@ def test_remote_completion_records_only_a_verified_git_worktree(tmp_path):
     git(worktree, "add", "file.txt")
     git(worktree, "commit", "-m", "task")
 
-    result = build_orchestrator(
+    orchestrator = build_orchestrator(
         store=store, project=project, kandev_connection=connection, kandev_adapter=adapter,
-    ).run("Build parser")
+    )
+    prepared = orchestrator.run("Build parser")
+    result = _approve_and_launch(store, orchestrator, prepared.run_id)
     task = next(iter(api.tasks.values()))
     task.update({"state": "COMPLETED", "worktree_path": str(worktree),
                  "worktree_branch": "feature/task",

@@ -1,0 +1,86 @@
+# Build workflow contract
+
+Status: implementation specification and source audit, 2026-10-16. The **intended** contract below is authoritative for new Build work. The **implemented** inventory describes this checkout; it does not imply that a UI control proves backend capability.
+
+## Architecture and mode boundary
+
+Chat is conversational: it streams an Ollama response, saves conversation messages, and may answer questions about the selected project. Chat must not mutate project code without an explicit Build or local-action transition. Build is a persisted development operation bound to one selected project, request, plan revision, execution policy, and Git base. The PySide6 `MainWindow` starts workers; `ChatStore` owns durable SQLite records; `molicoder` owns reconnaissance, planning, scheduling, execution, worktrees, validation, and repair. `kandev` is an optional external execution adapter. The same logical task and approval contract applies to either backend.
+
+Source entry points: `ui/main_window.py::_run_build`, `molicoder/runtime.py::build_orchestrator`, `molicoder/orchestrator.py::SequentialRunOrchestrator`, `molicoder/planner/schema.py`, `molicoder/validate.py`, `molicoder/worktree.py`, `storage.py`, and `kandev/run.py`.
+
+## Canonical stages and approvals
+
+1. **Intake:** require an explicitly selected, accessible project and actionable request. Ambiguity blocks planning. Chat questions stay in Chat. Folder creation is a separate exact-path local action.
+2. **Preflight:** inspect Git branch, base commit, dirty files, runtimes, validation allowlist, provider and runner health, authentication signals, Kandev capabilities, limits, and conflicting runs. Optional Kandev failure must leave the internal path available. Installation requires an exact authorized operation.
+3. **Analysis:** inspect only relevant project files and constraints without code mutation.
+4. **Planning:** produce a validated structured plan with objective, outcomes, risks, assumptions, verification, tasks, dependencies, resource estimates where supported, and actual model/runner assignments. A task has stable key, objective, expected paths/artifacts, acceptance criteria, allowlisted checks, risk, dependencies, assigned runner/model, and retry ceiling. A one-file change is usually one task.
+5. **Review:** persist the plan as revision N and enter `awaiting_approval`. Show the *actual* plan, assignments, DAG, checks, scope, and uncertainty. The Build submission authorizes analysis and planning only. A separate explicit approval binds project ID, request, immutable plan digest/revision, base Git commit, runner policy, and expiry. Rejection never executes. Editing or replanning creates N+1 and invalidates N's approval. The scenario harness may explicitly approve a fixture plan; tests never rely on implied approval.
+6. **Schedule:** validate approval again immediately before any mutating task or external agent launch. Validate missing/cyclic dependencies, model and runner capabilities, budgets, path overlap, and worktree identity. Only tasks whose prerequisites passed may start. Independent tasks may run concurrently when their file scopes do not conflict.
+7. **Execute and verify:** run each task in an isolated Git worktree or other proved safe boundary, record process and artifact evidence, run independent allowlisted checks and explicit acceptance checks, then mark `passed`. Agent prose, process exit 0, or board status alone cannot establish success.
+8. **Repair:** classify evidence (intake, environment, graph, approval, routing/auth/budget, execution, verification, integration, persistence/recovery, Kandev sync, permission, cancellation). Retry transient infrastructure errors according to policy; use at most two code repair attempts per task by default. Preserve attempts and failing logs. Never weaken the verification oracle. A scope-expanding repair returns to planning and needs a new approval.
+9. **Integrate:** combine passed task outputs, detect conflicts, run full project validation, and verify the original objective. Failed prerequisites block dependents; unrelated safe work can finish.
+10. **Apply and report:** expose diff, checks, task history, attempts, actual usage, and unknown/estimated cost. Apply to the selected checkout only under its explicit approved apply policy and after proving its branch/HEAD and unrelated edits are unchanged. Never push, deploy, publish, or pay without separate authorization. Report `completed` only after the integrated result passes; otherwise preserve a reviewable `ready_to_apply` or failure state.
+
+**Approval versus automation:** Approval authorizes a bounded *plan*, not each normal task transition. Once revision N is approved, dependency scheduling, verification, and in-scope bounded repair run automatically. Approval does not authorize a changed plan, new external side effect, broader filesystem scope, paid spend beyond the approved budget, or replacing the validation oracle. Those stop and request a fresh decision. Automated scenario approval must be an explicit recorded harness action tied to the same revision and digest.
+
+## State model
+
+Target run path: `draft -> preflight -> analyzing -> planning -> awaiting_approval -> scheduling -> executing -> verifying -> integrating -> ready_to_apply -> completed`. The spelling in storage may be lowercase. Legal detours: `blocked` from a failed precondition; `repairing` from failed verification and back to `verifying`; `paused` from active stages and back to the same stage; `canceled` from any nonterminal stage; `failed` from exhausted or nonrecoverable work; `interrupted -> recovering` after process loss, then to the reconciled stage. Only a persisted transition function may change state; it records old state, new state, reason, timestamp, and actor. Terminal states are immutable except an explicit recovery or new run.
+
+Task path: `pending -> blocked_by_dependency | ready -> assigned -> running -> verifying -> passed`. Verification failure may enter `repairing -> running`; exhaustion enters `failed`. Cancellation enters `canceled`; a task made unnecessary by an approved revision enters `skipped`. A dependent is `ready` only after *all* prerequisites are `passed`. Every state change carries an evidence/event ID. Unknown external status is `reconciliation_required`, never success.
+
+Required run transition table for the target state machine:
+
+| From | Allowed next states | Required guard |
+| --- | --- | --- |
+| `draft` | `preflight`, `canceled` | Selected project and nonempty request |
+| `preflight` | `analyzing`, `blocked`, `canceled` | Environment and policy evidence recorded |
+| `analyzing` | `planning`, `blocked`, `canceled` | Read-only project evidence captured |
+| `planning` | `awaiting_approval`, `blocked`, `failed`, `canceled` | Valid structured plan and DAG persisted |
+| `awaiting_approval` | `scheduling`, `planning`, `canceled` | Exact current revision approved; replan invalidates approval |
+| `scheduling` | `executing`, `blocked`, `failed`, `canceled` | Capabilities, budgets, and task readiness checked |
+| `executing` | `verifying`, `repairing`, `paused`, `blocked`, `failed`, `canceled`, `interrupted` | Task events and artifacts persisted |
+| `verifying` | `executing`, `repairing`, `integrating`, `blocked`, `failed`, `canceled`, `interrupted` | Independent task checks recorded |
+| `repairing` | `executing`, `verifying`, `planning`, `blocked`, `failed`, `canceled`, `interrupted` | Attempt budget remains; scope change goes to planning |
+| `integrating` | `ready_to_apply`, `repairing`, `blocked`, `failed`, `canceled`, `interrupted` | Project-level checks pass for ready state |
+| `ready_to_apply` | `completed`, `blocked`, `canceled` | Exact accepted checkpoint and apply authorization |
+| `paused` | prior active stage, `canceled`, `interrupted` | Explicit user resume; no task starts while paused |
+| `interrupted` | `recovering` | Process restart and durable run identity |
+| `recovering` | reconciled prior stage, `blocked`, `failed`, `canceled` | Git/backend reconciliation; no unsafe replay |
+| `blocked` | `planning`, `scheduling`, `recovering`, `canceled` | Missing prerequisite resolved or revised plan approved |
+| `completed`, `failed`, `canceled` | none in the same run | New work uses a new run; recovery is explicit |
+
+Required failure codes are `INTAKE_FAILURE`, `ENVIRONMENT_FAILURE`, `PLANNING_FAILURE`, `INVALID_DEPENDENCY_GRAPH`, `APPROVAL_FAILURE`, `ROUTING_FAILURE`, `AUTHENTICATION_FAILURE`, `BUDGET_FAILURE`, `EXECUTION_FAILURE`, `VERIFICATION_FAILURE`, `REPAIR_EXHAUSTED`, `INTEGRATION_CONFLICT`, `PERSISTENCE_FAILURE`, `RECOVERY_FAILURE`, `KANDEV_SYNC_FAILURE`, `PERMISSION_FAILURE`, `UNSUPPORTED_CAPABILITY`, and `USER_CANCELED`. Classification must be derived from recorded command/provider/backend evidence. Transient transport errors may retry within limits; code verification failures may repair; approval, permission, budget, or unsupported-capability failures stop until their cause changes.
+
+## Shared task and backend contract
+
+Both backends consume the same immutable approved task specification: `build_id`, `plan_revision`, `task_id`, title/objective, inputs, file scope, expected outputs, dependency keys, acceptance checks, runner type, provider/model ID and reason, cost estimate and confidence, retry limit, risk, timestamps, status, attempts, result artifacts, and external ID when applicable. Assignments must be explicit before approval. Deterministic file operations and tests should use local tools. Complex coding may use a capable provider. An unavailable or unauthenticated runner is blocked, not silently substituted. Opaque CLI charges remain unknown unless measured; hard monetary caps are claimed only for metered backends that enforce them.
+
+Internal execution retains local SQLite ownership and uses isolated Git worktrees. Kandev execution requires a verified connected adapter. MoliCoder creates approved tasks, maps stable IDs, assigns profiles where the actual Kandev API supports them, synchronizes dependency and status data, and reconciles ambiguous responses before retrying creates or launches. Unsupported per-task assignment/dependency capability must be shown as a limitation. Kandev completion still requires local Git and validation evidence. Neither backend may duplicate an uncertain external side effect during recovery.
+
+## Persistence, recovery, and security
+
+Persist plans and revisions, approval records, task DAG, assignments, state/event history, worktree/base/checkpoint IDs, verification logs, failures, and observable usage in SQLite. Project-local `.molicoder` JSON/JSONL is supplementary. On restart mark in-flight tasks interrupted, compare actual Git and external state with persisted IDs, preserve passed checkpoints, then resume only unambiguous work. Path scope must reject traversal and symlink escape. Commands come from a project validation allowlist, not generated shell text. Repo content and provider output are untrusted data. Secrets are redacted from logs.
+
+The UI must show selected project, current persisted run state, reviewable plan revision and tasks, dependencies, model/runner, approval controls, task status and blocked reason, verification and repair evidence, Kandev connection/sync status, diff, usage, and apply control. It must not show a success state based only on a worker callback.
+
+## Examples and acceptance
+
+* `Create hello.txt`: one task, exact expected path/content check, approval of revision 1, isolated creation, independent file check, integration validation, review/apply.
+* Feature with database, API, UI, and tests: schema precedes API; UI may proceed from an approved API contract; integration tests depend on API and UI; each task has its own runner and checks. A failed API verification blocks dependent tests while independent work can continue.
+
+System acceptance requires no edit before exact plan approval, a valid DAG and runner for every required task, independent task and integrated verification, bounded repair, protected unrelated edits, truthful backend synchronization and usage, recoverable interruption, and UI agreement with persisted state. The scenario suite in `BUILD_SCENARIOS.md` supplies progressive evidence.
+
+## Implemented behavior and gaps in this checkout
+
+| Area | Observed implementation | Gap against contract |
+| --- | --- | --- |
+| Chat and project | `ChatWorker` streams Ollama; `ProjectRegistry` persists selected project. Build readiness requires a selected clean Git project. A write probe runs on Build submission; narrow ambiguity and contradiction checks return clarification text before planning. | General natural-language ambiguity and unsupported-capability detection remain incomplete. |
+| Plan and DAG | Reconnaissance and local/CLI planners produce structured `PlanTask` values; parser validates missing edges/cycles, limited to five tasks. SQLite stores plan JSON, tasks and edges. Pending internal plans can be edited and saved as new validated revisions. After a failed repair adds a file outside task scope, the executor can propose a scope-only revision while preserving accepted checkpoints. | No complete shared task assignment or large DAG support. General replanning around completed tasks, including graph changes, is absent. |
+| Approval | The active runtime persists a plan and returns `awaiting_approval` before creating the run worktree or Kandev task. The desktop displays the plan, including file scope and exact artifact check values, and records an exact revision/digest/base/runner policy authorization before execution. Internal Build review offers JSON task-plan editing; edits validate the DAG and paths, regenerate runner assignments, create a new immutable row, and require fresh approval. A scope-expanding repair proposes another revision without carrying approval forward; completed tasks and the graph are fixed. Rejecting stores a denied decision while retaining the plan. The Build button's request authorization still permits read-only external planning. | Kandev plan editing, per-task runner/model overrides, general post-execution replanning, and a complete enforced state transition table are missing. Older direct orchestrator constructors retain a legacy opt-out for existing API tests; the active runtime sets approval required. |
+| Internal execution | Active runtime uses `SequentialRunOrchestrator` in one run worktree, bounded attempts, per-task validation/checkpoints, and final validation. It passes failed validation evidence into repair prompts and stops after repeated identical or oscillating failures. A later repair attempt that changes an additional file can be stashed, proposed as a new file-scope revision, and rerun from the accepted checkpoint after fresh approval; a first-attempt extra file remains a failure. It returns `ready_to_apply` after validation; the Apply control performs a reviewed fast-forward. The plan records per-task runner/model assignments and optional exact `file_equals` or `directory_empty` artifact checks. A no-change task passes only when an explicit artifact check and project validation pass. Empty directories are verified in the worktree, shown in review, and created in the selected checkout during confirmed Apply because Git cannot commit them. Older `Phase2Orchestrator` and `WorktreeOrchestrator` remain in source/tests. | Active path is sequential. Per-task assignments are not editable in the UI, and the policy does not expose capability negotiation across arbitrary models. General task-graph replanning after execution remains unavailable. Exact artifact checks cover only explicitly stated files/directories; planner quality for arbitrary natural-language requests remains unmeasured. |
+| Kandev | The REST adapter checks the loopback `/health` response and pinned 0.97.0 version, then makes a read-only task lookup before reporting readiness. It can create/reconcile a **single** Kandev-owned task; the active runtime requires approval of its saved one-task plan before launch, and locally validates a resulting checkpoint before apply. Disabled Kandev routes to internal Build. | No multi-task Kandev board DAG or proved per-task model assignment. A live connection was recorded in the earlier isolated readiness check, but this scenario curriculum uses mocked transport. Do not present it as full orchestration. |
+| Recovery and evidence | SQLite/WAL stores events, tasks, failures, external calls, completion records; interrupted-run marking and sequential resume exist. `.molicoder` stores logs. | Safe replay of a multi-task concurrent plan and uncertain side effects is incomplete. |
+| Usage and tests | Inference ledger and route reports exist; pytest contains orchestrator, schema, worktree, Kandev fake-adapter, UI, and recovery tests. `scripts/run_build_scenarios.py` enumerates all 120 curriculum IDs and records executable results or `NOT_RUN`. | CLI token/cost reporting is often opaque. Most curriculum cases and live Kandev proof remain outstanding. |
+
+This inventory is updated alongside implementation. A scenario is `PASS` only when its specified assertions were actually run; otherwise record `FAIL`, `BLOCKED`, or `NOT_RUN` with a reason.
