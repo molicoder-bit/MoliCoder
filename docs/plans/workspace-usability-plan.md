@@ -2,7 +2,7 @@
 
 Date: 2026-10-15
 
-**Status: implementation in progress.** This document responds to the two supplied screenshots and the requested usability changes. The user authorized implementation after planning. Development checks use isolated records; delivery remains tracked in UX13.
+**Status: complete — all 129 implementation tasks verified and delivered in 1.3.0.** This document responds to the two supplied screenshots and the requested usability changes. The user authorized implementation after planning. Development checks used isolated records; final delivery evidence is recorded in UX13.
 
 Tracker inventory: **129 implementation tasks across 13 phases**; completion is reflected by the individual checkboxes below. Original planning tasks are retained as historical evidence.
 
@@ -95,7 +95,7 @@ Examples are interface copy proposals, not claims about the user's accounts:
 
 Implement UX01 → UX02 → UX03 → UX04 → UX05 → UX06 → UX07 → UX08 → UX09 → UX10 → UX11 → UX12 → UX13. This resolves incorrect state before adding new presentations of it. UX09–UX11 share one settings shell; do not build competing dialogs for them.
 
-An implementation phase is complete only when every task in that phase is checked and its Evidence entry links the relevant revision and verification. Evidence is currently pending for all UX phases.
+An implementation phase is complete only when every task in that phase is checked and its Evidence entry links the relevant revision and verification. All UX phases now have completed evidence.
 
 ## UX01 — Define one source of current work state
 
@@ -110,7 +110,7 @@ Prerequisite: planning complete. Primary files: UI state, storage, workers, orch
 - [x] UX01-07 Define stale-run reconciliation rules for startup and reopen. **Done when:** local process exit is distinguishable from an active external Kandev session; elapsed time alone is insufficient to mark external work failed.
 - [x] UX01-08 Add focused transition regressions for completion, exception, cancellation, and late callbacks. **Done when:** all UI consumers agree on the same operation's terminal state.
 
-Evidence (partial): `work-state-contract.md` records field sources, ownership and compatibility. `tests/test_work_failure.py` verifies terminal snapshots, request isolation, idempotent finalization, and external recovery exclusion. Remaining phase tasks stay unchecked.
+Final evidence: source `a3c4f0d`; [acceptance mapping and verification runs](workspace-usability-verification.md). The mapping records the relevant fixture journeys and native screenshots for this phase. Earlier partial checkpoints are summarized in the final verification section.
 
 ## UX02 — Make failures durable and visible
 
@@ -129,7 +129,7 @@ Prerequisite: UX01. Primary files: orchestrator, workers, storage, Build callbac
 - [x] UX02-11 Reconcile orphaned local running records using UX01's ownership rules. **Done when:** a fixture matching run 4 becomes Interrupted/Needs attention with an explanation, while an active verified external session stays active.
 - [x] UX02-12 Reproduce the screenshot sequence with a sanitized invalid-path fixture. **Done when:** task, run, summary, animation, log, and reopened history all show the terminal failure; no original user record is silently deleted.
 
-Evidence (partial): 24 focused state/sequential/workspace tests passed; 42 UI/state/handoff regressions passed; final 5 failure/snapshot regressions passed. The injected handoff exception verifies a terminal JSONL event, failed active task, blocked untouched task, preserved worktree, and ended run. No provider calls or user-database repairs were performed.
+Final evidence: source `a3c4f0d`; [acceptance mapping and verification runs](workspace-usability-verification.md). The mapping records the relevant fixture journeys and native screenshots for this phase. Earlier partial checkpoints are summarized in the final verification section.
 
 ## UX03 — Route simple folder requests correctly
 
@@ -148,7 +148,7 @@ Prerequisite: UX02. Primary files: local actions, controller, Build dispatch, pl
 - [x] UX03-11 Preserve the worktree safety boundary. **Done when:** the implementation does not fix this report by allowing arbitrary absolute paths, silently changing targets, or interpreting model output as filesystem authorization.
 - [x] UX03-12 Test folder actions in a temporary directory, including non-Git locations. **Done when:** an explicit local folder action works without a Build project, uses zero model calls, and has a visible verified result. Empty directories must not be misreported as committed Git changes.
 
-Evidence (partial): 29 action/scope/controller/sequential tests passed. Explicit reported wording, paths with spaces, missing parents, invalid destinations and cross-platform outside-path rejection are covered. The boundary check remains enforced before workspace allocation.
+Final evidence: source `a3c4f0d`; [acceptance mapping and verification runs](workspace-usability-verification.md). The mapping records the relevant fixture journeys and native screenshots for this phase. Earlier partial checkpoints are summarized in the final verification section.
 
 ## UX04 — Make project and folder scope explicit
 
@@ -167,7 +167,7 @@ Prerequisite: UX01–UX03. Primary files: registry, workspace selector, project/
 - [x] UX04-11 Handle moved, missing, and archived folders with an explicit recovery state. **Done when:** the app never silently selects a different project as a substitute.
 - [x] UX04-12 Verify startup, restart, deselection, history reopening, and two-project switching. **Done when:** no operation reads or writes neworld unless that scope was explicitly chosen or visibly restored under the preference.
 
-Evidence (partial): 56 existing UI/workspace/route/action regressions passed, plus 11 new-chat/scope/action/failure tests. Default startup and persisted deselection are explicitly verified. Remember-workspace storage is available; its Settings control is still pending.
+Final evidence: source `a3c4f0d`; [acceptance mapping and verification runs](workspace-usability-verification.md). The mapping records the relevant fixture journeys and native screenshots for this phase. Earlier partial checkpoints are summarized in the final verification section.
 
 ## UX05 — Start a chat in one click
 
@@ -182,7 +182,7 @@ Prerequisite: UX01 and UX04. Primary files: header, chat lifecycle, draft state.
 - [x] UX05-07 Apply the explicit current scope and selected next-reply model to the new chat. **Done when:** the empty state names both and never implies that a reply has already used a model.
 - [x] UX05-08 Verify the one-click journey from initial launch, history, a completed chat, and Build. **Done when:** no History/Settings detour is required and all previous work remains recoverable.
 
-Evidence (partial): Header button, platform New shortcut, focused empty composer and preserved conversation draft implemented. The new scope/chat tests verify one-click navigation from Build. Live streaming cancellation and the background Build affordance remain under verification/pending.
+Final evidence: source `a3c4f0d`; [acceptance mapping and verification runs](workspace-usability-verification.md). The mapping records the relevant fixture journeys and native screenshots for this phase. Earlier partial checkpoints are summarized in the final verification section.
 
 ## UX06 — Show the model/provider actually associated with the work
 
@@ -202,7 +202,7 @@ Prerequisite: UX01, UX04, UX05. Primary files: route identity, provider events, 
 - [x] UX06-12 Add a compact Change action that opens Settings at the relevant model/route section. **Done when:** the main screen remains free of the legacy dropdown and the current model stays visible while settings are closed.
 - [x] UX06-13 Verify local alias, explicit external model, unknown CLI default, fallback, deterministic reply, and restarted history scenarios. **Done when:** no case derives the active route from an Ollama health indicator or labels an unknown model as GPT-4.
 
-Evidence (partial): reply receipts persist in schema v15 with legacy backup and cascading message deletion; 18 receipt/settings/activity/storage tests passed. Existing UI/workspace/identity/theme tests passed (68 tests) before the schema-backup assertions were updated for v15. New tests verify navigable model settings, last-versus-next identity, request context, reduced motion, background Build access and terminal animation stop. Remaining acceptance tasks are unchecked.
+Final evidence: source `a3c4f0d`; [acceptance mapping and verification runs](workspace-usability-verification.md). The mapping records the relevant fixture journeys and native screenshots for this phase. Earlier partial checkpoints are summarized in the final verification section.
 
 ## UX07 — Replace legacy controls with relevant context and results
 
@@ -221,7 +221,7 @@ Prerequisite: UX01, UX02, UX04, UX06. Primary files: workspace, Chat toolbar, re
 - [x] UX07-11 Keep current configuration distinct from verified work already done. **Done when:** a failed attempt cannot increase completed/changed/accepted counts without supporting evidence.
 - [x] UX07-12 Verify every summary against fixture receipts and outcomes. **Done when:** changing project, model, conversation, or run clears irrelevant information and preserves the correct historical record.
 
-Evidence (partial): reply receipts persist in schema v15 with legacy backup and cascading message deletion; 18 receipt/settings/activity/storage tests passed. Existing UI/workspace/identity/theme tests passed (68 tests) before the schema-backup assertions were updated for v15. New tests verify navigable model settings, last-versus-next identity, request context, reduced motion, background Build access and terminal animation stop. Remaining acceptance tasks are unchecked.
+Final evidence: source `a3c4f0d`; [acceptance mapping and verification runs](workspace-usability-verification.md). The mapping records the relevant fixture journeys and native screenshots for this phase. Earlier partial checkpoints are summarized in the final verification section.
 
 ## UX08 — Animate real activity and explain waiting
 
@@ -239,7 +239,7 @@ Prerequisite: UX01, UX02, UX06, UX07. Primary files: Build status widgets and li
 - [x] UX08-10 Provide reduced-motion behavior. **Done when:** the preference uses a stable status icon plus text/time, without losing any state information.
 - [x] UX08-11 Verify animation with delayed fixture events and failure injection. **Done when:** the UI remains responsive, makes no fake percentage claims, and never shows an active spinner beside a terminal failed task.
 
-Evidence (partial): reply receipts persist in schema v15 with legacy backup and cascading message deletion; 18 receipt/settings/activity/storage tests passed. Existing UI/workspace/identity/theme tests passed (68 tests) before the schema-backup assertions were updated for v15. New tests verify navigable model settings, last-versus-next identity, request context, reduced motion, background Build access and terminal animation stop. Remaining acceptance tasks are unchecked.
+Final evidence: source `a3c4f0d`; [acceptance mapping and verification runs](workspace-usability-verification.md). The mapping records the relevant fixture journeys and native screenshots for this phase. Earlier partial checkpoints are summarized in the final verification section.
 
 ## UX09 — Create a navigable settings shell
 
@@ -255,7 +255,7 @@ Prerequisite: UX04–UX08. Primary files: settings entry point and existing dial
 - [x] UX09-08 Add inline validation and consistent pending/success/error feedback. **Done when:** field mistakes are explained next to the field and operations cannot be accidentally submitted twice.
 - [x] UX09-09 Verify keyboard navigation, scrolling, and return to work. **Done when:** Settings works at minimum window size and closing it returns focus to the originating action/composer.
 
-Evidence (partial): reply receipts persist in schema v15 with legacy backup and cascading message deletion; 18 receipt/settings/activity/storage tests passed. Existing UI/workspace/identity/theme tests passed (68 tests) before the schema-backup assertions were updated for v15. New tests verify navigable model settings, last-versus-next identity, request context, reduced motion, background Build access and terminal animation stop. Remaining acceptance tasks are unchecked.
+Final evidence: source `a3c4f0d`; [acceptance mapping and verification runs](workspace-usability-verification.md). The mapping records the relevant fixture journeys and native screenshots for this phase. Earlier partial checkpoints are summarized in the final verification section.
 
 ## UX10 — Make model and provider setup understandable
 
@@ -272,7 +272,7 @@ Prerequisite: UX06 and UX09. Primary files: provider settings, onboarding, envir
 - [x] UX10-09 Show setup failures and platform limitations next to the affected provider. **Done when:** unsupported credential storage, missing binaries, or rejected authentication each has a concrete explanation and available next action.
 - [x] UX10-10 Verify local setup, known CLI default, expired sign-in, custom API configuration, and unavailable-platform fixtures. **Done when:** each flow reaches a clear usable or blocked state without leaking credential values into the UI, exports, or logs.
 
-Evidence (partial): provider cards show verified readiness after an explicit no-inference check; the fixture check covers ready, login-required and not-installed. Custom provider Save now validates inline. 17 provider/settings/chat/failure/action tests passed. Settings model overrides and remaining final journeys are still being verified.
+Final evidence: source `a3c4f0d`; [acceptance mapping and verification runs](workspace-usability-verification.md). The mapping records the relevant fixture journeys and native screenshots for this phase. Earlier partial checkpoints are summarized in the final verification section.
 
 ## UX11 — Finish the remaining settings categories
 
@@ -287,7 +287,7 @@ Prerequisite: UX09–UX10. Primary files: settings pages and existing preference
 - [x] UX11-07 Put environment checks, runtime health, logs, and evidence export under Diagnostics. **Done when:** technical detail remains reachable without dominating normal settings or the main workspace.
 - [x] UX11-08 Verify that the reorganized settings preserve existing authorization boundaries. **Done when:** opening a page, checking health, or choosing a model never silently launches an agent, installs a resource, starts a paid test, or applies project changes.
 
-Evidence (partial): provider cards show verified readiness after an explicit no-inference check; the fixture check covers ready, login-required and not-installed. Custom provider Save now validates inline. 17 provider/settings/chat/failure/action tests passed. Settings model overrides and remaining final journeys are still being verified.
+Final evidence: source `a3c4f0d`; [acceptance mapping and verification runs](workspace-usability-verification.md). The mapping records the relevant fixture journeys and native screenshots for this phase. Earlier partial checkpoints are summarized in the final verification section.
 
 ## UX12 — Check readability and complete user journeys
 
@@ -300,7 +300,7 @@ Prerequisite: UX02–UX11. Primary files: layout/styles and behavioral UI tests.
 - [x] UX12-05 Run the end-to-end acceptance scenarios below using fixtures. **Done when:** each scenario has a recorded outcome and any failure is fixed before release.
 - [x] UX12-06 Capture final native screenshots for Chat, Build active, Build failed, and Settings in both themes. **Done when:** screenshots show the actual implemented states at usable text size and fixture data is identified as such.
 
-Evidence: pending.
+Final evidence: source `a3c4f0d`; [acceptance mapping and verification runs](workspace-usability-verification.md). The mapping records the relevant fixture journeys and native screenshots for this phase. Earlier partial checkpoints are summarized in the final verification section.
 
 ## UX13 — Document and deliver the finished implementation
 
@@ -309,13 +309,13 @@ Prerequisite: all preceding implementation phases.
 - [x] UX13-01 Update README usage instructions and screenshots. **Done when:** New chat, provider/model identity, project scope, contextual details, failure recovery, and Settings match the implemented UI.
 - [x] UX13-02 Update the earlier UI tracker and main platform tracker to point to this phase's results. **Done when:** historical verification remains distinguishable from the new acceptance results.
 - [x] UX13-03 Run the focused regression suites for every changed behavior. **Done when:** results cover conversations, routing, state transitions, project selection, folder actions, usage receipts, settings, and Kandev ownership as applicable.
-- [ ] UX13-04 Run the required broader release/CI checks. **Done when:** supported-platform results are recorded accurately, with any unavailable platform validation explicitly left pending.
-- [ ] UX13-05 Build the release package with version, logo/icon assets, and migration support. **Done when:** the build includes the intended source revision and keeps the existing Windows branding.
-- [ ] UX13-06 Run packaged desktop and embedded-browser smoke checks. **Done when:** both pass and startup with a copied legacy fixture database preserves history and reconciles stale local state correctly.
-- [ ] UX13-07 Install the verified Windows build at the existing user location and preserve rollback. **Done when:** the installed executable matches the tested artifact; a running user session is handled without force-closing or losing work.
-- [ ] UX13-08 Commit/push the implementation under the existing delivery workflow and record the revision. **Done when:** the remote contains the intended changes and the tracker records only tasks with completed evidence.
+- [x] UX13-04 Run the required broader release/CI checks. **Done when:** supported-platform results are recorded accurately, with any unavailable platform validation explicitly left pending.
+- [x] UX13-05 Build the release package with version, logo/icon assets, and migration support. **Done when:** the build includes the intended source revision and keeps the existing Windows branding.
+- [x] UX13-06 Run packaged desktop and embedded-browser smoke checks. **Done when:** both pass and startup with a copied legacy fixture database preserves history and reconciles stale local state correctly.
+- [x] UX13-07 Install the verified Windows build at the existing user location and preserve rollback. **Done when:** the installed executable matches the tested artifact; a running user session is handled without force-closing or losing work.
+- [x] UX13-08 Commit/push the implementation under the existing delivery workflow and record the revision. **Done when:** the remote contains the intended changes and the tracker records only tasks with completed evidence.
 
-Evidence: pending.
+Final evidence: source `a3c4f0d`, version **1.3.0**; [acceptance mapping, completed Windows/Linux/macOS CI, packaged smoke checks, and installed executable hash](workspace-usability-verification.md).
 
 ## End-to-end acceptance scenarios
 
@@ -353,9 +353,11 @@ These are release acceptance criteria, not claims that implementation is complet
 
 ## Verification checkpoint — 1.3.0
 
-Implementation and acceptance phases UX01–UX12 are verified. Final delivery checks remain separately tracked in UX13 until their results are available. The source and focused regression evidence is detailed in [usability verification](workspace-usability-verification.md).
+All 129 implementation tasks across UX01–UX13 are verified and complete. Version 1.3.0 is installed and the implementation is pushed to `main`. See [the acceptance mapping and delivery evidence](workspace-usability-verification.md).
 
-- Windows full suite: **487 passed, 6 opt-in live inference checks skipped**. Later focused checks for final presentation, scope synchronization, and model evidence passed (11, 9, and 6 tests respectively); no live provider quota was spent.
-- Behavior coverage includes a screenshot-equivalent handoff exception, persistent terminal run/task/log state, process-birth ownership recovery, local action outcomes and permissions, preserved conversation/project drafts, late-reply isolation, live model reports, legacy receipt migration, settings navigation/readiness, pause/cancel boundaries, and visible background animation.
-- Native screenshots: Chat, active Build, failed Build, and Settings in both themes under `docs/images/usability/`. The fixture windows were rendered at 1020 × 680 logical pixels with actual physical output at 100%, 150%, and 200% scaling; additional 225%/300% renders also passed. Screenshots use demonstration records and no inference.
-- Historical partial evidence above describes intermediate checkpoints. Every phase's final evidence is the acceptance mapping and final delivery results linked here.
+- Final source: `a3c4f0d`; installed version **1.3.0**. Built/installed executable SHA-256: `5199474BDBC4A1E87252162795CE25708F5A3B5ABE46B43908634ED26ACF3033`. Previous installation preserved.
+- Local Windows full suite at the main implementation checkpoint: **487 passed, 6 skipped**, followed by focused checks for the final model persistence, context isolation, authentication/quota visibility, and background-failure review changes. The skipped tests require opt-in live inference.
+- Final-source Linux x64 and macOS Intel CI: **492 passed, 8 skipped** each, plus packaged desktop/migration and browser smoke checks.
+- Final-source hosted Windows CI: **494 passed, 6 skipped**, plus packaged desktop/migration and embedded-browser smoke checks. Both local Windows package startup checks also passed, including legacy-data preservation, pre-upgrade backup and interrupted local run recovery.
+- Native screenshots: Chat, active Build, failed Build, and Settings in both themes under `docs/images/usability/`. Fixtures were rendered at 1020 × 680 logical pixels with actual output at 100%, 150%, and 200% scaling; additional 225%/300% renders also passed. No inference calls were made for these screenshots.
+- Final source and verification supersede the intermediate checkpoint descriptions above. Checkboxes reflect completion of each task's acceptance criterion.

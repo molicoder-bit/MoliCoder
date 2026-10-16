@@ -32,4 +32,11 @@ Date: 2026-10-15. Demonstration databases/projects and provider fixtures were us
 
 ## Delivery evidence
 
-Final packaged desktop/browser checks, installation identity, and supported-platform CI results are recorded here when completed. Until then, the corresponding UX13 tasks stay unchecked.
+- Final source: `a3c4f0d`, MoliCoder **1.3.0**. Later source refinements were covered by focused Windows checks: 50 UI/model cases, 23 journey/orchestration cases, and 15 journey/activity cases. These counts overlap and are not totals of unique tests.
+- Linux x64 and macOS Intel: **492 passed, 8 skipped** each, plus packaged desktop/migration and embedded-browser smoke checks. [Final-source platform CI](https://github.com/molicoder-bit/MoliCoder/actions/runs/38828193560).
+- Final-source hosted Windows CI: **494 passed, 6 skipped**, plus packaged desktop/migration and embedded-browser smoke checks; workflow completed successfully. [Windows CI](https://github.com/molicoder-bit/MoliCoder/actions/runs/38828193431).
+- Final Windows package desktop/migration and embedded-browser smoke checks passed. The package was installed at the existing user location with rollback preserved. Built and installed executable SHA-256 match: `5199474BDBC4A1E87252162795CE25708F5A3B5ABE46B43908634ED26ACF3033`.
+- Desktop migration smoke upgrades a v14 fixture, preserves its conversation, verifies the pre-upgrade backup, and reconciles its interrupted local task. Provider inference was not needed.
+- The supplied logo remains in the executable/window/shortcut. The generated ICO contains nine sizes; executable icon resource verification passed.
+
+All 129 implementation tasks in the workspace usability plan are complete, including the final CI gate. Earlier package revisions were temporary development checkpoints and are superseded by the source/hash above.
