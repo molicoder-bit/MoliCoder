@@ -25,6 +25,7 @@ class IntentDecision:
 
 _EXACT_READS = {
     "project_identity": (
+        r"(?:what|which) project is (?:currently )?(?:open|active|selected)",
         r"(?:what|which) project (?:are we|am i) working on",
         r"(?:what|which) project (?:we're|we are|i'm|i am) working on",
         r"what(?:'s| is) (?:the |our |my )?(?:current |selected )?project(?: name)?",

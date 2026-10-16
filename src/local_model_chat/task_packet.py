@@ -54,6 +54,8 @@ class TaskHandoff:
             f"base {self.base_commit or 'unknown'}; remaining attempts {self.remaining_attempts}.\n"
             f"Original request:\n{self.goal}\n\nPlan objective:\n{self.plan_objective}\n\n"
             f"Assigned task: {self.task_title} ({self.task_key})\n{self.task_objective}\n\n"
+            'Execute only the assigned task within its expected changed paths. The original request is context; '
+            'other tasks are handled separately.\n\n'
             f"Verified paths:\n{verified}\n\nExpected changed paths:\n{expected}\n"
             f"Acceptance criteria:\n{acceptance}\nVerified prior work:\n{progress}\n"
             f"Approved decision IDs: {decision_ids}. Source revisions: {revisions}.\n"

@@ -140,7 +140,7 @@ def _validate_call(value: Any) -> ToolCall:
     return ToolCall(name, arguments)
 
 
-def _content_json(content: str) -> Any | None:
+def _content_json(content: str, *, _repairs: int = 0) -> Any | None:
     candidate = content.strip()
     fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", candidate, flags=re.DOTALL | re.IGNORECASE)
     if fenced:
@@ -168,6 +168,11 @@ def _content_json(content: str) -> Any | None:
             value, offset = decoder.raw_decode(candidate, offset)
             values.append(value)
     except json.JSONDecodeError as exc:
+        # Qwen sometimes escapes apostrophes inside an otherwise valid JSON
+        # string. Repair only that invalid escape at the decoder's exact offset;
+        # valid backslashes, paths and all other malformed JSON stay untouched.
+        if _repairs < 8 and exc.msg == 'Invalid \\escape' and candidate[exc.pos:exc.pos + 2] == "\\'":
+            return _content_json(candidate[:exc.pos] + candidate[exc.pos + 1:], _repairs=_repairs + 1)
         raise ToolParseError("tool call content is not valid JSON") from exc
     if len(values) == 1:
         return values[0]
@@ -220,11 +225,14 @@ def parse_tool_calls(message: dict[str, Any]) -> list[ToolCall]:
 
 
 class ToolDispatcher:
-    def __init__(self, root: str | Path, *, validation: Callable[[], str]) -> None:
+    def __init__(self, root: str | Path, *, validation: Callable[[], str],
+                 allowed_write_paths: tuple[str, ...] | None = None) -> None:
         self.root = Path(root).resolve()
         if not self.root.is_dir():
             raise ValueError(f"worktree does not exist: {self.root}")
         self.validation = validation
+        self.allowed_write_paths = (None if allowed_write_paths is None else
+                                    {self._resolve(path) for path in allowed_write_paths})
 
     def _resolve(self, value: str) -> Path:
         path = (self.root / value).resolve()
@@ -281,6 +289,8 @@ class ToolDispatcher:
 
     def _do_write_file(self, path: str, content: str) -> str:
         target = self._resolve(path)
+        if self.allowed_write_paths is not None and target not in self.allowed_write_paths:
+            raise PermissionError(f'Write is outside this task scope: {path}')
         if not is_allowed(target):
             raise ValueError(f"unsupported text file type: {target.name}")
         if len(content.encode("utf-8")) > MAX_FILE_BYTES:
@@ -293,6 +303,8 @@ class ToolDispatcher:
         if not old:
             raise ValueError("old text must not be empty")
         target = self._resolve(path)
+        if self.allowed_write_paths is not None and target not in self.allowed_write_paths:
+            raise PermissionError(f'Write is outside this task scope: {path}')
         attachment = load_attachment(target)
         occurrences = attachment.text.count(old)
         if occurrences != 1:

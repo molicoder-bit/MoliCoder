@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import time
+import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .gateway import InferenceResponse
-from .tools import TOOL_DEFINITIONS, ToolDispatcher, ToolParseError, parse_tool_calls
+from .tools import TOOL_DEFINITIONS, ToolDispatcher, ToolCall, ToolParseError, parse_tool_calls
 from .providers import redact_text
 from ..actions.receipts import ActionReviewRequired
 
@@ -42,6 +43,7 @@ class AgentExecutor:
         max_seconds: float = 180.0,
         require_validation: bool = True,
         allow_exact_replacements: bool = False,
+        read_only: bool = False,
     ) -> None:
         if max_turns < 1 or max_seconds <= 0:
             raise ValueError("executor budgets must be positive")
@@ -55,6 +57,7 @@ class AgentExecutor:
         self.max_turns = max_turns
         self.max_seconds = max_seconds
         self.require_validation = require_validation
+        self.read_only = read_only
         self.tools = [
             tool
             for tool in TOOL_DEFINITIONS
@@ -63,6 +66,11 @@ class AgentExecutor:
         self.tool_names = {tool["function"]["name"] for tool in self.tools}
 
     def run(self, task: str) -> ExecutionResult:
+        read_only = self.read_only or bool(re.search(
+            r'\bdo not (?:edit|modify|change) (?:any |the )?files?\b|\bdo not create it or change any file\b', task, re.I))
+        tools = [tool for tool in self.tools if not read_only or
+                 tool['function']['name'] not in {'write_file', 'replace_in_file'}]
+        tool_names = {tool['function']['name'] for tool in tools}
         messages: list[dict[str, Any]] = [
             {
                 "role": "system",
@@ -71,6 +79,7 @@ class AgentExecutor:
                     "Inspect before editing, make the smallest correct change, and run validation. "
                     "For these small tasks, use write_file with the complete updated file contents. "
                     "When finished, respond with a concise summary instead of a tool call."
+                    + (' This task is read-only. Report validation failures; do not attempt repairs.' if read_only else '')
                 ),
             },
             {"role": "user", "content": task},
@@ -88,13 +97,14 @@ class AgentExecutor:
             )
         malformed_reprompted = False
         validation_passed = False
+        empty_reprompted = False
         for turn in range(1, self.max_turns + 1):
             if time.monotonic() - started > self.max_seconds:
                 return result("budget_exhausted", "", turn - 1, "time budget exceeded")
             response = self.gateway.chat(
                 model=self.model,
                 messages=list(messages),
-                tools=self.tools,
+                tools=tools,
                 context_window=self.context_window,
                 max_output_tokens=self.max_output_tokens,
                 temperature=self.temperature,
@@ -106,7 +116,7 @@ class AgentExecutor:
             content = str(message.get("content", ""))
             try:
                 calls = parse_tool_calls(message)
-                unavailable = [call.name for call in calls if call.name not in self.tool_names]
+                unavailable = [call.name for call in calls if call.name not in tool_names]
                 if unavailable:
                     raise ToolParseError(f"tool is not available in this task: {unavailable[0]}")
             except ActionReviewRequired as exc:
@@ -135,19 +145,37 @@ class AgentExecutor:
                     trace.append(redact_text(f"turn {turn}: no tool call; model said: {excerpt}"))
                     if not self.require_validation or validation_passed:
                         return result("completed", content.strip(), turn)
+                    # Run the fixed completion gate directly instead of spending
+                    # model turns asking it to invoke the same validation tool.
+                    tool_count += 1
+                    output = self.dispatcher.dispatch(ToolCall('run_validation', {}))
+                    trace.append(redact_text(f'host run_validation -> {output[:500]}'))
+                    validation_passed = output.lstrip().startswith('validation passed')
+                    if validation_passed:
+                        return result('completed', content.strip(), turn)
+                    if read_only:
+                        return result('failed', output, turn, 'Validation failed; read-only task preserved all files.')
                     messages.append({"role": "assistant", "content": content})
                     messages.append(
                         {
                             "role": "user",
                             "content": (
-                                "The task is not complete because validation has not passed. "
+                                "The task is not complete because validation has not passed. " + output + '\n' +
                                 "Inspect and repair any failure, then call run_validation. "
                                 "Do not provide a final answer until it reports validation passed."
+                                " Include your substantive findings in the final answer, not only validation status."
                             ),
                         }
                     )
                     continue
                 trace.append(f"turn {turn}: empty model response")
+                if not empty_reprompted:
+                    empty_reprompted = True
+                    messages.append({'role': 'user', 'content':
+                        'Your response was empty and the task is unfinished. Continue the requested task using the supplied tools. '
+                        'Inspect the relevant tests and target files, then implement the requested behavior and validate. '
+                        'Original task: ' + task})
+                    continue
                 return result("failed", "", turn, "model returned an empty response")
             trace.append(
                 f"turn {turn}: model requested {len(calls)} tool call(s): "
@@ -170,6 +198,8 @@ class AgentExecutor:
                 tool_count += 1
                 failed = False
                 try:
+                    if call.name in {'write_file', 'replace_in_file'}:
+                        validation_passed = False
                     output = self.dispatcher.dispatch(call)
                 except ActionReviewRequired as exc:
                     trace.append(f"{call.name} requires review: {exc}")
@@ -188,6 +218,8 @@ class AgentExecutor:
                 if call.name == "run_validation":
                     validation_passed = output.lstrip().startswith("validation passed")
                     if not validation_passed:
+                        if read_only:
+                            return result('failed', output, turn, 'Validation failed; read-only task preserved all files.')
                         messages.append(
                             {
                                 "role": "user",

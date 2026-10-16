@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Protocol
+import json
 
 from ..gateway import InferenceResponse
 from ..recon import ReconPacket
@@ -40,11 +41,13 @@ class LocalPlanner:
         return str(response.message.get("content", ""))
 
     def plan(self, packet: ReconPacket) -> Plan:
+        example_path = next((path for path in packet.relevant_files if not path.startswith('test') and path.endswith('.py')),
+                            packet.relevant_files[0] if packet.relevant_files else 'requested-file.txt')
         output_contract = (
             'Return exactly this JSON shape: {"objective":"...","tasks":['
             '{"key":"task-1","title":"...","objective":"...",'
-            '"risk":"low","depends_on":[],"expected_paths":["src/file.py"],'
-            '"acceptance_criteria":["The changed behavior is covered by a passing test"],'
+            '"risk":"low","depends_on":[],"expected_paths":[' + json.dumps(example_path) + '],'
+            '"acceptance_criteria":["Configured validation must pass"],'
             '"verification_checks":["project-default"],"artifact_checks":[]}]}. '
             "The top-level object may contain only objective and tasks. "
             "Do not copy repository evidence fields into the output."
@@ -59,6 +62,8 @@ class LocalPlanner:
                     "For an exact text-file result, use file_equals with path and exact content. "
                     "For an empty directory, use directory_empty with path. Include checked paths in expected_paths. "
                     "Tasks must be small, explicit, single-file where possible, and mechanically verifiable. "
+                    "For edits, copy exact project-relative paths from the evidence. Never prepend src/ to a root-level file. "
+                    "Use Configured validation must pass for the configured test gate; do not invent prose review requirements. "
                     + output_contract
                 ),
             },

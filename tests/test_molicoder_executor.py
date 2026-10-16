@@ -19,6 +19,29 @@ class FakeGateway:
         return InferenceResponse(self.responses.popleft(), GenerationMetrics())
 
 
+def test_read_only_failure_cannot_be_repaired_by_editing_tests(tmp_path):
+    source = tmp_path / 'test_original.py'
+    source.write_text('assert False\n')
+    gateway = FakeGateway([{'content': '{"name":"run_validation","arguments":{}}'}])
+    result = AgentExecutor(gateway=gateway, dispatcher=ToolDispatcher(tmp_path, validation=lambda: 'validation failed'),
+                           model='local').run('Run validation. Do not edit any files.')
+    assert result.status == 'failed'
+    assert source.read_text() == 'assert False\n'
+    assert not {'write_file', 'replace_in_file'} & {t['function']['name'] for t in gateway.options[0]['tools']}
+
+
+def test_edit_after_passing_validation_requires_new_validation(tmp_path):
+    gateway = FakeGateway([
+        {'content': '{"name":"run_validation","arguments":{}}'},
+        {'content': '{"name":"write_file","arguments":{"path":"sample.py","content":"broken"}}'},
+        {'content': 'Done.'},
+    ])
+    outcomes = iter(['validation passed', 'validation failed: edited code is broken'])
+    result = AgentExecutor(gateway=gateway, dispatcher=ToolDispatcher(tmp_path, validation=lambda: next(outcomes)),
+                           model='local', max_turns=3).run('Implement a change')
+    assert result.status != 'completed'
+
+
 def test_executor_handles_bare_json_call_then_returns_final_answer(tmp_path) -> None:
     source = tmp_path / "sample.py"
     source.write_text("value = 1\n", encoding="utf-8")
@@ -147,6 +170,7 @@ def test_failed_edit_stops_tool_batch_and_forces_a_new_strategy(tmp_path) -> Non
 
 
 def test_executor_does_not_complete_until_validation_passes(tmp_path) -> None:
+    outcomes = iter(['validation failed: missing requirement', 'validation passed'])
     gateway = FakeGateway(
         [
             {
@@ -162,7 +186,7 @@ def test_executor_does_not_complete_until_validation_passes(tmp_path) -> None:
     )
     executor = AgentExecutor(
         gateway=gateway,
-        dispatcher=ToolDispatcher(tmp_path, validation=lambda: "validation passed"),
+        dispatcher=ToolDispatcher(tmp_path, validation=lambda: next(outcomes)),
         model="molicoder:latest",
         max_turns=5,
     )
@@ -207,7 +231,7 @@ def test_executor_keeps_actionable_diagnostics_when_model_never_calls_a_tool(tmp
     )
     executor = AgentExecutor(
         gateway=gateway,
-        dispatcher=ToolDispatcher(tmp_path, validation=lambda: "validation passed"),
+        dispatcher=ToolDispatcher(tmp_path, validation=lambda: "validation failed: required artifact missing"),
         model="molicoder:latest",
         max_turns=2,
     )

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
+from datetime import datetime, timezone
+import json
 import subprocess
 import sys
 from pathlib import Path
 
-from .executor import AgentExecutor
+from .executor import AgentExecutor, ExecutionResult
+from ..file_actions import empty_file_intent, create_empty_file
 from .gateway import InferenceGateway
 from .tools import ToolDispatcher
 from .validate import ProjectValidator, ValidationCommand
@@ -47,6 +51,8 @@ def main() -> int:
     parser.add_argument("--project", type=Path, default=Path.cwd())
     parser.add_argument("--model", default="molicoder:latest")
     parser.add_argument("--yes", action="store_true", help="Confirm edits to the current dedicated branch")
+    parser.add_argument("--report", type=Path, help="Save executor status, model, usage and tool trace as JSON")
+    parser.add_argument("--read-only", action='store_true', help='Expose only read and validation tools; prohibit file edits')
     args = parser.parse_args()
     root = args.project.resolve()
     branch, dirty = _git_state(root)
@@ -60,13 +66,37 @@ def main() -> int:
         confirmation = input(f"Allow MoliCoder to edit {root} on branch {branch}? [y/N] ")
         if confirmation.strip().lower() not in {"y", "yes"}:
             return 1
-    validator = _validator(root)
-    executor = AgentExecutor(
-        gateway=InferenceGateway(),
-        dispatcher=ToolDispatcher(root, validation=validator.run_and_summarize),
-        model=args.model,
-    )
-    result = executor.run(args.task)
+    deterministic = empty_file_intent(args.task, root)
+    try:
+        if deterministic:
+            if args.read_only:
+                raise ValueError('File creation is unavailable in read-only mode')
+            if deterministic.error:
+                raise ValueError(deterministic.error)
+            summary = create_empty_file(deterministic.target)
+            result = ExecutionResult('completed', summary, 0, 0,
+                                     trace=(f'Exclusive file creation: {deterministic.target}; verified 0 bytes',))
+        else:
+            validator = _validator(root)
+            executor = AgentExecutor(
+                gateway=InferenceGateway(),
+                dispatcher=ToolDispatcher(root, validation=validator.run_and_summarize),
+                model=args.model,
+                read_only=args.read_only,
+            )
+            result = executor.run(args.task)
+    except Exception as exc:  # CLI boundary: preserve an auditable failure instead of a traceback.
+        result = ExecutionResult('failed', '', 0, 0, str(exc))
+    if args.report:
+        args.report.write_text(json.dumps({
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'execution_method': 'molicoder-exec CLI (local executor, not desktop Build)',
+            'project': str(root), 'branch': branch, 'task': args.task,
+            'provider': 'none' if deterministic else 'ollama', 'model': None if deterministic else args.model, 'effort': None,
+            'routing_reason': 'Exact empty text-file action needs no inference' if deterministic else
+                              'CLI model argument/default; autonomous selection is not implemented here',
+            'result': asdict(result),
+        }, indent=2), encoding='utf-8')
     print(result.final_message or result.error)
     return 0 if result.status == "completed" else 2
 

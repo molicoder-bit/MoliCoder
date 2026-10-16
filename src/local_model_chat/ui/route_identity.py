@@ -14,6 +14,11 @@ def _model_label(model, source='configured'):
 def _build_selection(w):
     if w.build_owner.currentData() == 'kandev':
         return 'Kandev · agent/model managed in Kandev · model not reported'
+    from ..file_actions import empty_file_intent
+    from pathlib import Path
+    project = w.registry.selected()
+    if empty_file_intent(w.build_request.toPlainText(), Path(project.path) if project else None):
+        return 'Local filesystem · no model · 0 AI calls'
     strategy = w.build_strategy.currentData()
     if strategy == 'LOCAL_OFFLINE':
         return f'Ollama (local) · {LOCAL_BUILD_MODEL}'

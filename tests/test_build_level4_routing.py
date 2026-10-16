@@ -56,6 +56,11 @@ def test_s041_s043_simple_existing_file_uses_local_executor(tmp_path):
     result = orchestrator.execute_approved(prepared.run_id)
     assert result.status == "ready_to_apply", result.error
     assert len(local_calls) == 1 and provider.calls == 0
+    evidence = next(event for event in store.list_events(prepared.run_id) if event.kind == 'local_attempt_finished')
+    import json
+    payload = json.loads(evidence.payload_json)
+    assert payload['status'] == 'completed' and payload['model_source'] == 'requested'
+    assert payload['executions'][0]['tool_calls'] == 1
     assert (result.integration_path / "greeting.txt").read_text(encoding="utf-8") == "new\n"
     assert (root / "greeting.txt").read_text(encoding="utf-8") == "old\n"
 

@@ -10,6 +10,9 @@ from .local_actions import requested_folder, folder_intent
 from .storage import ChatStore
 from .tool_queries import query_git
 from .directory_queries import directory_question, directory_target, directory_followup
+from .project_queries import project_query, inspect_project
+from pathlib import Path
+from .file_actions import empty_file_intent
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +41,8 @@ class MainController:
         decision = classify_intent(message)
         return (
             folder_intent(message) is not None
+            or empty_file_intent(message, None) is not None
+            or project_query(message) is not None
             or directory_question(message) is not None
             or directory_followup(message)
             or MainController.is_deterministic_question(message)
@@ -47,6 +52,20 @@ class MainController:
 
     def handle(self, message: str, project_id: int | None, *, history=()) -> ControllerResult | None:
         """Handle local retrieval and Build proposals; return None for normal chat."""
+        if empty_file_intent(message, None):
+            return ControllerResult('execution_proposal',
+                'Local file action prepared. Review the destination in Build; no AI model is needed.',
+                action_state='awaiting_approval')
+        query = project_query(message)
+        if query:
+            project = self.store.get_project(project_id) if project_id is not None else None
+            if project is None:
+                return ControllerResult('project_read', 'Select a project before inspecting project files.')
+            try:
+                content, evidence = inspect_project(Path(project.path), query)
+            except (OSError, ValueError, UnicodeError) as exc:
+                return ControllerResult('project_read', str(exc), action_state='failed')
+            return ControllerResult('project_file_context' if query.operation == 'file' else 'project_read', content, evidence)
         intent = folder_intent(message)
         if intent and intent.error:
             return ControllerResult("directory_clarification", intent.error, action_state="awaiting_clarification")

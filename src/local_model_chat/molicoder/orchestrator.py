@@ -1377,6 +1377,19 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 self._event(run_id, "local_attempt_started", {"key": task.key, "reason": "bounded existing-file edit"}, task_id)
                 local_outcome = self.local_executor(workspace.path, prompt)
                 attempts = prior_attempts + 1
+                executions = local_outcome.executions or (local_outcome.execution,)
+                self._event(run_id, 'local_attempt_finished', {
+                    'key': task.key, 'provider': 'ollama', 'requested_model': 'molicoder:latest',
+                    'model_source': 'requested', 'effort': None,
+                    'status': local_outcome.status, 'reason': local_outcome.reason,
+                    'executions': [{
+                        'status': execution.status, 'error': execution.error,
+                        'summary': execution.final_message[:1000],
+                        'turns': execution.turns, 'tool_calls': execution.tool_calls,
+                        'prompt_tokens': execution.prompt_tokens, 'output_tokens': execution.output_tokens,
+                        'seconds': execution.seconds, 'trace': list(execution.trace)[-30:],
+                    } for execution in executions],
+                }, task_id)
                 if local_outcome.status == "review_required":
                     self.store.update_run_task(task_id, "review_required", attempts, reason=local_outcome.reason)
                     self._event(run_id, "task_review_required", {
@@ -1825,6 +1838,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             raise ValueError("run does not belong to the selected project")
         if run["status"] not in {"needs_attention", "ready_to_apply", "cancelled", "failed"}:
             raise ValueError(f"run cannot be resumed from status {run['status']}")
+        if self.normalize_strategy(str(run['mode'])) == 'LOCAL_OFFLINE':
+            raise ValueError('Local offline recovery cannot use the external provider resume path. '
+                             'Review the preserved worktree and generate a new local plan; no external agent was launched.')
         recovery_observation = next((
             event for event in reversed(self.store.list_events(run_id))
             if event.kind == "run_recovery_observed"

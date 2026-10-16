@@ -24,6 +24,7 @@ from .executor import AgentExecutor, ExecutionResult
 from .gateway import InferenceGateway
 from .orchestrator import SequentialRunOrchestrator, WorktreeOrchestrator
 from .planner.local import LocalPlanner
+from .planner.schema import parse_plan
 from .providers import ProviderUnavailable, agent_profile, create_provider
 from .projectstate import ensure_project_state
 from .repair import RepairLoop, RepairOutcome
@@ -202,6 +203,7 @@ def build_orchestrator(
             ).run_and_summarize(),
         )
     root = Path(project.path).resolve()
+    ensure_project_state(root)
     preset = MODEL_PRESETS["molicoder:latest"]
     client = client or OllamaClient()
     inference_registry = ProviderRegistry(store)
@@ -311,7 +313,22 @@ def build_orchestrator(
             worktree, environment_root=root,
             should_cancel=cancelled, on_progress=validation_progress,
         )
-        dispatcher = ToolDispatcher(worktree, validation=validator.run_and_summarize)
+        assigned = None
+        final_task = True
+        if orchestrator is not None and orchestrator._active_run_id is not None:
+            run_id = orchestrator._active_run_id
+            recorded_tasks = store.list_run_tasks(run_id)
+            recorded = next((t for t in recorded_tasks if t.id == orchestrator._active_task_id), None)
+            final_task = all(t.id == orchestrator._active_task_id or t.status == 'completed' for t in recorded_tasks)
+            saved_plan = store.get_run_plan(run_id)
+            if recorded is not None and saved_plan:
+                assigned = next((t for t in parse_plan(saved_plan).tasks if t.key == recorded.key), None)
+        validation = (lambda: validate_intermediate_task(
+            worktree, environment_root=root, task=assigned,
+            should_cancel=cancelled, on_progress=validation_progress,
+        )) if assigned is not None and not final_task else validator.run_and_summarize
+        dispatcher = ToolDispatcher(worktree, validation=validation,
+                                    allowed_write_paths=assigned.expected_paths if assigned else None)
         executor = AgentExecutor(
             gateway=gateway,
             dispatcher=dispatcher,
@@ -325,7 +342,7 @@ def build_orchestrator(
             execute=executor.run,
             diagnose=LocalDiagnoser(gateway, preset.name),
             rescue=None,
-            max_attempts=1,
+            max_attempts=2,
         )
         return loop.run(SkillLibrary(worktree).augment(objective))
 

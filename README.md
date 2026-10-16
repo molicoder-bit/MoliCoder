@@ -154,6 +154,25 @@ The endpoint must be loopback HTTP. In Build, choose **Task owner → Internal B
 
 Chat and Build recognize an explicit request to create one local folder, including the phrasing `create a folder in C:/Dev called "Example"`. The app shows the exact resolved destination and creates it only after confirmation. This action works outside a Git project and does not launch a coding agent.
 
+## Local CLI and reproducible checks
+
+The source installation includes `molicoder-exec` for one bounded local task. It requires a clean Git branch named `molicoder/<task>` and approval (`--yes` for an already authorized command). Coding tasks currently use Python/pytest validation. This CLI runs the local executor; it does not expose the desktop's complete planning, approval, Kandev or apply workflow.
+
+```powershell
+.\.venv\Scripts\molicoder-exec.exe "Fix calculator.py so add returns a+b" --project C:\path\project --yes --report C:\path\report.json
+.\.venv\Scripts\molicoder-exec.exe "Run validation and report any failure. Do not edit any files." --project C:\path\project --yes --read-only --report C:\path\validation.json
+```
+
+An exact request such as `Create a file called example.txt` creates an empty text file directly, verifies zero bytes, preserves existing files, and uses no AI model. In desktop Internal Build it appears as **Review local action**, with a destination confirmation. Other content-generation requests continue through their configured execution route. A plain empty-file action does not need pytest validation.
+
+For an isolated suite using real local Ollama inference and independent artifact checks, choose a fresh output directory:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\audit_local_workflows.py --output artifacts\my-cli-audit
+```
+
+Each case saves the command, executor trace, reported model and usage, disk checks, protected-file hashes, and independent functional results. A nonzero suite exit means at least one scenario failed. CLI results do not establish desktop UI correctness. See the [October 16 integration audit](docs/reports/local-integration-audit-2026-10-16.md) for observed failures and remaining gaps.
+
 ## Build a Windows app
 
 ```powershell
