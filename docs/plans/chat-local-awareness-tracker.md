@@ -18,4 +18,5 @@
 - The reported conversation was associated with a saved project. Previous normal Chat requests omitted that metadata; the current basic-metadata packet and local project-identity route address both direct questions and conversational follow-ups.
 - Final native Windows local-awareness suite: **16 passed**. Full Windows regression: **528 passed, 6 skipped** in 219.38 seconds. Skipped tests require opt-in live inference; focused/native counts overlap the full suite and must not be summed.
 - Both 1.3.4 package checks passed: desktop/legacy-data/migration recovery and embedded-browser startup. Built executable SHA-256: `E63E496F1A3C14B0D9CEE9F39941FE289176301670BAC4D37D9AD820A06031AE`.
+- Implementation source `9f2fca9` is pushed to `main`; no user history was rewritten or repaired in place.
 - Windows installation is waiting for the user to close the existing app. The app and its live records have not been force-closed or edited. Verification above is local Windows evidence, not a claim of a newly completed hosted platform matrix.
