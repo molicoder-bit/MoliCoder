@@ -396,9 +396,10 @@ def refresh_activity(w):
     pause_state = getattr(w.orchestration_worker, 'pause_state', 'running')
     waiting = active and pause_state == 'paused'
     reduced = w.store.get_setting('ui.reduce_motion', 'false') == 'true'
-    w.busy_indicator.set_busy(active and not waiting, reduced)
+    local_read = getattr(w.chat_worker, 'local_read', False) and w.view_stack.currentWidget() == w.chat_view
+    w.busy_indicator.set_busy(active and not waiting or local_read, reduced)
     in_chat = w.view_stack.currentWidget() != w.build_view
-    w.activity_row.setVisible(active or attention and in_chat)
+    w.activity_row.setVisible(active or attention and in_chat or local_read)
     w.return_to_build.setVisible((active or attention) and in_chat)
     w.return_to_build.setText('Review Build' if attention else 'Open active Build')
     if attention:
@@ -411,6 +412,10 @@ def refresh_activity(w):
         if pause_state == 'cancelling': stage = 'Cancelling · waiting for the worker to stop'
         suffix = ' · Waiting for provider; no recent update' if since >= 30 else ''
         w.current_activity.setText(f'{stage} · {elapsed}s elapsed · Last activity {since}s ago{suffix}')
+    if local_read:
+        elapsed = max(0, int(time.monotonic() - w._local_read_started_at))
+        stage = 'Cancelling folder listing' if w.chat_worker._cancelled else 'Reading local folder'
+        w.current_activity.setText(f'{stage}: {w.chat_worker.path} · {elapsed}s elapsed · No AI model used')
 
 
 def return_to_build(w):

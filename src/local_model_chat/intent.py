@@ -24,6 +24,15 @@ class IntentDecision:
 
 
 _EXACT_READS = {
+    "project_identity": (
+        r"(?:what|which) project (?:are we|am i) working on",
+        r"(?:what|which) project (?:we're|we are|i'm|i am) working on",
+        r"what(?:'s| is) (?:the |our |my )?(?:current |selected )?project(?: name)?",
+        r"what (?:the |our |my )?(?:current |selected )?project(?: name)? is",
+        r"(?:show|tell me) (?:the |our |my )?(?:current |selected )?project(?: name)?",
+        r"(?:current project|selected project|project name)",
+        r"which project (?:is (?:selected|active)|are we using)",
+    ),
     "task_status": (
         r"what(?:'s| is) (?:the |our )?current task",
         r"what task are we on",
@@ -53,7 +62,10 @@ _EXACT_READS = {
 
 
 def classify_intent(message: str) -> IntentDecision:
-    normalized = " ".join(message.strip().split()).rstrip("?.! ")
+    normalized = " ".join(message.strip().split()).replace('’', "'").rstrip("?.! ")
+    project_question = re.sub(r"^(?:(?:ok(?:ay)?|good|well)[,!]?\s+)?(?:do you know\s+|can you tell me\s+)?", "", normalized, flags=re.I)
+    if any(re.fullmatch(pattern, project_question, re.I) for pattern in _EXACT_READS['project_identity']):
+        return IntentDecision(IntentKind.RETRIEVAL, 'project_identity', 1.0)
     for operation, patterns in _EXACT_READS.items():
         if any(re.fullmatch(pattern, normalized, re.IGNORECASE) for pattern in patterns):
             return IntentDecision(IntentKind.RETRIEVAL, operation, 1.0)

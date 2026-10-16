@@ -46,7 +46,7 @@ from ..ollama import OllamaClient
 from ..storage import ChatStore
 from ..telemetry import format_bytes, read_nvidia_telemetry
 from ..workers import (
-    ChatWorker, CustomApiWorker, DoctorWorker, ManagedInstallWorker,
+    ChatWorker, DirectoryReadWorker, CustomApiWorker, DoctorWorker, ManagedInstallWorker,
     ManagedRepairWorker, ModelInspectWorker, ModelPullWorker, OrchestrationWorker, StartupWorker,
     WindowsOllamaInstallWorker,
 )
@@ -87,7 +87,7 @@ class MainWindow(QMainWindow):
         self.model_pull_worker: ModelPullWorker | None = None
         self.ollama_install_worker: WindowsOllamaInstallWorker | None = None
         self.custom_api_worker: CustomApiWorker | None = None
-        self.chat_worker: ChatWorker | None = None
+        self.chat_worker: ChatWorker | DirectoryReadWorker | None = None
         self.startup_worker: StartupWorker | None = None
         self.doctor_worker: DoctorWorker | None = None
         self.doctor_dialog: QDialog | None = None
@@ -3022,12 +3022,16 @@ class MainWindow(QMainWindow):
     def _pending_content(self) -> str:
         return self.composer.toPlainText().strip() + render_attachments(self.current_attachments)
 
+    def _chat_project(self) -> Project | None:
+        project_id = self.store.get_conversation_project_id(self.current_conversation_id) if self.current_conversation_id else None
+        return self.store.get_project(project_id) if project_id is not None else None
+
     def _refresh_context_meter(self) -> None:
         if not hasattr(self, "context_progress"):
             return
         messages = self._current_messages()
         reserved = int(self.output_spin.value()) if hasattr(self, "output_spin") else self.preset.max_output_tokens
-        api_messages = build_chat_messages(messages, self.preset.system_prompt, pending_text=self._pending_content())
+        api_messages = build_chat_messages(messages, self.preset.system_prompt, pending_text=self._pending_content(), project=self._chat_project())
         budget = ContextBudget(estimate_messages(api_messages), reserved, self.preset.context_window)
         percent = round(budget.fraction * 100)
         self.context_progress.setValue(percent)
@@ -3080,12 +3084,16 @@ class MainWindow(QMainWindow):
         if not self.current_attachments:
             result = self.controller.handle(self.composer.toPlainText(), chat_project_id)
             if result is not None:
+                if result.kind == 'directory_listing_request' and result.evidence:
+                    self._start_directory_read(content, Path(result.evidence))
+                    return
                 if result.kind == "directory_creation_proposal" and result.evidence:
                     result = self._confirm_directory_creation(Path(result.evidence))
                 self._send_controller_reply(content, result)
                 return
         messages_before = self._current_messages()
-        api_messages = build_chat_messages(messages_before, self.preset.system_prompt, pending_text=content)
+        chat_project = self._chat_project()
+        api_messages = build_chat_messages(messages_before, self.preset.system_prompt, pending_text=content, project=chat_project)
         model = self.preset.name
         options = {
             "context_window": self.preset.context_window,
@@ -3123,6 +3131,7 @@ class MainWindow(QMainWindow):
                                  "turn_ids": [message.id for message in messages_before if message.role in {'user', 'assistant'}] + [user_message_id],
                                  "conversation_id": self.current_conversation_id,
                                  "history_policy": "complete_current_conversation",
+                                 "project_metadata": {"id": chat_project.id, "name": chat_project.name, "path": chat_project.path, "type": chat_project.kind} if chat_project else None,
                                  "estimated_prompt_tokens": budget.estimated_prompt_tokens,
                                  "project_files": [], "decisions": [], "system_prompt": True}
         self.active_bubble = self._register_transcript_bubble(ChatBubble("assistant"))
@@ -3148,6 +3157,44 @@ class MainWindow(QMainWindow):
         self.stop_button.setVisible(True)
         self.model_combo.setEnabled(False)
         self._refresh_context_meter()
+
+    def _start_directory_read(self, content: str, path: Path) -> None:
+        project_id = self.store.get_conversation_project_id(self.current_conversation_id)
+        AuthorizationPolicy(self.store).require(ActionRequest(project_id, 'list_directory', str(path), ActionRisk.READ))
+        conversation_id = self.current_conversation_id
+        self.transcript_selection.clear()
+        self.store.add_message(Message(None, conversation_id, 'user', content))
+        conversation = self.store.get_conversation(conversation_id)
+        if conversation and conversation.title == 'New chat':
+            self.store.rename_conversation(conversation_id, ' '.join(content.split())[:56])
+        self.composer.clear()
+        self._load_conversation_list(select_id=conversation_id)
+        self.active_bubble = self._register_transcript_bubble(ChatBubble('assistant', 'Reading folder…'))
+        self.active_bubble.layout().insertWidget(1, QLabel('Read-only local listing · No AI model used'))
+        self.transcript_layout.insertWidget(self.transcript_layout.count() - 1, self.active_bubble)
+        self._pending_receipt = {'provider': 'none', 'model_source': 'no_inference',
+                                 'operation': 'Read-only folder listing', 'target': str(path)}
+        worker = DirectoryReadWorker(path)
+        self.chat_worker = worker
+        self._local_read_started_at = time.monotonic()
+        worker.completed.connect(lambda result, owner=worker, cid=conversation_id:
+            self._directory_read_finished(result) if self.chat_worker is owner and self.current_conversation_id == cid else None)
+        self.send_button.hide(); self.stop_button.show(); self.model_combo.setEnabled(False)
+        worker.start()
+        self._scroll_to_bottom()
+        self._refresh_context_meter()
+        from .workspace import refresh_workspace
+        refresh_workspace(self)
+
+    def _directory_read_finished(self, result) -> None:
+        self._pending_receipt.update({'target': result.target, 'outcome': result.outcome,
+            'entries': result.entries, 'truncated': result.truncated, 'checked_at': result.checked_at,
+            'evidence': 'Read-only local directory enumeration; immediate names/types, no file contents'})
+        if self.active_bubble:
+            self.active_bubble.set_content(result.content)
+        self._generation_finished(GenerationMetrics(done_reason='local_read'))
+        from .workspace import refresh_workspace
+        refresh_workspace(self)
 
     def _send_controller_reply(self, content: str, result: ControllerResult) -> None:
         conversation_id = self.current_conversation_id

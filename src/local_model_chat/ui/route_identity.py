@@ -35,6 +35,10 @@ def refresh_route_identity(w):
                  if offering else 'provider/model unavailable')
         text = f'API test running · {route}'
     elif w.view_stack.currentWidget() == w.chat_view:
+        if getattr(w.chat_worker, 'local_read', False):
+            w.route_identity.setText('Reading local folder · No AI model used')
+            w.route_identity.setToolTip(str(w.chat_worker.path))
+            return
         model = getattr(w.chat_worker, 'model', w.preset.name)
         text = f'Chat {"running" if w.chat_worker is not None else "selected"} · Ollama (local) · {model}'
         facts = getattr(w, '_model_facts', {}).get(model, {})

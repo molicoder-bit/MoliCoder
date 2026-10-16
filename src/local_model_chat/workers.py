@@ -74,6 +74,27 @@ class ChatWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class DirectoryReadWorker(QThread):
+    completed = Signal(object)
+    local_read = True
+
+    def __init__(self, path):
+        super().__init__()
+        self.path = path
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        from .directory_queries import DirectoryListing, list_directory
+        try:
+            result = list_directory(self.path, cancelled=lambda: self._cancelled)
+        except Exception as exc:
+            result = DirectoryListing(f'Folder listing failed: {str(exc)[:400]}', str(self.path), 'failed')
+        self.completed.emit(result)
+
+
 class StartupWorker(QThread):
     ready = Signal(bool, object)
 

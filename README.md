@@ -27,7 +27,8 @@ For example, a question such as “What task are we on?” can be answered from 
 
 - **Chat:** stream replies from local Ollama models; adjust output length, temperature, and top-p; inspect prompt/output metrics; keep conversations and export Markdown or JSON.
 - **Conversation continuity and copying:** reopened chats send their saved messages with each request, within the visible context limit. Drag across message cards or Shift-click to select a range; use Select all / Copy chat for larger copies.
-- **Project context:** select a local Git project, inspect authoritative run status and project knowledge, and get source-backed answers to supported status questions.
+- **Project context:** Chat knows its associated project's name, folder and type. Ask which project is selected or inspect authoritative run status and project knowledge using local records.
+- **Read-only folder listings:** ask "What's in C:/Dev?" or "List files in src" to see immediate folder/file names without a model call, including explicit folders outside the selected project.
 - **Build:** plan and execute tasks in isolated Git worktrees, run fixed validation commands, preserve failed work for review, and record task evidence.
 - **Routes:** choose Local offline, Hybrid, or Frontier only. External CLI agents require project trust and an explicit Build authorization.
 - **Visibility:** inspect provider state, environment doctor results, usage and budgets, event timelines, worktrees, and a privacy-filtered trace export.
@@ -47,7 +48,7 @@ Screenshots use demonstration records and make no inference calls. [Light theme]
 
 The readable identity area distinguishes the **last reply/call** from the model selected for the **next** request. Replies retain their recorded provider and model in history. Requested/configured models and provider-reported models are labeled separately. Local runtime metadata can identify a model family, but an alias is not proof of its underlying weights. Opaque CLI and Kandev models remain unknown when no supported report is available. Project-status answers and folder actions say **No AI model used**.
 
-**Change model** opens Settings at Models & providers. The old model toolbar and permanent Chat token meter have been removed from the work area. **Context details** shows the recorded conversation turns and attachments actually included in a reply; selecting a project does not imply its entire repository was sent. **Usage** and **Performance** retain detailed measurements, context estimates, generation controls, and local runtime health. Context-limit warnings remain visible near Send.
+**Change model** opens Settings at Models & providers. The old model toolbar and permanent Chat token meter have been removed from the work area. **Context details** shows the recorded conversation turns, attachments, and basic project metadata actually included in a reply; selecting a project does not imply its repository files were sent. **Usage** and **Performance** retain detailed measurements, context estimates, generation controls, and local runtime health. Context-limit warnings remain visible near Send.
 
 ### Choose the target explicitly
 
@@ -62,6 +63,10 @@ Continuing an existing chat sends its complete saved user/assistant history, fol
 To copy several messages, drag from one message body into another, or click a start position and **Shift-click** an end position. Selection scrolls when you drag near the transcript edge. **Ctrl+A / Ctrl+C** (Command on macOS) works across the transcript when a message has focus; composer shortcuts still apply only to your draft. **Select all** selects displayed message text, including expanded reasoning; **Copy chat** copies the current conversation with speaker labels and Markdown, excluding hidden reasoning and unsent drafts. Each message's own Copy button remains available. [Continuity and selection verification](docs/plans/chat-continuity-selection-tracker.md).
 
 Explicit simple folder requests use a local confirmation showing the exact path, including destinations outside a Git project. Missing or invalid destinations produce clarification. Created, already-existing, cancelled, and failed actions are recorded under **Chat history → Local actions**. Coding agents still cannot escape their worktree scope.
+
+Ask **"Do you know what project we're working on?"** for the current chat's saved project name, folder, and type. A General chat explains that it has no associated project. Normal model requests also include this basic metadata so follow-up wording can use it; no project file is automatically opened.
+
+Ask **"OK, can you tell me which content is in C:/Dev?"**, **"List contents of C:/Dev"**, or **"List files in src"** for a read-only local listing. Relative folders use this chat's project; an absolute path also works from General chats. The app reads immediate names/types in a background worker, shows a checked time, and records **No AI model used**. It displays at most 100 entries and labels partial listings. It does not recurse or read file contents. Missing folders, file paths, access errors, and cancellation are shown as actual outcomes. Network/device paths require a local destination for this action. Listings and project identity answers appear in the conversation and its Context details receipt.
 
 ### Activity, failures, and recovery
 

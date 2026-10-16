@@ -15,7 +15,7 @@ def test_complete_chat_context_preserves_order_and_excludes_reasoning():
                Message(2, 4, 'assistant', 'Understood', thinking='private reasoning'),
                Message(3, 4, 'system', 'not a conversational turn')]
     messages = build_chat_messages(history, 'Preset behavior', pending_text='What was its name?')
-    assert messages[0]['content'] == 'Preset behavior\n\n' + CHAT_HISTORY_INSTRUCTION
+    assert messages[0]['content'].startswith('Preset behavior\n\n' + CHAT_HISTORY_INSTRUCTION)
     assert messages[1:] == [
         {'role': 'user', 'content': 'Remember Cedar Compass'},
         {'role': 'assistant', 'content': 'Understood'},

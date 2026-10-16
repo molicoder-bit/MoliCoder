@@ -9,6 +9,7 @@ from .intent import IntentKind, classify_intent
 from .local_actions import requested_folder, folder_intent
 from .storage import ChatStore
 from .tool_queries import query_git
+from .directory_queries import directory_question, directory_target
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +38,7 @@ class MainController:
         decision = classify_intent(message)
         return (
             folder_intent(message) is not None
+            or directory_question(message) is not None
             or MainController.is_deterministic_question(message)
             or decision.kind == IntentKind.EXECUTION
             and bool(re.match(r"^(?:implement|build)\b", message.strip(), re.IGNORECASE))
@@ -53,6 +55,14 @@ class MainController:
                 "directory_creation_proposal", f"Create folder {folder}?",
                 evidence=str(folder), action_state="awaiting_approval",
             )
+        listing = directory_question(message)
+        if listing is not None:
+            project = self.store.get_project(project_id) if project_id is not None else None
+            try:
+                path = directory_target(listing, project)
+            except ValueError as exc:
+                return ControllerResult('directory_clarification', str(exc), action_state='awaiting_clarification')
+            return ControllerResult('directory_listing_request', f'List contents of {path}', str(path), 'ready')
         decision = classify_intent(message)
         if decision.kind == IntentKind.EXECUTION and re.match(
             r"^(?:implement|build)\b", message.strip(), re.IGNORECASE
@@ -70,7 +80,16 @@ class MainController:
         if decision.kind != IntentKind.RETRIEVAL or decision.confidence < 0.95:
             return None
         if project_id is None:
+            if decision.operation == 'project_identity':
+                return ControllerResult('project_identity', 'This is a General chat with no associated project. Choose a Project in the header to open its chats, or start a new chat there.')
             return ControllerResult(decision.operation or "retrieval", "Select a project to answer this request.")
+        if decision.operation == 'project_identity':
+            project = self.store.get_project(project_id)
+            if project is None:
+                return ControllerResult('project_identity', 'The project associated with this chat is no longer available.')
+            return ControllerResult('project_identity',
+                f'This chat belongs to **{project.name}**.\n\nFolder: `{project.path}`\n\nProject type: {project.kind}.\n\nSource: the saved project association for this chat.',
+                f'SQLite project {project.id}: {project.path}')
         if decision.operation == "continuity":
             snapshot = build_continuity(self.store, project_id)
             if snapshot is None:
