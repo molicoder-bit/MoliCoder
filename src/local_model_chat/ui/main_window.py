@@ -53,7 +53,7 @@ from ..workers import (
 )
 from .knowledge_dialog import KnowledgeReviewDialog
 from .widgets import AttachmentChip, ChatBubble, MessageComposer, MetricCard
-from .theme import apply_theme, theme_color
+from .theme import DEFAULT_TEXT_SIZE, apply_theme, current_text_size, set_text_size, theme_color
 
 
 class MainWindow(QMainWindow):
@@ -1113,6 +1113,19 @@ class MainWindow(QMainWindow):
         clean_worktrees = QAction("Clean failed run worktrees", self)
         clean_worktrees.triggered.connect(self._clean_failed_worktrees)
         project_menu.addAction(clean_worktrees)
+        view_menu = self.menuBar().addMenu("View")
+        increase_text = QAction("Increase text size", self)
+        increase_text.setShortcuts([QKeySequence("Ctrl++"), QKeySequence("Ctrl+=")])
+        increase_text.triggered.connect(lambda: set_text_size(self, current_text_size(self) + 1))
+        view_menu.addAction(increase_text)
+        decrease_text = QAction("Decrease text size", self)
+        decrease_text.setShortcut(QKeySequence("Ctrl+-"))
+        decrease_text.triggered.connect(lambda: set_text_size(self, current_text_size(self) - 1))
+        view_menu.addAction(decrease_text)
+        reset_text = QAction("Reset text size", self)
+        reset_text.setShortcut(QKeySequence("Ctrl+0"))
+        reset_text.triggered.connect(lambda: set_text_size(self, DEFAULT_TEXT_SIZE))
+        view_menu.addAction(reset_text)
 
     def _start_ollama_check(self) -> None:
         self.startup_worker = StartupWorker(self.client)

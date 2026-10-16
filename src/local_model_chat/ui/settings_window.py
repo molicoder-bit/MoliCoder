@@ -48,17 +48,14 @@ def show_settings_window(w, category='General'):
                 theme.currentIndexChanged.connect(w.theme_selector.setCurrentIndex)
                 w._settings_theme_selector = theme
                 body.addWidget(QLabel('Appearance')); body.addWidget(theme)
-                size = QSpinBox(); size.setRange(12, 20); size.setSuffix(' px')
-                try:
-                    size.setValue(int(w.store.get_setting('ui.text_size', '14')))
-                except ValueError:
-                    size.setValue(14)
+                from .theme import MAX_TEXT_SIZE, MIN_TEXT_SIZE, current_text_size, set_text_size
+                size = QSpinBox(); size.setRange(MIN_TEXT_SIZE, MAX_TEXT_SIZE); size.setSuffix(' px')
+                size.setValue(current_text_size(w))
+                w._settings_text_size_control = size
                 def set_size(value):
-                    from .theme import apply_theme
-                    w.store.set_setting('ui.text_size', str(value))
-                    apply_theme(w, w.theme_selector.currentData(), persist=False)
+                    set_text_size(w, value)
                 size.valueChanged.connect(set_size)
-                body.addWidget(QLabel('Text size · App')); body.addWidget(size)
+                body.addWidget(QLabel('Text size · Entire app')); body.addWidget(size)
                 for label, key in [('Remember last workspace on launch', 'ui.remember_workspace'), ('Reduce animation', 'ui.reduce_motion')]:
                     check = QCheckBox(label); check.setChecked(w.store.get_setting(key, 'false') == 'true')
                     check.toggled.connect(lambda value, setting=key: w.store.set_setting(setting, str(value).lower()))

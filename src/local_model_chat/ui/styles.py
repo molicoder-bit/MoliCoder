@@ -3,7 +3,7 @@ QWidget {
     background: #151816;
     color: #EAE9E1;
     font-family: "Segoe UI";
-    font-size: 14px;
+    font-size: 17px;
 }
 QMainWindow { background: #111512; }
 QFrame#sidebar, QFrame#inspector {
@@ -14,10 +14,10 @@ QFrame#topbar {
     background: #151816;
     border-bottom: 1px solid #303A33;
 }
-QLabel#appTitle { font-size: 20px; font-weight: 700; color: #FFFFFF; }
+QLabel#appTitle { font-size: 22px; font-weight: 700; color: #FFFFFF; }
 QLabel#muted, QLabel.muted { color: #A2B2A6; }
-QLabel#sectionTitle { color: #CBD5E1; font-size: 12px; font-weight: 700; }
-QLabel#metricValue { font-size: 17px; font-weight: 650; color: #EAE9E1; }
+QLabel#sectionTitle { color: #CBD5E1; font-size: 16px; font-weight: 700; }
+QLabel#metricValue { font-size: 19px; font-weight: 650; color: #EAE9E1; }
 QPushButton, QToolButton {
     background: #26312B;
     border: 1px solid #3E4D42;
@@ -53,6 +53,7 @@ QLineEdit, QTextEdit, QTextBrowser {
     border: 1px solid #3B4940;
     border-radius: 10px;
     padding: 9px;
+    placeholder-text-color: #CBD5E1;
     selection-background-color: #3F6149;
 }
 QLineEdit:focus, QTextEdit:focus { border-color: #9AE6BE; }
@@ -142,18 +143,16 @@ def stylesheet_for_theme(theme: str) -> str:
     import re
     if theme == 'light':
         return re.sub(r'#[0-9a-fA-F]{6}', lambda match: _LIGHT_COLORS.get(match.group().upper(), match.group()), APP_STYLESHEET) + 'QLabel#brandLogo { background: #FFFFFF; }'
-    from PySide6.QtGui import QFontDatabase
-    fixed_font = QFontDatabase.systemFont(QFontDatabase.FixedFont).family()
     sheet = re.sub(r'#[0-9a-fA-F]{6}', lambda match: _MATRIX_COLORS.get(match.group().upper(), match.group()), APP_STYLESHEET)
     sheet = re.sub(r'border-radius: \d+px', 'border-radius: 2px', sheet)
-    return sheet + f'QWidget {{ font-family: "{fixed_font}"; }}'
+    return sheet
 
 
 
 APP_STYLESHEET += r'''
 QLabel#messageAuthor { font-weight: 700; }
-QLabel#welcome { font-size: 17px; color: #A2B2A6; padding: 18px; }
-QLabel#projectHeading { font-size: 24px; font-weight: 750; }
+QLabel#welcome { font-size: 18px; color: #A2B2A6; padding: 18px; }
+QLabel#projectHeading { font-size: 26px; font-weight: 750; }
 QLabel#modelBadge, QLabel#buildActivity { color: #9AE6BE; font-weight: 650; }
 QFrame#attachmentChip { background: #26312B; border: 1px solid #3B4940; border-radius: 7px; }
 '''

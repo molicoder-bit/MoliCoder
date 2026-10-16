@@ -1,7 +1,8 @@
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMenu
 from local_model_chat.storage import ChatStore
 from local_model_chat.ui.main_window import MainWindow
 from local_model_chat.ui.widgets import ChatBubble
+from local_model_chat.ui.theme import DEFAULT_TEXT_SIZE, current_text_size
 
 
 def test_theme_switch_is_immediate_and_preserves_drafts(qtbot, tmp_path):
@@ -44,3 +45,24 @@ def test_invalid_theme_falls_back_to_matrix(qtbot, tmp_path):
     qtbot.addWidget(window)
     assert QApplication.instance().property('molicoderTheme') == 'matrix'
     assert window.theme_selector.currentText() == 'Matrix'
+
+
+def test_view_text_size_controls_cover_header_and_editor(qtbot, tmp_path):
+    store = ChatStore(tmp_path/'text-size.db')
+    window = MainWindow(store, start_ollama_check=False)
+    qtbot.addWidget(window)
+    assert current_text_size(window) == DEFAULT_TEXT_SIZE == 17
+    for widget in (window.theme_selector, window.project_switch, window.composer):
+        assert widget.font().pixelSize() == 17
+
+    view_menu = next(menu for menu in window.menuBar().findChildren(QMenu) if menu.title() == 'View')
+    actions = {action.text(): action for action in view_menu.actions()}
+    actions['Increase text size'].trigger()
+    assert current_text_size(window) == 18
+    assert store.get_setting('ui.text_size') == '18'
+    assert window.theme_selector.font().pixelSize() == 18
+    assert window.composer.font().pixelSize() == 18
+    actions['Decrease text size'].trigger()
+    assert current_text_size(window) == 17
+    actions['Reset text size'].trigger()
+    assert store.get_setting('ui.text_size') == '17'
