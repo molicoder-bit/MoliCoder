@@ -2404,6 +2404,7 @@ class MainWindow(QMainWindow):
             "local_attempt_started": "Bounded local attempt started",
             "provider_takeover": "Frontier provider took over",
             "validation_started": "Validation started",
+            "validation_command_progress": "Validation running",
             "validation_finished": "Validation finished",
             "repair_started": "Validator-guided repair started",
             "changes_applied": "Validated changes applied",
@@ -2422,6 +2423,8 @@ class MainWindow(QMainWindow):
             detail = f" · {payload.get('message', payload.get('stage', ''))}"
         elif kind in {"provider_attempt_started", "validation_started", "validation_finished"}:
             detail = f" · {payload.get('key', '')} · attempt {payload.get('attempt', 1)}"
+        elif kind == "validation_command_progress":
+            detail = f" · {payload.get('name', '')} · {payload.get('elapsed_seconds', 0):.1f}s"
         if kind == "task_failed" and payload.get("reason"):
             detail += f" · {payload['reason']}"
         item = QListWidgetItem(f"{labels.get(kind, kind.replace('_', ' ').title())}{detail}")

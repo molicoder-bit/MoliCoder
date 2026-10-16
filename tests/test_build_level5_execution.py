@@ -7,10 +7,12 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 from local_model_chat.molicoder.planner.schema import parse_plan
 from local_model_chat.molicoder.providers import ProviderResult
+from local_model_chat.molicoder.validate import ProjectValidator, ValidationCommand
 from test_build_plan_approval import approve, fixture, git
 
 
@@ -186,6 +188,60 @@ def test_s057_out_of_scope_file_is_rejected(tmp_path):
     assert store.list_run_tasks(run_id)[0].status == "needs_attention"
     assert provider.calls == 1
     assert not (root / "calc.py").exists() and not (root / "unapproved.txt").exists()
+
+
+def test_s058_long_validation_reports_progress_times_out_and_cancels(tmp_path):
+    timeout_root = tmp_path / "timeout-project"
+    timeout_root.mkdir()
+    sleeper = ValidationCommand(
+        "slow-test", (sys.executable, "-c", "import time; time.sleep(30)"),
+        timeout_seconds=0.5,
+    )
+    progress = []
+    started_at = time.monotonic()
+    timed = ProjectValidator(
+        timeout_root, [sleeper], on_progress=lambda command, elapsed: progress.append((command.name, elapsed)),
+    ).run()
+    assert not timed.passed and timed.results[0].exit_code == 124
+    assert "validation timed out" in timed.results[0].log_path.read_text(encoding="utf-8")
+    assert progress and progress[0][0] == "slow-test"
+    assert time.monotonic() - started_at < 10
+
+    root, store, _project, _old_provider, orchestrator = fixture(tmp_path)
+    orchestrator.planner = OneTaskPlanner("calc.py")
+    orchestrator.provider = WritingProvider({"calc.py": "def add(a, b):\n    return a + b\n"})
+    cancelled = threading.Event()
+    validating = threading.Event()
+    orchestrator.should_cancel = cancelled.is_set
+
+    def validate_task(worktree, _task):
+        return ProjectValidator(
+            worktree, [ValidationCommand("slow-test", sleeper.argv, timeout_seconds=30)],
+            should_cancel=cancelled.is_set,
+            on_progress=lambda _command, _elapsed: validating.set(),
+        ).run_and_summarize()
+
+    orchestrator.validate_task = validate_task
+    orchestrator.validate = lambda _path: "validation passed"
+    prepared = orchestrator.run("Implement calc.py", mode="FRONTIER_ONLY")
+    assert prepared.status == "awaiting_approval"
+    approve(store, prepared.run_id)
+    results = []
+    worker = threading.Thread(target=lambda: results.append(orchestrator.execute_approved(prepared.run_id)))
+    worker.start()
+    try:
+        assert validating.wait(5), "validation did not start"
+        cancelled.set()
+        orchestrator.cancel()
+    finally:
+        cancelled.set()
+        worker.join(timeout=5)
+    assert not worker.is_alive() and len(results) == 1
+    result = results[0]
+    assert result.status == "cancelled"
+    assert store.list_run_tasks(prepared.run_id)[0].status == "cancelled"
+    assert not (root / "calc.py").exists()
+    assert (result.integration_path / "calc.py").is_file()
 
 
 def test_s059_cancel_running_task_keeps_partial_work_isolated(tmp_path):

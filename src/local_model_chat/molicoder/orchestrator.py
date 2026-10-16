@@ -1226,6 +1226,12 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                     self.store.update_run_task(task_id, "verifying", attempts, reason="checking local task output")
                     self._event(run_id, "validation_started", {"key": task.key, "attempt": attempts}, task_id)
                     validation_error = self._task_validation(task, manager, workspace.path)
+                    if self.should_cancel():
+                        self.store.update_run_task(task_id, "cancelled", attempts, reason="cancelled during validation")
+                        return self._finish_run(
+                            run_id, "cancelled", completed, len(plan.tasks),
+                            error="cancelled by user", workspace=workspace,
+                        )
                     if validation_error.lstrip().startswith("validation passed"):
                         try:
                             changed = manager.commit(workspace, f"MoliCoder checkpoint {task.key}: {task.title}")
@@ -1376,6 +1382,12 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                     self.store.update_run_task(task_id, "verifying", attempts, reason="checking provider task output")
                     self._event(run_id, "validation_started", {"key": task.key, "attempt": frontier_attempt}, task_id)
                     validation_error = self._task_validation(task, manager, workspace.path)
+                    if self.should_cancel():
+                        self.store.update_run_task(task_id, "cancelled", attempts, reason="cancelled during validation")
+                        return self._finish_run(
+                            run_id, "cancelled", completed, len(plan.tasks),
+                            error="cancelled by user", workspace=workspace,
+                        )
                     passed = validation_error.lstrip().startswith("validation passed")
                     self._event(run_id, "validation_finished", {
                         "key": task.key, "attempt": frontier_attempt, "passed": passed,
@@ -1485,6 +1497,11 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         self._event(run_id, "run_stage", {"stage": "validating", "message": "Running final project validation"})
         self.store.update_run_state(run_id, "validating")
         final_validation = self.validate(workspace.path)
+        if self.should_cancel():
+            return self._finish_run(
+                run_id, "cancelled", completed, len(plan.tasks),
+                error="cancelled by user", workspace=workspace,
+            )
         if final_validation.lstrip().startswith("validation passed"):
             failures = tuple(
                 failure for task in plan.tasks
@@ -1508,6 +1525,11 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                     run_id, "needs_attention", completed, len(plan.tasks),
                     error=f"Plan approval changed before apply: {exc}", workspace=workspace,
                 )
+        if self.should_cancel():
+            return self._finish_run(
+                run_id, "cancelled", completed, len(plan.tasks),
+                error="cancelled by user", workspace=workspace,
+            )
         final_commit = manager._git("rev-parse", "HEAD", cwd=workspace.path).stdout.strip()
         if self.auto_apply and not any(
             check["kind"] == "directory_empty" for task in plan.tasks for check in task.artifact_checks
@@ -1601,6 +1623,12 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 continue
             self._event(run_id, "validation_started", {"key": target.key, "attempt": attempt, "resume": True}, target.id)
             validation_error = self.validate(path)
+            if self.should_cancel():
+                self.store.update_run_task(target.id, "cancelled", attempt, reason="cancelled during validation")
+                return self._finish_run(
+                    run_id, "cancelled", 0, len(plan.tasks),
+                    error="cancelled by user", workspace=workspace,
+                )
             if validation_error.lstrip().startswith("validation passed"):
                 failures = tuple(
                     failure for task in plan.tasks

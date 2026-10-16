@@ -51,6 +51,8 @@ def build_validator(
     root: str | Path,
     *,
     environment_root: str | Path | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+    on_progress: Callable[[ValidationCommand, float], None] | None = None,
 ) -> ProjectValidator:
     execution_root = Path(root).resolve()
     config_root = Path(environment_root).resolve() if environment_root is not None else execution_root
@@ -87,7 +89,9 @@ def build_validator(
                 kind,
             )
         )
-    return ProjectValidator(execution_root, commands)
+    return ProjectValidator(
+        execution_root, commands, should_cancel=should_cancel, on_progress=on_progress,
+    )
 
 
 def validate_intermediate_task(
@@ -95,10 +99,15 @@ def validate_intermediate_task(
     *,
     environment_root: str | Path | None = None,
     task: object | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+    on_progress: Callable[[ValidationCommand, float], None] | None = None,
 ) -> str:
     """Validate a checkpoint without treating an intentionally empty test suite as final failure."""
     path = Path(root).resolve()
-    validator = build_validator(path, environment_root=environment_root)
+    validator = build_validator(
+        path, environment_root=environment_root,
+        should_cancel=should_cancel, on_progress=on_progress,
+    )
     structural = validator.run_structural()
     if not structural.passed:
         return structural.summary()
@@ -283,8 +292,25 @@ def build_orchestrator(
         )
     planner = local_planner if strategy == "LOCAL_OFFLINE" else provider
 
+    orchestrator: SequentialRunOrchestrator | None = None
+
+    def cancelled() -> bool:
+        return orchestrator is not None and orchestrator.should_cancel()
+
+    def validation_progress(command: ValidationCommand, elapsed: float) -> None:
+        if orchestrator is not None and orchestrator._active_run_id is not None:
+            orchestrator._event(
+                orchestrator._active_run_id, "validation_command_progress",
+                {"name": command.name, "kind": command.kind,
+                 "elapsed_seconds": round(elapsed, 1), "timeout_seconds": command.timeout_seconds},
+                orchestrator._active_task_id,
+            )
+
     def execute(worktree: Path, objective: str) -> RepairOutcome:
-        validator = build_validator(worktree, environment_root=root)
+        validator = build_validator(
+            worktree, environment_root=root,
+            should_cancel=cancelled, on_progress=validation_progress,
+        )
         dispatcher = ToolDispatcher(worktree, validation=validator.run_and_summarize)
         executor = AgentExecutor(
             gateway=gateway,
@@ -303,17 +329,19 @@ def build_orchestrator(
         )
         return loop.run(SkillLibrary(worktree).augment(objective))
 
-    return SequentialRunOrchestrator(
+    orchestrator = SequentialRunOrchestrator(
         store=store,
         project=project,
         planner=planner,
         provider=provider,
         local_executor=execute,
         validate=lambda worktree: build_validator(
-            worktree, environment_root=root
+            worktree, environment_root=root,
+            should_cancel=cancelled, on_progress=validation_progress,
         ).run_and_summarize(),
         validate_task=lambda worktree, task: validate_intermediate_task(
             worktree, environment_root=root, task=task,
+            should_cancel=cancelled, on_progress=validation_progress,
         ),
         on_event=on_event,
         auto_apply=False,
@@ -327,3 +355,4 @@ def build_orchestrator(
         ),
         alternate_provider=alternate_provider,
     )
+    return orchestrator

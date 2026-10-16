@@ -66,6 +66,7 @@ CASES = {
     "S054": "tests/test_build_level5_execution.py::test_s054_syntax_error_fails_verification",
     "S056": "tests/test_build_level5_execution.py::test_s056_success_text_without_change_is_not_completion",
     "S057": "tests/test_build_level5_execution.py::test_s057_out_of_scope_file_is_rejected",
+    "S058": "tests/test_build_level5_execution.py::test_s058_long_validation_reports_progress_times_out_and_cancels",
     "S059": "tests/test_build_level5_execution.py::test_s059_cancel_running_task_keeps_partial_work_isolated",
     "S060": "tests/test_build_level5_execution.py::test_s060_final_project_regression_blocks_apply",
     "S061": "tests/test_build_level6_repair.py::test_s061_one_failed_implementation_then_verified_repair",

@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
+import signal
 import subprocess
+import time
 import tomllib
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 from ..knowledge import ProjectKnowledge
 from ..storage import ChatStore
@@ -113,7 +117,11 @@ def extract_errors(output: str, limit: int = 50) -> tuple[str, ...]:
 class ProjectValidator:
     """Runs an application-supplied allowlist; the model never supplies commands."""
 
-    def __init__(self, root: str | Path, commands: list[ValidationCommand]) -> None:
+    def __init__(
+        self, root: str | Path, commands: list[ValidationCommand], *,
+        should_cancel: Callable[[], bool] | None = None,
+        on_progress: Callable[[ValidationCommand, float], None] | None = None,
+    ) -> None:
         self.root = Path(root).resolve()
         if not self.root.is_dir():
             raise ValueError(f"project root does not exist: {self.root}")
@@ -121,6 +129,70 @@ class ProjectValidator:
             raise ValueError("at least one validation command is required")
         self.commands = tuple(commands)
         self.log_dir = self.root / ".molicoder" / "logs"
+        self.should_cancel = should_cancel or (lambda: False)
+        self.on_progress = on_progress
+
+    @staticmethod
+    def _stop_process(process: subprocess.Popen[str]) -> None:
+        if process.poll() is not None:
+            return
+        if os.name == "nt":
+            # A validation command can spawn test workers. Stop the process tree,
+            # then fall back to the direct child if taskkill is unavailable.
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    capture_output=True, check=False, timeout=5,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except OSError:
+                pass
+        if process.poll() is None:
+            try:
+                process.kill()
+            except OSError:
+                pass
+
+    def _run_command(self, command: ValidationCommand) -> tuple[int, str]:
+        if self.should_cancel():
+            return 130, "ERROR validation cancelled by user before command start\n"
+        started = time.monotonic()
+        process = subprocess.Popen(
+            command.argv, cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace", shell=False,
+            creationflags=(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0),
+            start_new_session=os.name != "nt",
+        )
+        last_progress_tick = -1
+        while True:
+            elapsed = time.monotonic() - started
+            if self.on_progress is not None and int(elapsed // 5) > last_progress_tick:
+                last_progress_tick = int(elapsed // 5)
+                try:
+                    self.on_progress(command, elapsed)
+                except BaseException:
+                    self._stop_process(process)
+                    process.communicate()
+                    raise
+            if self.should_cancel():
+                self._stop_process(process)
+                stdout, stderr = process.communicate()
+                return 130, stdout + stderr + "\nERROR validation cancelled by user\n"
+            remaining = command.timeout_seconds - elapsed
+            if remaining <= 0:
+                self._stop_process(process)
+                stdout, stderr = process.communicate()
+                return 124, stdout + stderr + f"\nERROR validation timed out after {command.timeout_seconds}s\n"
+            try:
+                stdout, stderr = process.communicate(timeout=min(0.2, remaining))
+            except subprocess.TimeoutExpired:
+                continue
+            return process.returncode, stdout + stderr
 
     def run(self, check_names: tuple[str, ...] = ("project-default",)) -> ValidationReport:
         available = {command.name: command for command in self.commands}
@@ -136,25 +208,7 @@ class ProjectValidator:
         if not structural.passed:
             return structural
         for index, command in enumerate(selected, start=1):
-            try:
-                completed = subprocess.run(
-                    command.argv,
-                    cwd=self.root,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=command.timeout_seconds,
-                    shell=False,
-                    check=False,
-                )
-                output = completed.stdout + completed.stderr
-                exit_code = completed.returncode
-            except subprocess.TimeoutExpired as exc:
-                stdout = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-                stderr = exc.stderr.decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
-                output = stdout + stderr + f"\nERROR validation timed out after {command.timeout_seconds}s\n"
-                exit_code = 124
+            exit_code, output = self._run_command(command)
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
             safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", command.name).strip("-") or "validation"
             log_path = self.log_dir / f"{timestamp}-{index}-{safe_name}.log"
