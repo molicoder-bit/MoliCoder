@@ -13,7 +13,7 @@ from typing import Callable
 
 from ..recon import ReconPacket
 from .base import PlannerProvider
-from .schema import Plan, parse_plan
+from .schema import Plan, parse_plan, validate_provider_schema
 
 
 class ExternalUnavailable(RuntimeError):
@@ -61,8 +61,9 @@ def discover_codex_binary(explicit: str | Path | None = None) -> Path:
         raise ExternalUnavailable(f"Codex CLI not found: {candidate}")
     local_app_data = Path(os.environ.get("LOCALAPPDATA", ""))
     bundled = local_app_data / "OpenAI" / "Codex" / "bin" / "codex.exe"
-    if bundled.is_file():
-        return bundled
+    candidates = [path for path in bundled.parent.glob("**/codex.exe") if path.is_file()]
+    if candidates:
+        return max(candidates, key=lambda path: path.stat().st_mtime_ns).resolve()
     found = shutil.which("codex") or shutil.which("codex.exe")
     if found:
         return Path(found).resolve()
@@ -81,6 +82,30 @@ def _usage(stdout: str) -> tuple[int, int]:
             input_tokens = max(input_tokens, int(usage.get("input_tokens", 0) or 0))
             output_tokens = max(output_tokens, int(usage.get("output_tokens", 0) or 0))
     return input_tokens, output_tokens
+
+
+def provider_failure(stdout: str, stderr: str) -> str:
+    """Prefer the actual JSON error over verbose CLI startup diagnostics."""
+    def message(value):
+        if isinstance(value, dict):
+            return message(value.get('message') or value.get('error') or '')
+        if isinstance(value, str):
+            try:
+                return message(json.loads(value))
+            except (ValueError, TypeError):
+                return value
+        return ''
+    errors = []
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get('type') in {'error', 'turn.failed'}:
+            detail = message(event)
+            if detail:
+                errors.append(detail)
+    return (errors[-1] if errors else stderr.strip() or stdout.strip() or 'Codex CLI failed')[-1500:]
 
 
 class CodexCliPlanner:
@@ -105,6 +130,7 @@ class CodexCliPlanner:
         self._calls_lock = threading.Lock()
 
     def plan(self, packet: ReconPacket) -> Plan:
+        validate_provider_schema(json.loads(self.schema_path.read_text(encoding="utf-8")))
         self.budget.consume("planning")
         prompt = (
             "Act only as a read-only planning consultant. Produce a small, dependency-aware coding plan "
@@ -112,7 +138,9 @@ class CodexCliPlanner:
             "For an exact text-file result or empty directory, include an artifact_checks entry "
             "on that task: file_equals with project-relative path and exact content, or "
             "directory_empty with project-relative path. Include the path in expected_paths. "
-            "Use artifact_checks only when the requested result is exact and independently checkable.\n\n"
+            "Use an empty artifact_checks array when no exact check applies. "
+            "For a request to create a named text file without specified contents, propose an empty file "
+            "and state that explicitly in the plan for user approval; use file_equals with empty content.\n\n"
             + packet.to_prompt()
         )
         started = time.monotonic()
@@ -146,7 +174,7 @@ class CodexCliPlanner:
                     ExternalCall(self.provider, "planning", "planning_complexity", input_tokens, output_tokens, time.monotonic() - started, status)
                 )
             if completed.returncode != 0:
-                message = (completed.stderr or completed.stdout or "Codex CLI failed").strip()
+                message = provider_failure(completed.stdout, completed.stderr)
                 raise ExternalUnavailable(message[-2000:])
             if not output_path.is_file():
                 raise ExternalUnavailable("Codex CLI did not produce a plan")

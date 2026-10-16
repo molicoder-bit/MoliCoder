@@ -3,6 +3,9 @@
 
 def failure_feedback(reason):
     text = reason.lower()
+    if 'invalid_json_schema' in text or 'invalid schema' in text:
+        return 'Planning request rejected', 'The provider rejected the plan format before editing any files. Update the app, then generate the plan again. Technical details are in Activity.', 'Activity'
+
     if any(word in text for word in ('outside', 'escapes', 'destination', 'parent folder', 'folder name')):
         return 'Target needs correction', 'The requested location was not changed. Review the exact destination or use a local folder action.', 'Edit request'
     if any(word in text for word in ('quota', 'rate limit', 'usage limit', 'budget')):

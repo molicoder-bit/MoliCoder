@@ -924,6 +924,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         return tuple(
             criterion for criterion in task.acceptance_criteria
             if criterion != "Configured validation must pass"
+            and not (criterion == "Artifact checks must pass" and task.artifact_checks)
             and not (
                 criterion.startswith("Check ") and criterion.endswith(" passes")
                 and criterion[6:-7] in checks

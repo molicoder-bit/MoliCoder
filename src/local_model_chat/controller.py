@@ -9,7 +9,7 @@ from .intent import IntentKind, classify_intent
 from .local_actions import requested_folder, folder_intent
 from .storage import ChatStore
 from .tool_queries import query_git
-from .directory_queries import directory_question, directory_target
+from .directory_queries import directory_question, directory_target, directory_followup
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,12 +39,13 @@ class MainController:
         return (
             folder_intent(message) is not None
             or directory_question(message) is not None
+            or directory_followup(message)
             or MainController.is_deterministic_question(message)
             or decision.kind == IntentKind.EXECUTION
             and bool(re.match(r"^(?:implement|build)\b", message.strip(), re.IGNORECASE))
         )
 
-    def handle(self, message: str, project_id: int | None) -> ControllerResult | None:
+    def handle(self, message: str, project_id: int | None, *, history=()) -> ControllerResult | None:
         """Handle local retrieval and Build proposals; return None for normal chat."""
         intent = folder_intent(message)
         if intent and intent.error:
@@ -56,6 +57,17 @@ class MainController:
                 evidence=str(folder), action_state="awaiting_approval",
             )
         listing = directory_question(message)
+        if listing is None and directory_followup(message):
+            # Only the latest substantive user request in this conversation.
+            for previous in reversed(history):
+                if previous.role != 'user' or directory_followup(previous.content):
+                    continue
+                listing = directory_question(previous.content)
+                break
+            if listing is None:
+                return ControllerResult('directory_clarification',
+                    'What would you like me to do? To list a folder, provide its path, such as C:/Dev.',
+                    action_state='awaiting_clarification')
         if listing is not None:
             project = self.store.get_project(project_id) if project_id is not None else None
             try:

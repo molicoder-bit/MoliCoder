@@ -13,6 +13,17 @@ from .ui.styles import APP_STYLESHEET
 
 
 def main() -> int:
+    if '--package-live-file-check' in sys.argv:
+        import json
+        from .package_acceptance import verify_file_workflow
+        report_path = Path(sys.argv[sys.argv.index('--package-live-file-check') + 1])
+        try:
+            with tempfile.TemporaryDirectory(prefix='molicoder-live-acceptance-') as directory:
+                report = verify_file_workflow(Path(directory))
+        except Exception as exc:
+            report = {'status': 'failed', 'error': str(exc)}
+        report_path.write_text(json.dumps(report, indent=2), encoding='utf-8')
+        return 0 if report['status'] == 'passed' else 1
     if "--package-health-check" in sys.argv:
         return 0
     smoke_check = "--package-smoke-check" in sys.argv

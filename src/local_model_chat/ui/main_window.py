@@ -364,6 +364,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(heading)
         self.build_project_title = QLabel("No project selected")
         self.build_project_title.setObjectName("projectHeading")
+        self.build_project_title.setWordWrap(True)
         layout.addWidget(self.build_project_title)
         self.build_project_meta = QLabel("Choose a project above, or add one through Chat history.")
         self.build_project_meta.setObjectName("muted")
@@ -375,7 +376,7 @@ class MainWindow(QMainWindow):
         self.project_actions = QWidget()
         project_actions_layout = QHBoxLayout(self.project_actions)
         project_actions_layout.setContentsMargins(0, 0, 0, 0)
-        for label, callback in [('Open folder', self._add_project), ('Create project', self._create_project)]:
+        for label, callback in [('Choose project', lambda: self.project_switch.showPopup()), ('Open folder', self._add_project), ('Create project', self._create_project)]:
             action = QPushButton(label)
             action.clicked.connect(callback)
             project_actions_layout.addWidget(action)
@@ -385,6 +386,12 @@ class MainWindow(QMainWindow):
         request_card = QFrame()
         request_card.setObjectName("metricCard")
         request_layout = QVBoxLayout(request_card)
+        self.build_blocker = QLabel()
+        self.build_blocker.setObjectName('buildBlocker')
+        self.build_blocker.setWordWrap(True)
+        self.build_blocker.setAccessibleName('Build blocked reason')
+        request_layout.addWidget(self.build_blocker)
+        self.build_blocker.hide()
         request_layout.addWidget(QLabel("Development request"))
         self.build_request = MessageComposer()
         self.build_request.setPlaceholderText(
@@ -480,7 +487,7 @@ class MainWindow(QMainWindow):
         self.build_agent_info = QLabel()
         self.build_agent_info.setObjectName("muted")
         self.build_agent_info.setWordWrap(True)
-        self.build_agent_info.setMaximumHeight(48)
+        self.build_agent_info.setMinimumHeight(0)
         request_layout.addWidget(self.build_agent_info)
         layout.addWidget(request_card)
 
@@ -1233,6 +1240,18 @@ class MainWindow(QMainWindow):
             button.style().unpolish(button); button.style().polish(button)
         if is_build:
             self._update_build_project(self.registry.selected())
+            if self.registry.selected() is None and self.store.get_setting('ui.reduce_motion', 'false') != 'true':
+                from PySide6.QtCore import QPropertyAnimation
+                from PySide6.QtWidgets import QGraphicsOpacityEffect
+                effect = QGraphicsOpacityEffect(self.build_blocker)
+                self.build_blocker.setGraphicsEffect(effect)
+                self._blocker_pulse = QPropertyAnimation(effect, b'opacity', self)
+                self._blocker_pulse.setDuration(900)
+                self._blocker_pulse.setStartValue(1.0)
+                self._blocker_pulse.setKeyValueAt(0.5, 0.55)
+                self._blocker_pulse.setEndValue(1.0)
+                self._blocker_pulse.setLoopCount(2)
+                self._blocker_pulse.start()
         from .workspace import refresh_workspace
         refresh_workspace(self)
 
@@ -1341,13 +1360,17 @@ class MainWindow(QMainWindow):
         self.change_project_button.setVisible(project is not None)
         self.change_project_button.setEnabled(self.orchestration_worker is None)
         if project is None:
-            self.build_project_title.setText("No project selected")
+            self.build_project_title.setProperty("themeTone", "error")
+            self.build_project_title.setText("No project selected — Build blocked")
+            self.build_project_title.setStyleSheet(f"color: {theme_color('error')};")
             self.build_project_meta.setText("Choose a project for repository work, or enter an explicit local folder action.")
             self.build_request.setEnabled(True)
             self._refresh_recovery_actions(None)
             self._refresh_build_readiness()
             return
         path = Path(project.path)
+        self.build_project_title.setProperty("themeTone", None)
+        self.build_project_title.setStyleSheet("")
         self.build_project_title.setText(project.name)
         if not path.is_dir():
             self.build_project_meta.setText(f"{project.kind.title()} · Folder missing\n{project.path}")
@@ -2050,7 +2073,7 @@ class MainWindow(QMainWindow):
             return
         self.change_project_button.setEnabled(self.orchestration_worker is None)
         kandev_selected = self.build_owner.currentData() == "kandev"
-        internal_controls = not kandev_selected and self.orchestration_worker is None
+        internal_controls = not kandev_selected and self.orchestration_worker is None and self.registry.selected() is not None
         self.build_provider.setEnabled(internal_controls)
         self.build_fallback_provider.setEnabled(internal_controls)
         self.build_strategy.setEnabled(internal_controls)
@@ -2076,7 +2099,7 @@ class MainWindow(QMainWindow):
             ready = True
             status = "Ready to confirm a local folder action. No coding agent will run."
         elif project is None:
-            status = "Select a project before running a build."
+            status = "Build blocked — no project selected. Choose a project or create one above."
         elif not Path(project.path).is_dir():
             status = "The selected project folder is missing."
         else:
@@ -2088,7 +2111,7 @@ class MainWindow(QMainWindow):
             elif git_state.dirty:
                 status = "Commit or stash current changes first; Build mode requires a clean working tree."
             elif not request:
-                status = "Ready for a request on this protected project branch."
+                status = "Enter a development request to enable Generate plan."
             elif kandev_selected:
                 try:
                     configured_kandev_adapter(self.store, project_id=self.current_project_id)
@@ -2106,6 +2129,14 @@ class MainWindow(QMainWindow):
                 status = f"Ready · {provider} · {strategy} · isolated sequential execution and automatic validation."
         self.build_status.setText(status)
         self.build_run_button.setEnabled(ready)
+        self.build_run_button.setToolTip('Generate a plan for review' if ready else status)
+        blocked = not ready and self.orchestration_worker is None
+        self.build_blocker.setText(status)
+        self.build_blocker.setVisible(blocked)
+        self.build_owner.setEnabled(self.registry.selected() is not None and self.orchestration_worker is None)
+        if self.orchestration_worker is None:
+            self.build_pause_button.setEnabled(False)
+            self.build_cancel_button.setEnabled(False)
 
     def _run_build(self) -> None:
         if self.orchestration_worker is not None:
@@ -2615,15 +2646,21 @@ class MainWindow(QMainWindow):
             )
             self._show_integration_diff(result.integration_path, result.base_commit)
         else:
+            from .failure_feedback import failure_feedback
+            title, summary, _ = failure_feedback(result.error or '')
+            self.build_events.addItem(f"Run {result.run_id} diagnostics: {result.error}")
+            display_error = f"{title}. {summary}"
             self.build_status.setText(
                 (f"Kandev owns run {result.run_id} · {result.status}. Reconcile its saved external ID to refresh the outcome. "
-                 f"{result.error}{usage}" if kandev_owned else
-                 f"Run {result.run_id} stopped · {result.completed_tasks}/{result.total_tasks} tasks completed. {result.error}{usage}")
+                 f"{display_error}{usage}" if kandev_owned else
+                 f"Run {result.run_id} stopped · {result.completed_tasks}/{result.total_tasks} tasks completed. {display_error}{usage}")
             )
         self._refresh_recovery_actions(project)
 
     def _build_failed(self, error: str) -> None:
-        self.build_status.setText(f"Build worker failed: {error}")
+        from .failure_feedback import failure_feedback
+        title, summary, _ = failure_feedback(error)
+        self.build_status.setText(f"{title}. {summary}")
         self.build_events.addItem(f"Worker failure · {error}")
         self._request_failure = error
         self._build_terminal = True
@@ -3390,7 +3427,7 @@ class MainWindow(QMainWindow):
         if not content.strip():
             return
         if not self.current_attachments:
-            result = self.controller.handle(self.composer.toPlainText(), chat_project_id)
+            result = self.controller.handle(self.composer.toPlainText(), chat_project_id, history=self._current_messages())
             if result is not None:
                 if result.kind == 'directory_listing_request' and result.evidence:
                     self._start_directory_read(content, Path(result.evidence))

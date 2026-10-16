@@ -127,3 +127,9 @@ def list_directory(path: Path, *, cancelled=lambda: False, max_entries=100, max_
     content = (f'**Contents of {_literal(target)}**\n\n{detail}\n\n'
                f'Checked: {checked}. Source: read-only local folder listing. Immediate entries only; no file contents read.')
     return DirectoryListing(content, target, 'completed', len(rows), truncated, checked)
+
+
+def directory_followup(message: str) -> bool:
+    return bool(re.fullmatch(
+        r"\s*(?:can you|could you|please)\s+(?:do (?:it|that)(?: now)?|try (?:it |that )?again)[?.!]*\s*",
+        message, re.I))

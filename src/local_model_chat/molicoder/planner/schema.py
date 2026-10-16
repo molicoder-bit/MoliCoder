@@ -140,3 +140,22 @@ def parse_plan(value: str | dict[str, Any], *, max_tasks: int = 5) -> Plan:
     plan = Plan(objective, tuple(tasks))
     plan.ordered_tasks()
     return plan
+
+
+def validate_provider_schema(schema: dict) -> None:
+    """Check the strict object contract before dispatching a provider request."""
+    def visit(node):
+        if isinstance(node, dict):
+            if node.get('type') == 'object':
+                if node.get('additionalProperties') is not False:
+                    raise PlanValidationError('Provider schema objects must forbid additional properties')
+                if set(node.get('required', [])) != set(node.get('properties', {})):
+                    raise PlanValidationError('Provider schema must require every declared object property')
+            if 'oneOf' in node:
+                raise PlanValidationError('Provider schema unions must use anyOf')
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+    visit(schema)

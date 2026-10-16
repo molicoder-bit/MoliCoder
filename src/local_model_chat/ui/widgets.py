@@ -30,7 +30,7 @@ class ChatBubble(QFrame):
         header.addStretch()
         copy_button = QPushButton("Copy")
         copy_button.setObjectName("ghost")
-        copy_button.setFixedHeight(28)
+        copy_button.setMinimumHeight(copy_button.sizeHint().height())
         copy_button.clicked.connect(self.copy_content)
         header.addWidget(copy_button)
         outer.addLayout(header)

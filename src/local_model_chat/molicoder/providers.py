@@ -16,7 +16,7 @@ from typing import Callable, Protocol
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from .planner.schema import Plan, PlanValidationError, parse_plan
+from .planner.schema import Plan, PlanValidationError, parse_plan, validate_provider_schema
 from .recon import ReconPacket
 
 
@@ -391,6 +391,9 @@ class CliFrontierProvider:
         input_tokens, output_tokens, reported_model = _usage_from_events(events)
         message = "\n".join(output).strip()
         error = "\n".join(errors).strip()
+        if return_code != 0 and self.name == 'codex':
+            from .planner.codex_cli import provider_failure
+            error = provider_failure(message, error)
         status = "cancelled" if self._cancelled.is_set() else "completed" if return_code == 0 else "needs_attention"
         if status != "completed" and not error:
             error = message[-4000:] or f"{self.display_name} exited with code {return_code}"
@@ -441,7 +444,15 @@ class CliFrontierProvider:
             "For an unspecified Python desktop UI use standard-library Tkinter; for an unspecified Node UI "
             "use dependency-free HTML, CSS, and JavaScript. Every task must make a concrete repository change; "
             "do not create validation-only, review-only, or manual smoke-test tasks because MoliCoder performs "
-            "validation after implementation.\n\n"
+            "validation after implementation. For exact text files include artifact_checks with kind "
+            "file_equals, project-relative path, and exact content. If a named text file has no requested "
+            "contents, explicitly propose an empty file for approval and use empty content in the check. "
+            "Use an empty artifact_checks array for tasks without exact artifact checks. "
+            "Acceptance criteria are executable contracts: for a simple exact artifact task use only "
+            "the literal criteria 'Artifact checks must pass' and 'Configured validation must pass'. "
+            "Put the human-readable description in the task objective and the exact requirements in "
+            "artifact_checks. Prose acceptance criteria require manual review. Use 'project-default' "
+            "in verification_checks unless the evidence supplies a configured check identifier.\n\n"
             + packet.to_prompt()
         )
 
@@ -661,6 +672,7 @@ class CodexProvider(CliFrontierProvider):
     def plan_command(self, root: Path) -> tuple[list[str], Path | None]:
         output = Path(tempfile.gettempdir()) / f"molicoder-codex-plan-{os.getpid()}-{time.time_ns()}.json"
         schema = Path(__file__).parent / "planner" / "plan.schema.json"
+        validate_provider_schema(json.loads(schema.read_text(encoding="utf-8")))
         return (
             self._base(root, "read-only")
             + ["--output-schema", str(schema), "-o", str(output), "--ephemeral", "--skip-git-repo-check", "-"],

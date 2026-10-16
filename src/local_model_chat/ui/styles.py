@@ -124,6 +124,19 @@ QScrollArea { border: none; }
 
 APP_STYLESHEET += "QPushButton#buildPrimary { background: #F0AF7B; color: #26190F; border-color: #F0AF7B; } QLabel { background: transparent; }"
 
+APP_STYLESHEET += r"""
+QPushButton:disabled, QToolButton:disabled,
+QPushButton#primary:disabled, QPushButton#danger:disabled,
+QPushButton#buildPrimary:disabled, QPushButton#ghost:disabled {
+    background: #19221C; color: #64748B; border: 1px dashed #3B4940;
+}
+QComboBox:disabled, QLineEdit:disabled, QTextEdit:disabled {
+    background: #19221C; color: #64748B; border: 1px dashed #3B4940;
+}
+QLabel#buildBlocker { color: #FDA4AF; background: #2A1118;
+    border: 2px solid #7F1D1D; padding: 10px; font-weight: 700; }
+"""
+
 # One-pass substitution keeps both themes on the same component rules.
 _LIGHT_COLORS = {
     '#151816': '#F6F7F2', '#111512': '#EDF1E9', '#1E2421': '#FFFFFF',
