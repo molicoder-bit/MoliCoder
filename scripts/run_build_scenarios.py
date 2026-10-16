@@ -87,6 +87,7 @@ CASES = {
     "S075": "tests/test_kandev_run.py::test_selected_build_is_bound_to_kandev_before_dispatch_and_recovers",
     "S082": "tests/test_build_level8_dependencies.py::test_s082_successor_starts_after_parent_verification",
     "S091": "tests/test_build_level9_recovery.py::test_s091_pending_approval_survives_restart_without_launch",
+    "S092": "tests/test_build_level9_recovery.py::test_s092_interrupted_task_reconciles_dirty_worktree_without_claiming_success",
     "S107": ("tests/test_build_plan_approval.py", "S107"),
 }
 

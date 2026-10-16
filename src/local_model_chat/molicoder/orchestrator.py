@@ -1569,6 +1569,20 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             raise ValueError("run does not belong to the selected project")
         if run["status"] not in {"needs_attention", "ready_to_apply", "cancelled", "failed"}:
             raise ValueError(f"run cannot be resumed from status {run['status']}")
+        recovery_observation = next((
+            event for event in reversed(self.store.list_events(run_id))
+            if event.kind == "run_recovery_observed"
+        ), None)
+        if recovery_observation is not None:
+            observed = json.loads(recovery_observation.payload_json)
+            state = str(observed.get("workspace_state") or "unknown")
+            reason = f"Interrupted Build requires checkpoint review before provider replay (worktree: {state})"
+            self._event(run_id, "run_resume_blocked_interrupted", {"reason": reason, "workspace_state": state})
+            tasks = self.store.list_run_tasks(run_id)
+            return OrchestrationResult(
+                run_id, "needs_attention", sum(task.status == "completed" for task in tasks),
+                len(tasks), reason, Path(str(run.get("worktree") or "")),
+            )
         path = Path(str(run.get("worktree") or "")).resolve()
         if not path.is_dir():
             raise ValueError("the preserved run worktree is missing")

@@ -4,7 +4,7 @@ Date: 2026-10-16. Scope: this checkout, deterministic scripted providers, tempor
 
 ## Results
 
-The full-catalog machine report is `docs/reports/build-scenarios-2026-10-16.json`; the runner also writes `artifacts/build-scenarios/latest.json` locally with per-case pytest/JUnit evidence paths. It lists each ID, level, outcome, test node, and elapsed time. Results: **64 PASS, 0 FAIL, 0 BLOCKED, 56 NOT_RUN**. This is a coverage count, not a 100% reliability claim.
+The full-catalog machine report is `docs/reports/build-scenarios-2026-10-16.json`; the runner also writes `artifacts/build-scenarios/latest.json` locally with per-case pytest/JUnit evidence paths. It lists each ID, level, outcome, test node, and elapsed time. Results: **65 PASS, 0 FAIL, 0 BLOCKED, 55 NOT_RUN**. This is a coverage count, not a 100% reliability claim.
 
 | Level | Passing IDs | PASS / total | Main uncovered behavior |
 | ---: | --- | ---: | --- |
@@ -17,11 +17,11 @@ The full-catalog machine report is `docs/reports/build-scenarios-2026-10-16.json
 | 6 | S061–S070 | 10 / 10 | Scripted providers; broader replanning remains untested |
 | 7 | S071–S075 | 5 / 10 | Multi-task Kandev and live integration |
 | 8 | S082 | 1 / 10 | Parallelism, complex graphs, and conflict behavior |
-| 9 | S091 | 1 / 10 | In-flight and multi-task recovery |
+| 9 | S091–S092 | 2 / 10 | Safe replay of in-flight work and multi-task recovery |
 | 10 | S107 | 1 / 10 | Remaining security and UI consistency cases |
 | 11 | none | 0 / 10 | Complex end-to-end workflows |
 
-Existing broader pytest coverage includes planners, scheduler, worktrees, validation, repair, Kandev adapter, storage, UI, and recovery. The complete suite reported **601 passed, 6 skipped in 365.55 s** after the S058 implementation and before adding S055/S091. The full scenario catalog then reported **64 PASS, 56 NOT_RUN** with the pinned mypy toolchain installed; all **10 Level 5 tests passed** again after the final S055 assertion, S091 passed after an explicit denied-execution check, and `pip check` found no broken requirements. The six skips require opt-in real Codex, Claude, or Ollama runs. Individual scenario evidence is in the local JSON/JUnit artifacts. Earlier in this work, one combined targeted run ended in a Windows/Qt access violation in a model-install test; that test passed alone and the whole UI module passed on rerun. Its root cause remains unconfirmed.
+Existing broader pytest coverage includes planners, scheduler, worktrees, validation, repair, Kandev adapter, storage, UI, and recovery. The complete suite reported **601 passed, 6 skipped in 365.55 s** after S058 and before S055/S091/S092. After the recovery audit change, the affected storage, orchestrator, UI, and Level 9 suites reported **72 passed**, and the full scenario catalog reported **65 PASS, 55 NOT_RUN**. The six skips require opt-in real Codex, Claude, or Ollama runs. Individual scenario evidence is in the local JSON/JUnit artifacts. Earlier in this work, one combined targeted run ended in a Windows/Qt access violation in a model-install test; that test passed alone and the whole UI module passed on rerun. Its root cause remains unconfirmed.
 
 ## Verified invariants in the registered scenarios
 
@@ -29,6 +29,6 @@ The active internal and Kandev runtime paths wait for an exact plan approval bef
 
 ## Limits and next work
 
-S091 confirms that a plan awaiting approval survives a fresh store and orchestrator instance, still denies unapproved execution, and starts exactly once after fresh approval. It does not establish safe replay of a task interrupted during execution.
+S091 confirms that a plan awaiting approval survives a fresh store and orchestrator instance, still denies unapproved execution, and starts exactly once after fresh approval. S092 confirms that startup observes an interrupted worktree and blocks blind provider replay. It does not establish a safe continuation path for that unfinished task.
 
-The active internal path is sequential. It records proposed per-task assignments from one selected runner policy, but cannot override individual runner/model choices or negotiate arbitrary capabilities. The Kandev path still represents one task and has no multi-task dependency mapping. Pending internal plans can be edited; after execution starts, only a failed repair's file scope can expand while the task graph and completed task specifications stay fixed. The full run/task state machine, atomic graph scheduling in the active path, comprehensive fault injection, and crash-safe multi-task replay are incomplete. The 56 `NOT_RUN` scenarios must be implemented progressively; their absence cannot be inferred as passing from the broader unit suite. Exact paid CLI token charges and real-provider planning quality remain unmeasured.
+The active internal path is sequential. It records proposed per-task assignments from one selected runner policy, but cannot override individual runner/model choices or negotiate arbitrary capabilities. The Kandev path still represents one task and has no multi-task dependency mapping. Pending internal plans can be edited; after execution starts, only a failed repair's file scope can expand while the task graph and completed task specifications stay fixed. The full run/task state machine, atomic graph scheduling in the active path, comprehensive fault injection, and crash-safe multi-task replay are incomplete. The 55 `NOT_RUN` scenarios must be implemented progressively; their absence cannot be inferred as passing from the broader unit suite. Exact paid CLI token charges and real-provider planning quality remain unmeasured.

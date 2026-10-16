@@ -38,6 +38,7 @@ from ..inference.registry import ProviderRegistry
 from ..kandev.ui_config import configured_kandev_adapter, kandev_board_url
 from ..local_actions import requested_folder, folder_intent
 from ..molicoder.projectstate import read_git_state
+from ..molicoder.recovery import recover_interrupted_builds
 from ..molicoder.registry import ProjectRegistry
 from ..molicoder.runtime import build_orchestrator
 from ..molicoder.metrics import RunAnalytics
@@ -62,7 +63,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__()
         self.store = store or ChatStore()
-        self.store.recover_interrupted_runs()
+        recover_interrupted_builds(self.store)
         self.controller = MainController(self.store)
         self.inference_registry = ProviderRegistry(self.store)
         self.inference_policy = InferencePolicy(self.inference_registry)
@@ -1368,15 +1369,27 @@ class MainWindow(QMainWindow):
         path = Path(str(run.get("worktree", ""))).resolve() if run and run.get("worktree") else None
         kandev_owned = bool(run and run.get("provider") == "kandev")
         available = bool(kandev_owned or (path and path.is_dir()))
+        observed = next((
+            event for event in reversed(self.store.list_events(int(run["id"])))
+            if event.kind == "run_recovery_observed"
+        ), None) if run and not kandev_owned else None
         self.recoverable_run_id = int(run["id"]) if run and available else None
-        self.build_resume_button.setEnabled(available and self.orchestration_worker is None)
-        self.build_resume_button.setText("Reconcile Kandev run" if kandev_owned else "Resume preserved run")
+        self.build_resume_button.setEnabled(available and observed is None and self.orchestration_worker is None)
+        self.build_resume_button.setText(
+            "Reconcile Kandev run" if kandev_owned else
+            "Resume blocked pending review" if observed is not None else "Resume preserved run"
+        )
         self.build_open_worktree_button.setEnabled(bool(path and path.is_dir()))
         self.build_discard_button.setEnabled(available and not kandev_owned and self.orchestration_worker is None)
         self.build_ownership_status.setText(
             f"Kandev owns run {run['id']} · {run['status']} · reconcile by saved external ID before further action."
             if kandev_owned else ""
         )
+        if run and observed is not None:
+            state = str(json.loads(observed.payload_json).get("workspace_state") or "unknown")
+            self.build_ownership_status.setText(
+                f"Recovered run {run['id']} · worktree {state} · review before retrying."
+            )
         if kandev_owned and run["status"] == "ready_to_apply" and path and path.is_dir():
             tasks = self.store.list_run_tasks(int(run["id"]))
             if len(tasks) == 1 and tasks[0].status == "completed" and tasks[0].branch:
