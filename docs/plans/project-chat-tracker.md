@@ -2,7 +2,7 @@
 
 **Status: complete — delivered in 1.3.1 on 2026-10-15.**
 
-Header navigation follow-up for 1.3.3 is tracked below; the original delivery evidence remains historical.
+Header navigation follow-up is complete and delivered in 1.3.3 below; the original delivery evidence remains historical.
 
 Each project owns many conversations. A conversation belongs to at most one project; unassigned conversations appear under General chats. Existing associations and message history are preserved.
 
@@ -37,6 +37,8 @@ Native Windows screenshots in Matrix and Light were rendered with demonstration 
 - [x] PC12 Add the adjacent Chats dropdown, scoped to the selected project or General chats, and keep it synchronized with selection, New chat, rename, and deletion.
 - [x] PC13 Preserve Chat/Build navigation and drafts; fit the labeled selectors in both themes at the supported minimum size.
 - [x] PC14 Run focused project/chat navigation regressions and update README usage.
-- [ ] PC15 Package and smoke-check 1.3.3, install when the app is closed, and record/push delivery evidence.
+- [x] PC15 Package and smoke-check 1.3.3, install when the app is closed, and record/push delivery evidence.
 
-Verification: **22 focused tests passed** covering header, project chats, New chat, and usability journeys. The final header suite also passed **3 native Windows tests** after the history-dismissal refinement; counts overlap. A two-row header keeps Project and Chats adjacent without crowding branding, mode controls, or Chat history. Native fixture screenshots at 1020 × 680 logical pixels were visually checked in [Matrix](../images/usability/header-chats-matrix.png) and [Light](../images/usability/header-chats-light.png). Single-chat scopes show their current chat; selecting another is enabled when multiple chats exist. README labels and the main screenshot now match the header. Package delivery is pending.
+Verification: **22 focused tests passed** covering header, project chats, New chat, and usability journeys. The final header suite also passed **3 native Windows tests** after the history-dismissal refinement; counts overlap. A two-row header keeps Project and Chats adjacent without crowding branding, mode controls, or Chat history. Native fixture screenshots at 1020 × 680 logical pixels were visually checked in [Matrix](../images/usability/header-chats-matrix.png) and [Light](../images/usability/header-chats-light.png). Single-chat scopes show their current chat; selecting another is enabled when multiple chats exist. README labels and the main screenshot now match the header.
+
+Delivery: source `9779386` is pushed to `main`, version **1.3.3**. Both packaged desktop/migration and embedded-browser smoke checks passed. Installed at `C:\Users\luism\AppData\Local\Programs\MoliCoder\MoliCoder.exe` with the app closed, desktop shortcut refreshed, and prior installation retained at `C:\Users\luism\AppData\Local\Programs\MoliCoder.previous-20261016-025259-e1599d0275f945609d057a2f99c57849`. Built/installed executable SHA-256 match: `14E916334B4273B8E36310516DE8E8723742FD117404173E72E6DE6F9A1519E6`. These are local Windows checks for 1.3.3; historical full-suite/platform results above retain their stated revisions.
