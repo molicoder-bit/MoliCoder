@@ -1,5 +1,7 @@
 # Chat continuity and transcript selection
 
+**Status: implementation and verification complete; Windows installation waiting for the running app to close.**
+
 - [x] CS01 Inspect saved turn receipts and the Chat → policy → Ollama request path for the reported conversation.
 - [x] CS02 Give every Chat model explicit instructions to use the supplied same-conversation history and correct misleading earlier memory claims.
 - [x] CS03 Build history, request receipts, and context estimates from the same complete message snapshot, including the system instruction; block overflow without silently trimming history.
@@ -23,4 +25,4 @@ The reported saved chat contains earlier user/assistant turns, with prompt count
 
 Full Windows regression: **509 passed, 6 skipped** in 202.35 seconds. The six skipped checks require opt-in local/paid live inference; the separate bounded local continuity check above passed. Both packaged checks passed: `--package-smoke-check` (desktop, legacy data, migration/recovery) and `--package-board-smoke-check` (embedded browser). Counts from focused runs overlap the full suite and must not be summed.
 
-Release **1.3.2** is built at `dist/MoliCoder/MoliCoder.exe`, SHA-256 `DFC6EC7007CE7532FBD5AC77DC3DDB5F6008B8B0C135C5197A370999E60DD4B7`. Installation is waiting for the user to close the running app; the current install has not been replaced or force-closed. These are local Windows results, not a new claim of completed hosted platform CI.
+Source `1b94413` is pushed to `main`. Release **1.3.2** is built at `dist/MoliCoder/MoliCoder.exe`, SHA-256 `DFC6EC7007CE7532FBD5AC77DC3DDB5F6008B8B0C135C5197A370999E60DD4B7`. Installation is waiting for the user to close the running app; the current install has not been replaced or force-closed. These are local Windows results, not a new claim of completed hosted platform CI.
