@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QTextCursor
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QTextBrowser,
     QToolButton, QVBoxLayout, QWidget, QTextEdit,
@@ -76,7 +76,7 @@ class ChatBubble(QFrame):
         )
         # Reparse only this displayed document; stored content/history is untouched.
         if self.content:
-            self.body.setMarkdown(normalize_model_markdown(self.content))
+            self._set_body_markdown(normalize_model_markdown(self.content))
 
     def _resize_body(self, size) -> None:
         self.body.setFixedHeight(max(28, int(size.height()) + 8))
@@ -87,7 +87,18 @@ class ChatBubble(QFrame):
 
     def set_content(self, content: str) -> None:
         self.content = content
-        self.body.setMarkdown(normalize_model_markdown(content) if content else "_Generating…_")
+        self._set_body_markdown(normalize_model_markdown(content) if content else "_Generating…_")
+
+    def _set_body_markdown(self, markdown: str) -> None:
+        previous = self.body.textCursor()
+        selection = (previous.anchor(), previous.position()) if previous.hasSelection() else None
+        self.body.setMarkdown(markdown)
+        if selection:
+            end = self.body.document().characterCount() - 1
+            cursor = self.body.textCursor()
+            cursor.setPosition(min(selection[0], end))
+            cursor.setPosition(min(selection[1], end), QTextCursor.KeepAnchor)
+            self.body.setTextCursor(cursor)
 
     def append_content(self, delta: str) -> None:
         self.set_content(self.content + delta)

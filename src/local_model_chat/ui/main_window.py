@@ -23,7 +23,8 @@ from ..config import APP_NAME, MODEL_PRESETS, ModelPreset, data_dir, export_dir
 from ..controller import ControllerResult, MainController
 from ..environment.auth import CredentialUnavailable, ProtectedCredentialStore, store_provider_key
 from ..environment.security import platform_security
-from ..context import calculate_budget, estimate_tokens
+from ..context import ContextBudget, estimate_messages
+from ..chat_context import build_chat_messages
 from ..domain import Attachment, GenerationMetrics, Message, Project
 from ..inference.adapters.ollama import ensure_local_offering, local_offering_id
 from ..inference.api_dispatch import preview_custom_chat
@@ -259,6 +260,15 @@ class MainWindow(QMainWindow):
         self.model_badge.setParent(center)
         self.model_badge.hide()
         model_row.addStretch()
+        self.select_chat_button = QPushButton("Select all")
+        self.select_chat_button.setObjectName("ghost")
+        self.select_chat_button.setToolTip("Select text across all visible messages; Ctrl+A when the chat has focus")
+        self.select_chat_button.clicked.connect(lambda: self.transcript_selection.select_all())
+        model_row.addWidget(self.select_chat_button)
+        self.copy_chat_button = QPushButton("Copy chat")
+        self.copy_chat_button.setObjectName("ghost")
+        self.copy_chat_button.clicked.connect(self._copy_chat)
+        model_row.addWidget(self.copy_chat_button)
         knowledge_button = QPushButton("Project knowledge")
         knowledge_button.setObjectName("ghost")
         knowledge_button.clicked.connect(self._open_knowledge_review)
@@ -282,6 +292,8 @@ class MainWindow(QMainWindow):
         self.transcript_layout.addWidget(self.chat_welcome)
         self.transcript_layout.addStretch()
         self.scroll.setWidget(self.transcript)
+        from .transcript_selection import TranscriptSelection
+        self.transcript_selection = TranscriptSelection(self.scroll)
         layout.addWidget(self.scroll, 1)
 
         self.attachment_container = QWidget()
@@ -2932,9 +2944,24 @@ class MainWindow(QMainWindow):
             label.setWordWrap(True)
             label.setTextFormat(Qt.PlainText)
             bubble.layout().insertWidget(1, label)
+        return self._register_transcript_bubble(bubble)
+
+    def _register_transcript_bubble(self, bubble):
+        self.transcript_selection.register_bubble(bubble)
         return bubble
 
+    def _copy_chat(self) -> None:
+        parts = [
+            f"{'You' if message.role == 'user' else 'MoliCoder'}:\n{message.content}"
+            for message in self._current_messages() if message.role in {'user', 'assistant'}
+        ]
+        if self.active_bubble and self.active_bubble.content:
+            parts.append(f"MoliCoder:\n{self.active_bubble.content}")
+        QApplication.clipboard().setText('\n\n'.join(parts))
+
     def _render_messages(self, messages: list[Message]) -> None:
+        selection = self.transcript_selection.snapshot() if getattr(self, '_rendered_conversation_id', None) == self.current_conversation_id else None
+        self.transcript_selection.reset()
         while self.transcript_layout.count() > 1:
             item = self.transcript_layout.takeAt(0)
             widget = item.widget()
@@ -2951,6 +2978,9 @@ class MainWindow(QMainWindow):
                     self.transcript_layout.count() - 1,
                     self._message_bubble(message),
                 )
+        self._rendered_conversation_id = self.current_conversation_id
+        if selection:
+            self.transcript_selection.restore(selection)
         QTimer.singleShot(0, self._scroll_to_bottom)
 
     def _model_changed(self) -> None:
@@ -2995,7 +3025,8 @@ class MainWindow(QMainWindow):
             return
         messages = self._current_messages()
         reserved = int(self.output_spin.value()) if hasattr(self, "output_spin") else self.preset.max_output_tokens
-        budget = calculate_budget(messages, self._pending_content(), self.preset.context_window, reserved)
+        api_messages = build_chat_messages(messages, self.preset.system_prompt, pending_text=self._pending_content())
+        budget = ContextBudget(estimate_messages(api_messages), reserved, self.preset.context_window)
         percent = round(budget.fraction * 100)
         self.context_progress.setValue(percent)
         color = theme_color("error") if budget.blocked else theme_color("warning") if budget.warning else theme_color("accent")
@@ -3052,9 +3083,17 @@ class MainWindow(QMainWindow):
                 self._send_controller_reply(content, result)
                 return
         messages_before = self._current_messages()
-        budget = calculate_budget(
-            messages_before, content, self.preset.context_window, int(self.output_spin.value())
-        )
+        api_messages = build_chat_messages(messages_before, self.preset.system_prompt, pending_text=content)
+        model = self.preset.name
+        options = {
+            "context_window": self.preset.context_window,
+            "max_output_tokens": int(self.output_spin.value()),
+            "temperature": float(self.temperature_spin.value()),
+            "top_p": float(self.top_p_spin.value()),
+            "show_thinking": self.preset.show_thinking,
+            "keep_alive": "5m",
+        }
+        budget = ContextBudget(estimate_messages(api_messages), options['max_output_tokens'], options['context_window'])
         if budget.blocked:
             QMessageBox.warning(
                 self, "Context limit reached",
@@ -3062,7 +3101,8 @@ class MainWindow(QMainWindow):
             )
             return
         user_message = Message(None, self.current_conversation_id, "user", content)
-        self.store.add_message(user_message)
+        self.transcript_selection.clear()
+        user_message_id = self.store.add_message(user_message)
         conversation = self.store.get_conversation(self.current_conversation_id)
         message_rendered_by_refresh = False
         if conversation and conversation.title == "New chat":
@@ -3073,14 +3113,17 @@ class MainWindow(QMainWindow):
 
         if not message_rendered_by_refresh:
             self.transcript_layout.insertWidget(
-                self.transcript_layout.count() - 1, ChatBubble("user", content)
+                self.transcript_layout.count() - 1, self._register_transcript_bubble(ChatBubble("user", content))
             )
-        self._pending_receipt = {"provider": "ollama", "requested_model": self.preset.name, "model_source": "requested",
-                                 "runtime_metadata": getattr(self, '_model_facts', {}).get(self.preset.name, {}),
+        self._pending_receipt = {"provider": "ollama", "requested_model": model, "model_source": "requested",
+                                 "runtime_metadata": getattr(self, '_model_facts', {}).get(model, {}),
                                  "attachments": [item.name for item in self.current_attachments],
-                                 "turn_ids": [message.id for message in self.store.list_messages(self.current_conversation_id)],
+                                 "turn_ids": [message.id for message in messages_before if message.role in {'user', 'assistant'}] + [user_message_id],
+                                 "conversation_id": self.current_conversation_id,
+                                 "history_policy": "complete_current_conversation",
+                                 "estimated_prompt_tokens": budget.estimated_prompt_tokens,
                                  "project_files": [], "decisions": [], "system_prompt": True}
-        self.active_bubble = ChatBubble("assistant")
+        self.active_bubble = self._register_transcript_bubble(ChatBubble("assistant"))
         self.active_bubble.reasoning_frame.setVisible(self.preset.show_thinking)
         self.transcript_layout.insertWidget(self.transcript_layout.count() - 1, self.active_bubble)
         self.composer.clear()
@@ -3088,20 +3131,8 @@ class MainWindow(QMainWindow):
         self._render_attachment_chips()
         self._scroll_to_bottom()
 
-        api_messages = [{"role": "system", "content": self.preset.system_prompt}]
-        for message in self.store.list_messages(self.current_conversation_id):
-            if message.role in {"user", "assistant"}:
-                api_messages.append({"role": message.role, "content": message.content})
-        options = {
-            "context_window": self.preset.context_window,
-            "max_output_tokens": int(self.output_spin.value()),
-            "temperature": float(self.temperature_spin.value()),
-            "top_p": float(self.top_p_spin.value()),
-            "show_thinking": self.preset.show_thinking,
-            "keep_alive": "5m",
-        }
         self.chat_worker = ChatWorker(
-            self.client, self.preset.name, api_messages, options,
+            self.client, model, api_messages, options,
             self.inference_policy, chat_project_id,
         )
         self._pending_receipt['request_id'] = getattr(self.chat_worker, 'request_id', f'conversation:{self.current_conversation_id}')
@@ -3120,6 +3151,7 @@ class MainWindow(QMainWindow):
         conversation_id = self.current_conversation_id
         if conversation_id is None:
             return
+        self.transcript_selection.clear()
         self.store.add_message(Message(None, conversation_id, "user", content))
         message_id = self.store.add_message(Message(None, conversation_id, "assistant", result.content))
         self.store.set_message_receipt(message_id, {"provider": "none", "model_source": "no_inference", "operation": result.kind,
@@ -3222,16 +3254,21 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(2500, lambda: (self.stop_button.setEnabled(True), self.stop_button.setText("Stop")))
 
     def _scroll_to_bottom(self) -> None:
+        if self.transcript_selection.has_selection():
+            return
         self.transcript_layout.activate()
         self._scroll_timer.start(0)
 
     def _perform_scroll_to_bottom(self) -> None:
+        if self.transcript_selection.has_selection():
+            return
         self.transcript_layout.activate()
         bar = self.scroll.verticalScrollBar()
         bar.setValue(bar.maximum())
 
     def _scroll_range_changed(self, _minimum: int, maximum: int) -> None:
-        self.scroll.verticalScrollBar().setValue(maximum)
+        if not hasattr(self, 'transcript_selection') or not self.transcript_selection.has_selection():
+            self.scroll.verticalScrollBar().setValue(maximum)
 
     def _choose_attachments(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(self, "Attach text or code files")

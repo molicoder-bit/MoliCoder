@@ -26,6 +26,7 @@ For example, a question such as “What task are we on?” can be answered from 
 ## What works today
 
 - **Chat:** stream replies from local Ollama models; adjust output length, temperature, and top-p; inspect prompt/output metrics; keep conversations and export Markdown or JSON.
+- **Conversation continuity and copying:** reopened chats send their saved messages with each request, within the visible context limit. Drag across message cards or Shift-click to select a range; use Select all / Copy chat for larger copies.
 - **Project context:** select a local Git project, inspect authoritative run status and project knowledge, and get source-backed answers to supported status questions.
 - **Build:** plan and execute tasks in isolated Git worktrees, run fixed validation commands, preserve failed work for review, and record task evidence.
 - **Routes:** choose Local offline, Hybrid, or Frontier only. External CLI agents require project trust and an explicit Build authorization.
@@ -55,6 +56,10 @@ The app starts in general Chat with **No project**. Choose a folder for reposito
 Each project has its own **chat history**, with any number of conversations. Choose a project to see only its chats under **History → Projects / conversations**; the heading shows the project and chat count. **New chat** creates another conversation in that project. Switching projects restores the chat you last selected there, including its unsent draft and attachments during the current session. The chat selection also survives restarting the app. Choose **General chats · No project** for conversations without a project. Existing chats keep their saved associations; unassigned older chats remain General chats. Removing a project from the list preserves its chat history; add the same folder again to reopen it.
 
 Project history preview: [Matrix](docs/images/usability/project-chats-matrix.png) · [Light](docs/images/usability/project-chats-light.png). [Completed implementation and verification tracker](docs/plans/project-chat-tracker.md).
+
+Continuing an existing chat sends its complete saved user/assistant history, followed by your new message. Same-chat history instructions tell the model to use those earlier turns rather than claiming every request starts a new session. Other chats are not included. The context estimate includes the system instruction; a request that exceeds the safe limit is blocked, with no silent history removal. **Context details** records the exact turn IDs used. Model answers can still be mistaken; a statement that it cannot remember is not evidence that saved messages were deleted.
+
+To copy several messages, drag from one message body into another, or click a start position and **Shift-click** an end position. Selection scrolls when you drag near the transcript edge. **Ctrl+A / Ctrl+C** (Command on macOS) works across the transcript when a message has focus; composer shortcuts still apply only to your draft. **Select all** selects displayed message text, including expanded reasoning; **Copy chat** copies the current conversation with speaker labels and Markdown, excluding hidden reasoning and unsent drafts. Each message's own Copy button remains available. [Continuity and selection verification](docs/plans/chat-continuity-selection-tracker.md).
 
 Explicit simple folder requests use a local confirmation showing the exact path, including destinations outside a Git project. Missing or invalid destinations produce clarification. Created, already-existing, cancelled, and failed actions are recorded under **History → Local actions**. Coding agents still cannot escape their worktree scope.
 
