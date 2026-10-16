@@ -1,6 +1,6 @@
 # Chat continuity and transcript selection
 
-**Status: implementation and verification complete; Windows installation waiting for the running app to close.**
+**Status: complete — version 1.3.2 installed on 2026-10-16.**
 
 - [x] CS01 Inspect saved turn receipts and the Chat → policy → Ollama request path for the reported conversation.
 - [x] CS02 Give every Chat model explicit instructions to use the supplied same-conversation history and correct misleading earlier memory claims.
@@ -10,7 +10,7 @@
 - [x] CS06 Support transcript Select all, Copy selection, and Copy chat without capturing composer shortcuts.
 - [x] CS07 Keep cross-message selection usable during scrolling, streaming, theme changes, and history navigation.
 - [x] CS08 Verify behavior in both themes and run relevant regressions; record a bounded local-model continuity check.
-- [ ] CS09 Update README, package/smoke-check the release, install if the app is closed, and push with completed evidence.
+- [x] CS09 Update README, package/smoke-check the release, install if the app is closed, and push with completed evidence.
 
 ## Evidence
 
@@ -25,4 +25,8 @@ The reported saved chat contains earlier user/assistant turns, with prompt count
 
 Full Windows regression: **509 passed, 6 skipped** in 202.35 seconds. The six skipped checks require opt-in local/paid live inference; the separate bounded local continuity check above passed. Both packaged checks passed: `--package-smoke-check` (desktop, legacy data, migration/recovery) and `--package-board-smoke-check` (embedded browser). Counts from focused runs overlap the full suite and must not be summed.
 
-Source `1b94413` is pushed to `main`. Release **1.3.2** is built at `dist/MoliCoder/MoliCoder.exe`, SHA-256 `DFC6EC7007CE7532FBD5AC77DC3DDB5F6008B8B0C135C5197A370999E60DD4B7`. Installation is waiting for the user to close the running app; the current install has not been replaced or force-closed. These are local Windows results, not a new claim of completed hosted platform CI.
+Source `1b94413` is pushed to `main`. Release **1.3.2** is installed at `C:\Users\luism\AppData\Local\Programs\MoliCoder\MoliCoder.exe`. Built and installed executable SHA-256 match: `DFC6EC7007CE7532FBD5AC77DC3DDB5F6008B8B0C135C5197A370999E60DD4B7`.
+
+The installed executable also passed its desktop/migration smoke check after replacement.
+
+The user approved installation after saving and closing the app. Windows still showed a responsive window; it accepted a normal close request and exited before installation. The desktop shortcut was refreshed. The previous installation remains at `C:\Users\luism\AppData\Local\Programs\MoliCoder.previous-20261016-021749-4b881baefb04402eb707a3bf976581d5`. These are local Windows results, not a new claim of completed hosted platform CI.
