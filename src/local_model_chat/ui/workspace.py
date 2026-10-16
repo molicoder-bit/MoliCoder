@@ -88,7 +88,7 @@ def build_workspace(w):
     w.current_activity.setWordWrap(True)
     activity_layout.addWidget(w.busy_indicator)
     activity_layout.addWidget(w.current_activity, 1)
-    w.return_to_build = button('Open active Build', lambda: w._set_view('build'))
+    w.return_to_build = button('Open active Build', lambda: return_to_build(w))
     activity_layout.addWidget(w.return_to_build)
     w.activity_row = activity_row
     activity_row.hide()
@@ -348,12 +348,18 @@ def refresh_activity(w):
     if not hasattr(w, 'busy_indicator'):
         return
     active = w.orchestration_worker is not None and not getattr(w, '_build_terminal', False)
+    last_run = w.store.get_run(w.last_run_id) if w.last_run_id else None
+    attention = bool(not active and last_run and last_run['status'] in {'failed', 'needs_attention', 'waiting_auth', 'waiting_quota', 'waiting_approval', 'review_required'})
     pause_state = getattr(w.orchestration_worker, 'pause_state', 'running')
     waiting = active and pause_state == 'paused'
     reduced = w.store.get_setting('ui.reduce_motion', 'false') == 'true'
     w.busy_indicator.set_busy(active and not waiting, reduced)
-    w.activity_row.setVisible(active)
-    w.return_to_build.setVisible(active and w.view_stack.currentWidget() != w.build_view)
+    in_chat = w.view_stack.currentWidget() != w.build_view
+    w.activity_row.setVisible(active or attention and in_chat)
+    w.return_to_build.setVisible((active or attention) and in_chat)
+    w.return_to_build.setText('Review Build' if attention else 'Open active Build')
+    if attention:
+        w.current_activity.setText(f"Build #{last_run['id']} needs attention · {last_run.get('recovery_reason') or last_run['status']}")
     if active:
         elapsed = max(0, int(time.monotonic() - w._build_started_at))
         since = max(0, int(time.monotonic() - getattr(w, '_last_build_event_at', w._build_started_at)))
@@ -362,6 +368,15 @@ def refresh_activity(w):
         if pause_state == 'cancelling': stage = 'Cancelling · waiting for the worker to stop'
         suffix = ' · Waiting for provider; no recent update' if since >= 30 else ''
         w.current_activity.setText(f'{stage} · {elapsed}s elapsed · Last activity {since}s ago{suffix}')
+
+
+def return_to_build(w):
+    if w.orchestration_worker is None and w.last_run_id:
+        run = w.store.get_run(w.last_run_id)
+        if run:
+            w._last_local_action = None
+            w._load_project_list(select_id=run['project_id'])
+    w._set_view('build')
 
 
 def show_history(w):

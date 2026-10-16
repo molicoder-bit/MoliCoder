@@ -131,3 +131,21 @@ def test_build_context_details_never_reuses_chat_receipt(qtbot,tmp_path,monkeypa
     w._last_local_action={'target':str(tmp_path/'current-folder'),'outcome':'created','detail':'Current local action'}
     show_context_details(w)
     assert 'Current local action' in captured[-1] and 'No AI model used' in captured[-1]
+
+
+def test_background_failure_remains_visible_and_returns_to_its_project(qtbot,tmp_path):
+    from local_model_chat.molicoder.orchestrator import OrchestrationResult
+    store=ChatStore(tmp_path/'background-failure.db')
+    project=store.upsert_project('Failed project',str(tmp_path),'python')
+    run=store.create_run(project.id,'Fixture request','HYBRID',provider='codex')
+    store.fail_active_run(run,'Fixture validation failed')
+    w=MainWindow(store,start_ollama_check=False);qtbot.addWidget(w);w.show()
+    w._build_completed(OrchestrationResult(run,'needs_attention',0,1,'Fixture validation failed'))
+    refresh_workspace(w)
+    assert w.activity_row.isVisible() and 'needs attention' in w.current_activity.text()
+    assert not w.busy_indicator.timer.isActive()
+    w._last_local_action={'target':'a newer local action','detail':'Local action','outcome':'created'}
+    w.return_to_build.click()
+    assert w.current_project_id == project.id and w.view_stack.currentWidget() == w.build_view
+    assert not w.work_feedback.isHidden()
+    assert w._last_local_action is None and f'Run #{run}' in w.context_summary.text()
