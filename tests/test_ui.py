@@ -505,7 +505,7 @@ def test_project_shell_adds_project_and_switches_views(qtbot, tmp_path) -> None:
 
     assert added.kind == "python"
     assert "No monthly paid API limit" in window.pacing_label.text()
-    assert window.project_list.count() == 1
+    assert window.project_list.count() == 2  # project plus General chats
     assert window.view_stack.currentWidget() is window.build_view
     assert "sample-project" in window.build_project_title.text()
     assert window.current_conversation_id is not None

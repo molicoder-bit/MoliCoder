@@ -78,6 +78,7 @@ class MainWindow(QMainWindow):
         self.current_project_id: int | None = None
         self.pending_build_request: tuple[int | None, str] | None = None
         self.current_conversation_id: int | None = None
+        self._scope_chat_selection: dict[int | None, int] = {}
         self.current_attachments: list[Attachment] = []
         self.managed_install_worker: ManagedInstallWorker | None = None
         self.managed_repair_worker: ManagedRepairWorker | None = None
@@ -129,7 +130,6 @@ class MainWindow(QMainWindow):
         if not remember:
             self.registry.clear_selection()
         self._load_project_list(select_saved=remember)
-        self._new_chat()
         if start_ollama_check:
             self._start_ollama_check()
 
@@ -190,10 +190,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.project_list)
         project_actions = QHBoxLayout()
         remove_project = QPushButton("Remove")
+        self.remove_project_button = remove_project
         remove_project.setObjectName("ghost")
         remove_project.clicked.connect(self._remove_project)
         project_actions.addWidget(remove_project)
         recycle_project = QPushButton("Recycle folder")
+        self.recycle_project_button = recycle_project
         recycle_project.setObjectName("danger")
         recycle_project.clicked.connect(self._recycle_project)
         project_actions.addWidget(recycle_project)
@@ -201,11 +203,12 @@ class MainWindow(QMainWindow):
 
         new_button = QPushButton("＋  New chat")
         new_button.setObjectName("primary")
-        new_button.clicked.connect(self._new_chat)
+        new_button.clicked.connect(self._open_new_chat)
         layout.addWidget(new_button)
-        chats_label = QLabel("CONVERSATIONS")
-        chats_label.setObjectName("sectionTitle")
-        layout.addWidget(chats_label)
+        self.chats_scope_label = QLabel("General chats")
+        self.chats_scope_label.setObjectName("sectionTitle")
+        self.chats_scope_label.setWordWrap(True)
+        layout.addWidget(self.chats_scope_label)
         self.chat_list = QListWidget()
         self.chat_list.currentItemChanged.connect(self._conversation_selected)
         layout.addWidget(self.chat_list, 1)
@@ -1211,13 +1214,20 @@ class MainWindow(QMainWindow):
         from .route_identity import refresh_route_identity
         refresh_route_identity(self)
 
-    def _load_project_list(self, *, select_saved: bool = False, select_id: int | None = None) -> None:
+    def _load_project_list(
+        self, *, select_saved: bool = False, select_id: int | None = None,
+        conversation_id: int | None = None,
+    ) -> None:
         projects = self.registry.list()
         selected = self.registry.selected() if select_saved else None
         target_id = select_id or (selected.id if selected else None)
         self.project_list.blockSignals(True)
         self.project_list.clear()
-        selected_item = None
+        general_item = QListWidgetItem("General chats")
+        general_item.setData(Qt.ItemDataRole.UserRole, None)
+        general_item.setToolTip("Conversations without a project")
+        self.project_list.addItem(general_item)
+        selected_item = general_item
         for project in projects:
             item = QListWidgetItem(project.name)
             item.setData(Qt.ItemDataRole.UserRole, project.id)
@@ -1232,44 +1242,72 @@ class MainWindow(QMainWindow):
             self.project_list.addItem(item)
             if project.id == target_id:
                 selected_item = item
+        self.project_list.setCurrentItem(selected_item)
         self.project_list.blockSignals(False)
-        if selected_item:
-            self.project_list.setCurrentItem(selected_item)
-            self._project_selected(selected_item, None)
-        else:
-            self.current_project_id = None
-            self.registry.clear_selection()
-            self._update_build_project(None)
+        self._select_project_scope(selected_item.data(Qt.ItemDataRole.UserRole), conversation_id=conversation_id)
 
     def _project_selected(self, current: QListWidgetItem | None, _previous) -> None:
         if current is None:
             return
-        project_id = int(current.data(Qt.ItemDataRole.UserRole))
+        self._select_project_scope(current.data(Qt.ItemDataRole.UserRole))
+
+    def _select_project_scope(self, project_id: int | None, *, conversation_id: int | None = None) -> None:
         if self.orchestration_worker is not None and project_id != self.current_project_id:
-            self._load_project_list(select_id=self.current_project_id)
+            self.project_list.blockSignals(True)
+            for index in range(self.project_list.count()):
+                if self.project_list.item(index).data(Qt.ItemDataRole.UserRole) == self.current_project_id:
+                    self.project_list.setCurrentRow(index)
+                    break
+            self.project_list.blockSignals(False)
+            from .workspace import sync_projects
+            sync_projects(self)
+            self.project_switch.blockSignals(True)
+            self.project_switch.setCurrentIndex(self.project_switch.findData(self.current_project_id))
+            self.project_switch.blockSignals(False)
+            self.statusBar().showMessage("Finish or cancel the active Build before switching projects.", 5000)
             return
         if not hasattr(self, "_conversation_drafts"):
             self._conversation_drafts = {}
         if self.current_conversation_id is not None and self.store.get_conversation_project_id(self.current_conversation_id) == self.current_project_id:
             self._conversation_drafts[self.current_conversation_id] = (self.composer.toPlainText(), list(self.current_attachments))
+            self._scope_chat_selection[self.current_project_id] = self.current_conversation_id
         previous_id = self.current_project_id
         self.workspace_state.drafts[previous_id] = (self.composer.toPlainText(), self.build_request.toPlainText(), list(self.current_attachments))
         if previous_id != project_id:
-            chat, build, attachments = self.workspace_state.drafts.get(project_id, ("", "", []))
-            self.composer.setPlainText(chat); self.build_request.setPlainText(build)
-            self.current_attachments = list(attachments); self._render_attachment_chips()
+            _, build, _ = self.workspace_state.drafts.get(project_id, ("", "", []))
+            self.build_request.setPlainText(build)
         try:
-            project = self.registry.select(project_id)
+            project = self.registry.select(project_id) if project_id is not None else None
         except ValueError:
             self._load_project_list(select_saved=True)
             return
-        self.current_project_id = project.id
+        if project is None:
+            self.registry.clear_selection()
+        self.current_project_id = project.id if project else None
+        remembered_chat = self._scope_chat_selection.get(self.current_project_id)
+        if remembered_chat is None:
+            try:
+                remembered_chat = int(self.store.get_setting(self._chat_selection_key(), ''))
+            except ValueError:
+                pass
+        if remembered_chat is not None and (
+            self.store.get_conversation(remembered_chat) is None
+            or self.store.get_conversation_project_id(remembered_chat) != self.current_project_id
+        ):
+            remembered_chat = None
+        self._load_conversation_list(
+            select_id=conversation_id or remembered_chat, select_first=True,
+        )
         self._update_build_project(project)
+        from .workspace import sync_projects
+        sync_projects(self)
         self._refresh_pacing()
         if self.pending_build_request is not None:
             self._update_pending_build_card()
 
     def _update_build_project(self, project: Project | None) -> None:
+        self.remove_project_button.setEnabled(project is not None and self.orchestration_worker is None)
+        self.recycle_project_button.setEnabled(project is not None and self.orchestration_worker is None)
         if hasattr(self, '_settings_dialog') and self._settings_dialog.isVisible():
             from .settings_window import show_settings_window, CATEGORIES
             show_settings_window(self, CATEGORIES[max(0, self._settings_nav.currentRow())])
@@ -2658,10 +2696,13 @@ class MainWindow(QMainWindow):
 
     def _remove_project(self) -> None:
         item = self.project_list.currentItem()
-        if item is None:
+        if item is None or item.data(Qt.ItemDataRole.UserRole) is None:
             return
         project = self.registry.get(int(item.data(Qt.ItemDataRole.UserRole)))
         if project is None:
+            return
+        if self.orchestration_worker is not None or self.store.has_active_run(project.id):
+            QMessageBox.warning(self, "Project is active", "Finish or cancel the active build first.")
             return
         if QMessageBox.question(
             self,
@@ -2670,12 +2711,11 @@ class MainWindow(QMainWindow):
         ) != QMessageBox.StandardButton.Yes:
             return
         self.registry.remove(project.id)
-        self.current_project_id = None
         self._load_project_list(select_saved=True)
 
     def _recycle_project(self) -> None:
         item = self.project_list.currentItem()
-        if item is None:
+        if item is None or item.data(Qt.ItemDataRole.UserRole) is None:
             return
         project = self.registry.get(int(item.data(Qt.ItemDataRole.UserRole)))
         if project is None:
@@ -2702,7 +2742,6 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Trash failed", f"The system could not move this folder to Trash:\n{path}")
             return
         self.registry.remove(project.id)
-        self.current_project_id = None
         self._load_project_list(select_saved=True)
         QMessageBox.information(self, "Project moved to Trash", "The folder was moved to the system Trash and can be restored there.")
 
@@ -2764,24 +2803,42 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Cleanup complete", f"Removed {removed} verified managed worktree(s).")
 
     def _load_conversation_list(self, select_first: bool = False, select_id: int | None = None) -> None:
+        if select_id is not None and self.store.get_conversation(select_id) is not None:
+            owner_id = self.store.get_conversation_project_id(select_id)
+            if owner_id != self.current_project_id:
+                if owner_id is not None and not any(p.id == owner_id for p in self.registry.list()):
+                    self.statusBar().showMessage("Add this chat's project folder again to reopen its history.", 5000)
+                    return
+                self._load_project_list(select_id=owner_id, conversation_id=select_id)
+                return
         self.chat_list.blockSignals(True)
         self.chat_list.clear()
         selected_item = None
-        for conversation in self.store.list_conversations():
+        conversations = self.store.list_project_conversations(self.current_project_id)
+        project = self.store.get_project(self.current_project_id) if self.current_project_id is not None else None
+        scope = f"{project.name} chats" if project else "General chats"
+        self.chats_scope_label.setText(f"{scope} · {len(conversations)}")
+        self.history_dialog.setWindowTitle(f"History — {scope}")
+        for conversation in conversations:
             item = QListWidgetItem(conversation.title)
             item.setData(Qt.ItemDataRole.UserRole, conversation.id)
-            item.setToolTip(f"{conversation.model}\nUpdated {conversation.updated_at}")
+            item.setToolTip(f"{scope}\n{conversation.model}\nUpdated {conversation.updated_at}")
             self.chat_list.addItem(item)
             if select_id == conversation.id:
                 selected_item = item
-        self.chat_list.blockSignals(False)
         if selected_item:
             self.chat_list.setCurrentItem(selected_item)
+            self.chat_list.blockSignals(False)
             self._conversation_selected(selected_item, None)
         elif select_first and self.chat_list.count():
             self.chat_list.setCurrentRow(0)
+            self.chat_list.blockSignals(False)
+            self._conversation_selected(self.chat_list.currentItem(), None)
         elif not self.chat_list.count():
+            self.chat_list.blockSignals(False)
             self._new_chat()
+        else:
+            self.chat_list.blockSignals(False)
 
     def _open_new_chat(self) -> None:
         self._new_chat()
@@ -2789,29 +2846,35 @@ class MainWindow(QMainWindow):
         self.history_dialog.hide()
         self.composer.setFocus()
 
+    def _chat_selection_key(self) -> str:
+        scope = str(self.current_project_id) if self.current_project_id is not None else 'general'
+        return f'ui.last_chat.{scope}'
+
     def _new_chat(self, model: str | None = None) -> None:
         if not hasattr(self, "_conversation_drafts"):
             self._conversation_drafts = {}
         if self.current_conversation_id is not None and self.store.get_conversation_project_id(self.current_conversation_id) == self.current_project_id:
             self._conversation_drafts[self.current_conversation_id] = (self.composer.toPlainText(), list(self.current_attachments))
-        if self.chat_worker:
-            worker = self.chat_worker
-            worker.cancel()
-            if not hasattr(self, "_retired_chat_workers"):
-                self._retired_chat_workers = []
-            self._retired_chat_workers.append(worker)
-            worker.finished.connect(lambda owner=worker: (self._retired_chat_workers.remove(owner), owner.deleteLater()))
-            self.chat_worker = None
-            self.active_bubble = None
-            self.stop_button.hide()
-            self.send_button.show()
-            self.model_combo.setEnabled(True)
+        self._retire_chat_generation()
         model = model or self.model_combo.currentData()
-        conversation = self.store.create_conversation(model)
-        if self.current_project_id is not None:
-            self.store.link_conversation_project(conversation.id, self.current_project_id)
+        conversation = self.store.create_conversation(model, project_id=self.current_project_id)
         self._load_conversation_list(select_id=conversation.id)
         self.composer.setFocus()
+
+    def _retire_chat_generation(self) -> None:
+        if self.chat_worker is None:
+            return
+        worker = self.chat_worker
+        if not hasattr(self, "_retired_chat_workers"):
+            self._retired_chat_workers = []
+        self._retired_chat_workers.append(worker)
+        worker.finished.connect(lambda owner=worker: (self._retired_chat_workers.remove(owner), owner.deleteLater()))
+        self.chat_worker = None
+        self.active_bubble = None
+        worker.cancel()
+        self.stop_button.hide()
+        self.send_button.show()
+        self.model_combo.setEnabled(True)
 
     def _conversation_selected(self, current: QListWidgetItem | None, _previous) -> None:
         if not current:
@@ -2820,10 +2883,15 @@ class MainWindow(QMainWindow):
         conversation = self.store.get_conversation(conversation_id)
         if not conversation:
             return
+        linked_project_id = self.store.get_conversation_project_id(conversation.id)
+        if linked_project_id != self.current_project_id:
+            self._load_conversation_list(select_id=conversation.id)
+            return
         if not hasattr(self, "_conversation_drafts"):
             self._conversation_drafts = {}
         conversation_changed = self.current_conversation_id != conversation.id
         if conversation_changed:
+            self._retire_chat_generation()
             if self.current_conversation_id is not None and self.store.get_conversation_project_id(self.current_conversation_id) == self.current_project_id:
                 self._conversation_drafts[self.current_conversation_id] = (self.composer.toPlainText(), list(self.current_attachments))
             draft, attachments = self._conversation_drafts.get(conversation.id, ("", []))
@@ -2831,14 +2899,10 @@ class MainWindow(QMainWindow):
             self.current_attachments = list(attachments)
             self._render_attachment_chips()
         self.current_conversation_id = conversation.id
-        linked_project_id = self.store.get_conversation_project_id(conversation.id)
-        if linked_project_id is None and self.current_project_id is not None and self.orchestration_worker is None:
-            from .workspace import select_project, sync_projects
-            self.project_switch.setCurrentIndex(self.project_switch.findData(None))
-            if self.registry.selected() is not None:
-                select_project(self)
-        if linked_project_id is not None and linked_project_id != self.current_project_id:
-            self._load_project_list(select_id=linked_project_id)
+        self._scope_chat_selection[self.current_project_id] = conversation.id
+        key = self._chat_selection_key()
+        if self.store.get_setting(key) != str(conversation.id):
+            self.store.set_setting(key, str(conversation.id))
         if conversation_changed:
             draft, attachments = self._conversation_drafts.get(conversation.id, ('', []))
             self.composer.setPlainText(draft)

@@ -540,20 +540,42 @@ class ChatStore:
             connection.execute(f"PRAGMA user_version = {self.SCHEMA_VERSION}")
             connection.commit()
 
-    def create_conversation(self, model: str, title: str = "New chat") -> Conversation:
+    def create_conversation(
+        self, model: str, title: str = "New chat", *, project_id: int | None = None,
+    ) -> Conversation:
         now = datetime.now().isoformat(timespec="seconds")
         with closing(self._connect()) as connection:
             cursor = connection.execute(
                 "INSERT INTO conversations(title, model, created_at, updated_at) VALUES (?, ?, ?, ?)",
                 (title, model, now, now),
             )
+            conversation_id = int(cursor.lastrowid)
+            if project_id is not None:
+                connection.execute(
+                    """INSERT INTO conversation_context(conversation_id, project_id, linked_at, updated_at)
+                       VALUES (?, ?, ?, ?)""",
+                    (conversation_id, project_id, now, now),
+                )
             connection.commit()
-            return Conversation(int(cursor.lastrowid), title, model, now, now)
+            return Conversation(conversation_id, title, model, now, now)
 
     def list_conversations(self) -> list[Conversation]:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 "SELECT id, title, model, created_at, updated_at FROM conversations ORDER BY updated_at DESC"
+            ).fetchall()
+        return [Conversation(**dict(row)) for row in rows]
+
+    def list_project_conversations(self, project_id: int | None) -> list[Conversation]:
+        """Return only the selected project's chats, or unassigned General chats."""
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT c.id, c.title, c.model, c.created_at, c.updated_at
+                   FROM conversations c
+                   LEFT JOIN conversation_context context ON context.conversation_id = c.id
+                   WHERE context.project_id IS ?
+                   ORDER BY c.updated_at DESC, c.id DESC""",
+                (project_id,),
             ).fetchall()
         return [Conversation(**dict(row)) for row in rows]
 

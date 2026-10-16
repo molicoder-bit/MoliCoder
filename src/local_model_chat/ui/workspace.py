@@ -43,6 +43,8 @@ def build_workspace(w):
     w.history_actions = QListWidget(); w.history_tabs.addTab(w.history_actions, 'Local actions')
     w.history_actions.itemClicked.connect(lambda item: (w.build_details.setPlainText(item.data(Qt.UserRole)), w.history_dialog.hide(), open_drawer(w, 'Activity')))
     w.history_runs.itemClicked.connect(lambda item: show_run(w, item.data(Qt.UserRole)))
+    w.chat_list.itemClicked.connect(lambda _item: (w._set_view('chat'), w.history_dialog.hide()))
+    w.chat_list.itemActivated.connect(lambda _item: (w._set_view('chat'), w.history_dialog.hide()))
     history_layout.addWidget(w.history_tabs)
     w.sidebar.setMaximumWidth(500)
     row.addWidget(w.chat_nav_button); row.addWidget(w.build_nav_button)
@@ -150,17 +152,6 @@ def QScroll(widget):
 
 def select_project(w):
     project_id = w.project_switch.currentData()
-    if project_id is None:
-        if w.orchestration_worker is not None: return
-        w.workspace_state.drafts[w.current_project_id] = (w.composer.toPlainText(), w.build_request.toPlainText(), list(w.current_attachments))
-        w.current_project_id = None
-        w.registry.clear_selection()
-        chat, build, attachments = w.workspace_state.drafts.get(None, ('', '', []))
-        w.composer.setPlainText(chat); w.build_request.setPlainText(build)
-        w.current_attachments = list(attachments); w._render_attachment_chips()
-        w.project_list.clearSelection()
-        w._update_build_project(None)
-        return
     for index in range(w.project_list.count()):
         item = w.project_list.item(index)
         if item.data(Qt.UserRole) == project_id:
@@ -172,7 +163,7 @@ def sync_projects(w):
     if signature == getattr(w, '_project_signature', None): return
     w._project_signature = signature
     w.project_switch.blockSignals(True); w.project_switch.clear()
-    w.project_switch.addItem('No project', None)
+    w.project_switch.addItem('General chats · No project', None)
     for project in w.registry.list():
         w.project_switch.addItem(project.name, project.id)
     w.project_switch.setCurrentIndex(max(0, w.project_switch.findData(w.current_project_id)))
