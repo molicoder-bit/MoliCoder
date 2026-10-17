@@ -159,7 +159,8 @@ class RequestWorker(RepositoryChatWorker):
             self.analysis = RequestCoordinator(self.policy.registry.store, self.project, self.client,
                 preferred_model=self.model, policy=self.policy, cancelled=lambda: self._cancelled,
                 on_event=self.route_changed.emit, review=self._review, request_id=self.request_id,
-                conversation_id=getattr(self, 'conversation_id', None), resume_from=getattr(self, 'resume_from', None))
+                conversation_id=getattr(self, 'conversation_id', None), resume_from=getattr(self, 'resume_from', None),
+                provider_access=self._review)
             result = self.analysis.run(self.messages[-1]['content'], self.messages[:-1])
             self.route_changed.emit(dict(result.receipt, phase='completed'))
             self.content_delta.emit(result.content)

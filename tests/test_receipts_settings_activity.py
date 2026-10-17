@@ -78,7 +78,7 @@ def test_activity_is_visible_across_modes_and_stops_at_failure(qtbot,tmp_path):
     w.orchestration_worker=None
 
 
-def test_provider_cards_report_readiness_without_sending_inference(qtbot,tmp_path,monkeypatch):
+def test_provider_list_reports_readiness_without_sending_inference(qtbot,tmp_path,monkeypatch):
     from PySide6.QtWidgets import QPushButton, QLabel
     from local_model_chat.molicoder.providers import ProviderStatus
     monkeypatch.setattr('local_model_chat.molicoder.providers.probe_all_providers',lambda: (
@@ -88,10 +88,10 @@ def test_provider_cards_report_readiness_without_sending_inference(qtbot,tmp_pat
     ))
     w=MainWindow(ChatStore(tmp_path/'providers.db'),start_ollama_check=False);qtbot.addWidget(w)
     show_settings(w,'Models & providers')
-    check=next(b for b in w._settings_dialog.findChildren(QPushButton) if b.text().startswith('Check agent connections'))
+    check=next(b for b in w._settings_dialog.findChildren(QPushButton) if b.text() == 'Refresh connections')
     check.click()
     qtbot.waitUntil(lambda:getattr(w,'_provider_check_worker',None) is None)
-    text='\n'.join(label.text() for label in w._settings_dialog.findChildren(QLabel))
+    text='\n'.join(w._settings_providers.providers.item(i).text() for i in range(w._settings_providers.providers.count()))
     assert 'Sign-in required' in text and 'Not installed' in text and 'Ready' in text
     w._settings_dialog.close()
 
@@ -114,11 +114,12 @@ def test_worker_pause_is_confirmed_only_at_execution_boundary(qtbot):
 
 
 def test_settings_exposes_platform_limits_without_network_calls(qtbot,tmp_path,monkeypatch):
-    from PySide6.QtWidgets import QLabel
+    from PySide6.QtWidgets import QLabel, QPushButton
     monkeypatch.setattr('local_model_chat.environment.security.platform_security',lambda:SimpleNamespace(reason='Fixture: encrypted API credentials unavailable on this platform',credential_backend=None))
     w=MainWindow(ChatStore(tmp_path/'platform.db'),start_ollama_check=False);qtbot.addWidget(w)
     show_settings(w,'Models & providers')
     text='\n'.join(label.text() for label in w._settings_dialog.findChildren(QLabel))
-    assert 'credentials unavailable' in text and 'Request fallback and Build' in text
+    assert 'Choose a project' in text
+    assert any(b.text() == 'API connections…' for b in w._settings_dialog.findChildren(QPushButton))
     assert getattr(w,'_provider_check_worker',None) is None
     w._settings_dialog.close()

@@ -42,6 +42,7 @@ def discover_local_tools(
     *, client: OllamaClient | None = None,
     which: Callable[[str], str | None] = shutil.which,
     version: Callable[[str], str | None] = _version,
+    runtime_binary: Callable[[str], Path | None] | None = None,
 ) -> tuple[ToolDiscovery, ...]:
     """Read local availability only; no login, setup, model call, or service start."""
     found: list[ToolDiscovery] = []
@@ -54,6 +55,14 @@ def discover_local_tools(
             found.append(ToolDiscovery("ollama", False, None, None, "unavailable", "not_required", detail=str(exc)))
     for name in _CLI_NAMES:
         binary = which(name)
+        if binary is None and name in {'codex', 'claude', 'copilot', 'opencode', 'kilo'}:
+            if runtime_binary is not None:
+                binary = runtime_binary(name)
+            elif which is shutil.which:
+                # Includes receipt-backed managed installs and the Codex Desktop
+                # runtime, which need not be on the user's PATH.
+                from ..molicoder.providers import create_provider
+                binary = create_provider(name).discover_binary()
         if binary is None:
             found.append(ToolDiscovery(name, False, None, None, "not_installed", "unknown"))
             continue

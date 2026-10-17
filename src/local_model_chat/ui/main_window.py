@@ -573,10 +573,12 @@ class MainWindow(QMainWindow):
         container.setWidget(center)
         return container
 
-    def _show_environment_doctor(self) -> None:
+    def _show_environment_doctor(self, *, install_tool=None) -> None:
         if self.doctor_dialog is not None:
             self.doctor_dialog.show()
             self.doctor_dialog.raise_()
+            if install_tool:
+                self.doctor_dialog.request_install(install_tool)
             return
         dialog = QDialog(self)
         dialog.setWindowTitle("Environment readiness")
@@ -601,9 +603,37 @@ class MainWindow(QMainWindow):
         layout.addWidget(pull_model)
         self.doctor_dialog = dialog
         latest_report = None
+        pending_install = install_tool
+
+        def request_install(tool_id):
+            nonlocal pending_install
+            if latest_report is None:
+                pending_install = tool_id
+            elif tool_id == 'ollama' and latest_report.environment.system == 'Windows':
+                begin_ollama_install()
+            else:
+                begin_managed_install(tool_id)
+        dialog.request_install = request_install
+
+        def installed(receipt):
+            from ..orchestration.catalog import CapabilityCatalogService
+            from ..molicoder.providers import ProviderStatus
+            catalog = CapabilityCatalogService(self.store, self.client)
+            facts = catalog.cached()
+            facts['runtimes'] = [r for r in facts.get('runtimes', []) if r['tool_id'] != receipt.tool_id] + [
+                {'tool_id': receipt.tool_id, 'installed': True, 'binary': receipt.executable,
+                 'version': receipt.version, 'auth_state': 'unknown', 'configuration_state': 'installed'}]
+            self.store.set_setting(catalog.KEY, json.dumps(facts))
+            if receipt.tool_id in {'codex', 'claude', 'copilot', 'opencode', 'kilo'}:
+                statuses = getattr(self, '_provider_statuses', {})
+                statuses[receipt.tool_id] = ProviderStatus(receipt.tool_id, True, False,
+                    version=receipt.version, detail='Installation verified. Sign-in has not been checked.')
+                self._provider_statuses = statuses
+            if hasattr(self, '_settings_providers'):
+                self._settings_providers.refresh()
 
         def show_report(report) -> None:
-            nonlocal latest_report
+            nonlocal latest_report, pending_install
             from ..environment.doctor import render_human
             from ..environment.manifests import load_manifests
             from ..environment.maintenance import plan_maintenance
@@ -648,6 +678,9 @@ class MainWindow(QMainWindow):
                 "Waiting permission: {permission_needed} · Failed: {failed} · Unsupported: {unsupported} · "
                 "Update available: {update_available}".format(**counts)
             )
+            if pending_install:
+                selected_tool, pending_install = pending_install, None
+                QTimer.singleShot(0, lambda: request_install(selected_tool) if self.doctor_dialog is dialog else None)
 
         def check_again() -> None:
             if self.doctor_worker is not None:
@@ -667,7 +700,7 @@ class MainWindow(QMainWindow):
             worker.start()
 
         refresh.clicked.connect(check_again)
-        def begin_managed_install() -> None:
+        def begin_managed_install(tool_id=None) -> None:
             from ..environment.manifests import load_manifests
             from ..environment.policy import plan_setup
 
@@ -679,13 +712,13 @@ class MainWindow(QMainWindow):
                 and manifest.architecture == latest_report.environment.architecture
                 and manifest.install_kind == "archive"
                 and manifest.source_url.endswith((".tar.gz", ".tgz", ".tar.zst", ".zip"))
+                and (not tool_id or manifest.tool_id == tool_id)
             )
             if not candidates:
                 return
             choices = [f"{item.tool_id} {item.version}" for item in candidates]
-            selected, accepted = QInputDialog.getItem(
-                dialog, "Managed setup", "Supported tool", choices, 0, False,
-            )
+            selected, accepted = (choices[0], True) if tool_id else QInputDialog.getItem(
+                dialog, "Managed setup", "Supported tool", choices, 0, False)
             if not accepted:
                 return
             manifest = candidates[choices.index(selected)]
@@ -720,6 +753,7 @@ class MainWindow(QMainWindow):
             approved_plan = plan_setup(self.store, latest_report.environment, manifest)
             worker = ManagedInstallWorker(self.store, approved_plan, manifest, data_dir() / "tools")
             self.managed_install_worker = worker
+            worker.completed.connect(installed)
             managed_install.setEnabled(False)
             progress.setText(f"Installing {manifest.tool_id} {manifest.version}…")
             worker.completed.connect(lambda receipt: (
@@ -737,7 +771,7 @@ class MainWindow(QMainWindow):
             ))
             worker.start()
 
-        managed_install.clicked.connect(begin_managed_install)
+        managed_install.clicked.connect(lambda: begin_managed_install())
         def begin_managed_repair() -> None:
             from ..environment.manifests import load_manifests
             from ..environment.maintenance import plan_maintenance, repair_setup_plan
@@ -856,6 +890,7 @@ class MainWindow(QMainWindow):
                 manifest, data_dir() / "tools",
             )
             self.ollama_install_worker = worker
+            worker.completed.connect(installed)
             install_ollama.setEnabled(False)
             progress.setText(f"Installing Ollama {manifest.version}…")
             worker.completed.connect(lambda receipt: (
@@ -1216,6 +1251,9 @@ class MainWindow(QMainWindow):
             )
         self._update_model_availability()
         self._refresh_build_readiness()
+        if hasattr(self, '_settings_local_health'):
+            self._settings_local_health.setText(self.connection_label.text())
+            self._settings_providers.refresh()
 
     def _startup_worker_finished(self, worker: StartupWorker | None) -> None:
         if worker is None:
@@ -1344,6 +1382,10 @@ class MainWindow(QMainWindow):
         if project is None:
             self.registry.clear_selection()
         self.current_project_id = project.id if project else None
+        if previous_id != self.current_project_id and getattr(self, '_project_setup_dialog', None):
+            self._project_setup_dialog.reject()
+        if previous_id != self.current_project_id and hasattr(self, '_settings_providers'):
+            self._settings_providers.refresh()
         remembered_chat = self._scope_chat_selection.get(self.current_project_id)
         if remembered_chat is None:
             try:
@@ -1362,6 +1404,8 @@ class MainWindow(QMainWindow):
         from .workspace import sync_projects
         sync_projects(self)
         self._refresh_pacing()
+        if project:
+            QTimer.singleShot(0, lambda project_id=project.id: self._maybe_show_project_setup(project_id))
         if self.pending_build_request is not None:
             self._update_pending_build_card()
 
@@ -1486,8 +1530,10 @@ class MainWindow(QMainWindow):
         provider_name = str(run.get("provider") or self.build_provider.currentData() or "codex")
         preferences = self.store.get_project_preferences(project.id)
         if provider_name not in preferences.trusted_providers:
-            QMessageBox.information(self, "Provider permission required", "Trust the selected provider in Provider settings before resuming.")
-            return
+            from .provider_setup import choose_project_access
+            if not choose_project_access(self, project, needed=[provider_name], build=True,
+                    valid=lambda: self.current_project_id == project.id and self.orchestration_worker is None):
+                return
         model = str(run.get("model") or "")
         mode = str(run.get("mode") or "HYBRID")
         request = str(run.get("request") or "")
@@ -1628,76 +1674,32 @@ class MainWindow(QMainWindow):
         )
         self._refresh_build_readiness()
 
-    def _provider_settings(self) -> None:
-        project = self.registry.selected()
-        if project is None:
-            QMessageBox.information(self, "Provider settings", "Select a project first.")
+    def _maybe_show_project_setup(self, project_id):
+        if (not self.isVisible() or self.current_project_id != project_id or self.chat_worker
+                or self.orchestration_worker or getattr(self, '_project_setup_dialog', None)
+                or self.store.get_setting(f'ui.provider_setup.{project_id}', '') == 'seen'):
             return
-        statuses = getattr(self, '_provider_statuses', {})
-        preferences = self.store.get_project_preferences(project.id)
-        selected = str(self.build_provider.currentData() or preferences.provider)
+        project = self.registry.selected()
+        if not project: return
+        if self.store.get_project_preferences(project_id).trusted_providers:
+            self.store.set_setting(f'ui.provider_setup.{project_id}', 'seen')
+            return
+        from .provider_setup import choose_project_access
+        choose_project_access(self, project, first_open=True,
+            valid=lambda: self.current_project_id == project_id and not self.chat_worker and not self.orchestration_worker)
+
+    def _provider_settings(self) -> None:
+        from .settings_window import show_settings_window
+        show_settings_window(self, 'Models & providers')
+
+    def _advanced_api_settings(self) -> None:
         dialog = QDialog(self)
-        dialog.setWindowTitle("Frontier provider settings")
-        dialog.setMinimumWidth(560)
-        layout = QVBoxLayout(dialog)
-        intro = QLabel("Requests use local tools and models first. Trusted providers can handle fallback and Build tasks automatically.")
-        intro.setWordWrap(True)
-        layout.addWidget(intro)
-        connections = QPushButton('Check connections in Settings')
-        connections.clicked.connect(lambda: __import__('local_model_chat.ui.settings_window', fromlist=['show_settings_window']).show_settings_window(self, 'Models & providers'))
-        layout.addWidget(connections)
-        for profile in AGENT_PROFILES:
-            status = statuses.get(profile.provider)
-            if status is None:
-                availability = "Not probed"
-            elif not status.installed:
-                availability = "Unavailable: CLI is not installed"
-            elif status.auth_verified:
-                availability = "Sign-in verified" if status.authenticated else "Sign-in required"
-            else:
-                availability = "Installed; sign-in and entitlement unverified"
-            if not profile.selectable:
-                availability = f"Build selection unavailable: {profile.limitation}"
-            route = "Coding runtime · model sets cost" if profile.provider in {'opencode', 'kilo'} else "Opaque subscription CLI"
-            detail = status.detail if status is not None else ""
-            label = QLabel(
-                f"{'OpenCode' if profile.provider == 'opencode' else profile.provider.title()} — {route}\n"
-                f"   {availability}\n"
-                f"   {detail}\n"
-                f"   Permissions: {profile.permission_model}; cancellation: {profile.cancellation}.\n"
-                f"   Sandbox: {profile.sandbox}\n"
-                f"   Capabilities: {', '.join(profile.capabilities)}.\n"
-                f"   {profile.limitation}"
-            )
-            label.setStyleSheet(
-                f"color: {theme_color('success')};" if status and status.installed and status.auth_verified
-                and status.authenticated and profile.selectable else f"color: {theme_color('warning')};"
-            )
-            label.setWordWrap(True)
-            layout.addWidget(label)
-        opencode_guide = QPushButton("Open official OpenCode provider guide")
-        opencode_guide.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl(agent_profile("opencode").auth_guide))
-        )
-        layout.addWidget(opencode_guide)
-        form = QFormLayout()
-        model_edit = QLineEdit(preferences.model_overrides.get(selected, ""))
-        model_edit.setPlaceholderText("Leave blank to use the CLI default")
-        form.addRow(f"{selected.title()} model override", model_edit)
-        trusted = QCheckBox(f"Trust {selected.title()} for this project")
-        trusted.setChecked(selected in preferences.trusted_providers)
-        form.addRow("Project permission", trusted)
-        automatic_fallback = QCheckBox('Automatically continue requests with capable trusted providers')
-        automatic_fallback.setChecked(self.store.get_setting(f'repository.external_fallback.{project.id}', 'true') == 'true')
-        automatic_fallback.setToolTip('Up to three routes, eight tool turns per route, and one schema correction per phase. Calls are bounded by the shared request deadline. Subscription usage/cost can be unknown.')
-        form.addRow('Automatic routing', automatic_fallback)
-        layout.addLayout(form)
-        setup = QPushButton(f"Open official {selected.title()} setup and sign-in guide")
-        setup.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(agent_profile(selected).auth_guide)))
-        layout.addWidget(setup)
-        terms = QPushButton(f"Open {selected.title()} account terms")
-        terms.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(agent_profile(selected).terms_url)))
-        layout.addWidget(terms)
+        dialog.setWindowTitle('Advanced API connections')
+        dialog.resize(720, 600)
+        outer = QVBoxLayout(dialog)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        page = QWidget(); layout = QVBoxLayout(page)
+        scroll.setWidget(page); outer.addWidget(scroll)
         api_providers = tuple(
             item for item in self.inference_registry.list_providers()
             if item[0] not in {"ollama", "codex", "claude", "copilot"}
@@ -1777,7 +1779,7 @@ class MainWindow(QMainWindow):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
+        outer.addWidget(buttons)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         for offering_id, enabled, previous_status in offering_controls:
@@ -1786,25 +1788,6 @@ class MainWindow(QMainWindow):
                 self.inference_registry.set_offering_state(
                     offering_id, status=desired_status, actor="user", reason="provider settings",
                 )
-        models = dict(preferences.model_overrides)
-        override = model_edit.text().strip()
-        if override:
-            models[selected] = override
-        else:
-            models.pop(selected, None)
-        trusted_providers = set(preferences.trusted_providers)
-        self.store.set_setting(f'repository.external_fallback.{project.id}', 'true' if automatic_fallback.isChecked() else 'false')
-        if trusted.isChecked():
-            trusted_providers.add(selected)
-        else:
-            trusted_providers.discard(selected)
-        self.store.set_project_preferences(
-            project.id, provider=selected,
-            strategy=str(self.build_strategy.currentData() or "HYBRID"),
-            trusted_providers=tuple(sorted(trusted_providers)), model_overrides=models,
-        )
-        self._refresh_build_readiness()
-
     def _add_custom_provider(self) -> None:
         dialog = QDialog(self)
         dialog.setWindowTitle("Add custom API provider")
@@ -2220,31 +2203,15 @@ class MainWindow(QMainWindow):
         provider_name = str(self.build_provider.currentData() or "codex")
         fallback_name = str(self.build_fallback_provider.currentData() or "")
         preferences = self.store.get_project_preferences(project.id)
-        if fallback_name:
-            if mode == "LOCAL_OFFLINE" or fallback_name == provider_name:
-                QMessageBox.information(self, "Fallback provider", "Choose a distinct fallback for a provider-backed Build.")
+        if fallback_name and (mode == 'LOCAL_OFFLINE' or fallback_name == provider_name):
+            QMessageBox.information(self, 'Fallback provider', 'Choose a distinct fallback for a provider-backed Build.')
+            return
+        needed = [p for p in (provider_name, fallback_name) if p and p not in preferences.trusted_providers] if mode != 'LOCAL_OFFLINE' else []
+        if needed:
+            from .provider_setup import choose_project_access
+            if not choose_project_access(self, project, needed=needed, build=True,
+                    valid=lambda: self.current_project_id == project.id and self.orchestration_worker is None):
                 return
-            if fallback_name not in preferences.trusted_providers:
-                QMessageBox.information(
-                    self, "Fallback provider",
-                    "Trust the fallback provider for this project in Provider settings before running Build.",
-                )
-                return
-        if mode != "LOCAL_OFFLINE" and provider_name not in preferences.trusted_providers:
-            if QMessageBox.question(
-                self,
-                f"Trust {provider_name.title()} for this project",
-                (
-                    f"Allow {provider_name.title()} to plan and edit only inside an isolated worktree for {project.name}? "
-                    "Validation must pass before MoliCoder applies changes. This permission can be revoked in Provider settings."
-                ),
-            ) != QMessageBox.StandardButton.Yes:
-                return
-            trusted = tuple(sorted(set(preferences.trusted_providers) | {provider_name}))
-            self.store.set_project_preferences(
-                project.id, provider=provider_name, strategy=mode,
-                trusted_providers=trusted, model_overrides=preferences.model_overrides,
-            )
             preferences = self.store.get_project_preferences(project.id)
         model = preferences.model_overrides.get(provider_name, "")
         risk = ActionRisk.MUTATION if mode == "LOCAL_OFFLINE" else ActionRisk.EXTERNAL
@@ -3633,6 +3600,17 @@ class MainWindow(QMainWindow):
         owner.approve(approved and self.chat_worker is owner)
 
     def _approve_request_operation(self, proposal):
+        if proposal.get('kind') == 'provider_permission':
+            from .provider_setup import choose_project_access
+            if getattr(self, '_project_setup_dialog', None):
+                self._project_setup_dialog.reject()
+            owner = self.chat_worker
+            project = self._chat_project()
+            if project is None or project.id != proposal['project_id']:
+                return False
+            return choose_project_access(self, project, needed=proposal['providers'],
+                valid=lambda: self.chat_worker is owner and self._chat_project() == project
+                    and not getattr(owner, '_cancelled', False))
         text = (proposal['objective'] + '\n\nProject: ' + proposal['project_root'] +
                 '\n\nProposed operation:\n' + json.dumps(proposal['call'], indent=2, ensure_ascii=False) +
                 '\n\nAcceptance checks:\n' + json.dumps(proposal['checks'], indent=2, ensure_ascii=False))

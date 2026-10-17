@@ -132,7 +132,8 @@ class RequestCoordinator:
 
     def __init__(self, store, project, client, *, preferred_model="molicoder:latest", policy=None,
                  cancelled=lambda: False, on_event=lambda event: None, review=lambda proposal: False,
-                 allow_external=True, request_id=None, timeout_seconds=240, conversation_id=None, resume_from=None):
+                 allow_external=True, request_id=None, timeout_seconds=240, conversation_id=None, resume_from=None,
+                 provider_access=None):
         self.store, self.project, self.client = store, project, client
         self.preferred_model = preferred_model
         self.policy = policy or InferencePolicy(ProviderRegistry(store))
@@ -149,6 +150,28 @@ class RequestCoordinator:
         self.catalog = CapabilityCatalogService(store, client)
         self.conversation_id, self.resume_from = conversation_id, resume_from
         self._explicit_local_action = None
+        self.provider_access = provider_access
+        self._access_asked = False
+
+    def permission_routes(self, catalog):
+        """Pause once for project consent, then continue this request in place."""
+        if (self._access_asked or not self.provider_access or not self.allow_external or not self.project
+                or len(self.attempts) >= 3 or self.store.get_setting(
+                    f'repository.external_fallback.{self.project.id}', 'true') != 'true'):
+            return []
+        candidates = catalog.untrusted_providers(self.project)
+        if not candidates: return []
+        self._access_asked = True
+        proposal = {'kind': 'provider_permission', 'project_id': self.project.id, 'providers': candidates,
+                    'request_id': self.request_id}
+        self.emit('awaiting_review', {'message': 'Choose a provider to continue this request'})
+        self.journal.event('provider_permission_requested', proposal)
+        if not self.provider_access(proposal):
+            raise InterruptedError('Provider selection cancelled. No additional provider was used.')
+        self.guard()
+        routes, _ = catalog.routes(self.project, self.preferred_model, allow_external=True, spec=self.spec)
+        attempted = {(a['provider'], a['model'], a['runtime']) for a in self.attempts}
+        return [r for r in routes if (r.provider, r.model, r.runtime) not in attempted][:3 - len(self.attempts)]
 
     def run_local_action(self, text, name, target):
         """Typed deterministic entry used by Build's no-inference shortcuts."""
@@ -441,6 +464,11 @@ class RequestCoordinator:
             facts = catalog.refresh(discover_runtimes=False)
             self.catalog_revision = facts.get('revision')
             routes, excluded = catalog.routes(self.project, self.preferred_model, allow_external=self.allow_external, spec=self.spec)
+            if (self.provider_access and self.allow_external and catalog.untrusted_providers(self.project)
+                    and all(r.provider == 'ollama' for r in routes)):
+                # Leave a slot for permission-based escalation if evaluation
+                # itself fails on several qualified local candidates.
+                routes = routes[:2]
             self.journal.event('catalog', {'revision': self.catalog_revision, 'stale': facts.get('stale'), 'excluded': excluded})
             if tools:
                 context['directory'] = tools.dispatch({'call_id': 'preflight-directory', 'name': 'list_directory',
@@ -456,7 +484,7 @@ class RequestCoordinator:
                 if overview:
                     context['project_overview'] = tools.dispatch({'call_id': 'preflight-overview', 'name': 'read_file',
                         'arguments': {'path': overview, 'start': 1, 'end': 40}}, {'intent': 'investigation'})
-            while routes:
+            while routes or (routes := self.permission_routes(catalog)):
                 route = routes.pop(0)
                 self.guard()
                 attempt = {**asdict(route), "status": "running"}
@@ -488,6 +516,8 @@ class RequestCoordinator:
                         self.journal.event('routing_decision', {'phase': 'execution', 'requirements': self.spec,
                             'candidates': [asdict(r) for r in execution_routes], 'excluded': execution_excluded})
                         if self.spec['intent'] not in {'build', 'clarification'}:
+                            if not execution_routes:
+                                execution_routes = self.permission_routes(catalog)
                             if not execution_routes:
                                 return self.finish('blocked', 'No eligible route is available for this kind of request. '
                                     'Enable a trusted provider or qualify a suitable local model.')

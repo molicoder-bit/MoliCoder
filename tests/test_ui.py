@@ -650,26 +650,16 @@ def test_provider_settings_distinguishes_verified_auth_from_installed_cli(qtbot,
             ProviderStatus("copilot", False, False, detail="not installed"),
         ),
     )
-    captured = {}
-
-    def inspect_dialog(dialog):
-        captured["labels"] = "\n".join(label.text() for label in dialog.findChildren(QLabel))
-        return QDialog.DialogCode.Rejected
-
-    monkeypatch.setattr(QDialog, "exec", inspect_dialog)
     window._provider_statuses = {s.provider: s for s in __import__('local_model_chat.ui.main_window', fromlist=['probe_all_providers']).probe_all_providers()}
     window._provider_settings()
-
-    labels = captured["labels"]
-    assert "Codex — Opaque subscription CLI" in labels
-    assert "Installed; sign-in and entitlement unverified" in labels
-    assert "Sign-in verified" in labels
-    assert "Copilot — Opaque subscription CLI" in labels
-    assert "OpenCode — Coding runtime" in labels
-    assert "Kilo — Coding runtime" in labels
-    assert "Sandbox: CLI tool permissions" in labels
-    assert "Capabilities: planning, editing" in labels
-    assert "Unavailable: CLI is not installed" in labels
+    panel = window._settings_providers
+    labels = '\n'.join(panel.providers.item(i).text() for i in range(panel.providers.count()))
+    assert 'Codex · Installed · Sign-in not verified' in labels
+    assert 'Claude · Ready' in labels
+    assert 'Copilot · Not installed' in labels
+    assert 'OpenCode' in labels and 'Kilo' in labels
+    assert not any('Save model' in b.text() for b in window._settings_dialog.findChildren(QPushButton))
+    window._settings_dialog.close()
     assert "Opaque subscription CLI" in window.build_agent_info.text()
     assert "external side effects" in window.build_agent_info.text()
     window.build_provider.setCurrentIndex(window.build_provider.findData("claude"))
@@ -699,7 +689,7 @@ def test_provider_settings_shows_registry_and_saves_offering_enable_control(qtbo
         return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(QDialog, "exec", inspect_and_enable)
-    window._provider_settings()
+    window._advanced_api_settings()
     assert "fixture-provider / fixture-model (fixture-offering) — recurring_free" in captured["labels"]
     assert "Auth: unknown; health: unknown; status: discovered" in captured["labels"]
     assert "Capabilities: unknown; privacy:" in captured["labels"]
@@ -770,7 +760,7 @@ def test_custom_provider_connection_check_is_available_in_settings(qtbot, tmp_pa
         return QDialog.DialogCode.Rejected
 
     monkeypatch.setattr(QDialog, "exec", inspect_dialog)
-    window._provider_settings()
+    window._advanced_api_settings()
     monkeypatch.setattr(QInputDialog, "getItem", lambda *_args: ("local-api / model-a", True))
     monkeypatch.setattr(
         "local_model_chat.ui.main_window.check_custom_connection",

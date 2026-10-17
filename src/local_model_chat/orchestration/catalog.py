@@ -208,6 +208,15 @@ class CapabilityCatalogService:
             self.store.set_setting(self.KEY, json.dumps(snapshot))
             return snapshot
 
+    def untrusted_providers(self, project):
+        """Installed native candidates requiring a project access decision."""
+        if not project:
+            return []
+        trusted = self.store.get_project_preferences(project.id).trusted_providers
+        return list(dict.fromkeys(r['tool_id'] for r in self.cached().get('runtimes', [])
+            if r.get('installed') and r['tool_id'] in {'codex', 'claude', 'copilot', 'opencode', 'kilo'}
+            and r['tool_id'] not in trusted))
+
     def routes(self, project, preferred_model, *, allow_external=True, spec=None):
         facts = self.cached()
         routes, excluded, digests = [], [], set()
@@ -290,6 +299,20 @@ class CapabilityCatalogService:
         locals_ = [r for r in routes if r.provider == "ollama"]
         external = [r for r in routes if r.provider != "ollama"]
         external.sort(key=lambda r: (r.provider not in {'opencode', 'kilo'}, r.runtime != 'api'))
+        source_reasoning = spec and spec['intent'] == 'investigation' and any(
+            c['kind'] == 'semantic_review' or (c['kind'] == 'tool_evidence' and
+                c['expected'] in {'read_file', 'search_code'}) for c in spec.get('acceptance_checks', []))
+        can_request_access = (allow_external and project and self.untrusted_providers(project) and
+            self.store.get_setting(f'repository.external_fallback.{project.id}', 'true') == 'true')
+        if source_reasoning and (external or can_request_access):
+            # A small model approving its own code explanation is not evidence
+            # that it understands the language. Prefer independently qualified
+            # locals, then permitted runtimes, even if evaluation said "low".
+            qualified = [r for r in locals_ if 'investigation' in qualification.get(r.model, {}).get('qualified_intents', [])]
+            excluded.extend({'provider': r.provider, 'model': r.model,
+                'reason': 'Source reasoning requires task-family qualification; self-review is insufficient'}
+                for r in locals_ if r not in qualified)
+            return (qualified[:1] + external[:2]), excluded
         if spec and (spec['complexity'] in {'medium', 'high'} or spec['intent'] == 'build'):
             external.sort(key=lambda r: r.provider not in {'codex', 'claude', 'copilot'})
             # Reasoning-heavy work goes to a capable configured route; local promotion

@@ -311,7 +311,8 @@ def test_desktop_external_handoff_preserves_receipt_and_shows_unknown_cost(qtbot
     qtbot.waitUntil(lambda: window.chat_worker is None, timeout=10000)
     receipt = service.store.message_receipt(window._current_messages()[-1].id)
     assert receipt['provider'] == 'codex' and receipt['model_source'] == 'configured'
-    assert len(receipt['attempts']) == 3
+    assert [a['provider'] for a in receipt['attempts']] == ['ollama', 'codex']
+    assert receipt['attempts'][0]['status'] == 'evaluated'
     assert 'codex · configured-model (configured)' in window.route_identity.text()
     refresh_workspace(window)
     assert '1 external attempts · CLI cost unknown' in window.usage_summary.text()
