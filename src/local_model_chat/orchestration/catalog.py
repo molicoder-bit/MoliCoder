@@ -222,7 +222,7 @@ class CapabilityCatalogService:
             if r.get('installed') and r['tool_id'] in {'codex', 'claude', 'copilot', 'opencode', 'kilo'}
             and r['tool_id'] not in trusted))
 
-    def routes(self, project, preferred_model, *, allow_external=True, spec=None, input_tokens=0, include_untrusted=False):
+    def routes(self, project, preferred_model, *, allow_external=True, spec=None, input_tokens=0, include_untrusted=False, for_build=False):
         from .routing import ModelEvidence, WorkRequirements, assess
         facts = self.cached()
         routes, excluded, digests = [], [], set()
@@ -257,7 +257,7 @@ class CapabilityCatalogService:
                 capacity=max(2 if qualified else 1, record.get('reasoning_capacity', 0)),
                 capacity_source='Task-family qualification' if qualified else 'Local structured-output trial; reasoning unqualified',
                 context_window=item['context_window'])
-        if allow_external and project and self.store.get_setting(f"repository.external_fallback.{project.id}", "true") == "true":
+        if allow_external and project and (for_build or self.store.get_setting(f"repository.external_fallback.{project.id}", "true") == "true"):
             from ..inference.onboarding import is_api_offering
             from ..inference.eligibility import EligibilityRequest, evaluate_eligibility
             from ..authorization import ActionRequest, ActionRisk, AuthorizationPolicy
@@ -296,6 +296,8 @@ class CapabilityCatalogService:
                         excluded.append({'provider': provider, 'reason': 'Runtime is not installed'})
                         continue
                     model = preferences.model_overrides.get(provider, '')
+                    if for_build and provider == 'claude' and not model:
+                        model = 'sonnet'
                     if not model and provider in {'opencode', 'kilo'}:
                         from ..molicoder.providers import create_provider
                         model = create_provider(provider).model
@@ -321,6 +323,8 @@ class CapabilityCatalogService:
                         description = (choice.get('description') or next((m.get('description', '')
                             for m in self.codex_models() if provider == 'codex' and m['model'] == selected), '')
                             or runtime_model.get('description', '')).lower()
+                        if for_build and provider == 'claude' and 'sonnet' in selected.lower():
+                            description = 'Balanced frontier reasoning profile; verify account access before use'
                         economical = any(word in description for word in ('affordable', 'efficient', 'easier', 'straightforward'))
                         window = min(32000, choice.get('context_window') or runtime_model.get('limits', {}).get('context') or 32000)
                         route = Route(provider, selected, provider, window, 2400)
@@ -378,3 +382,10 @@ class CapabilityCatalogService:
         # The coordinator bounds actual attempts. Keep the eligible pool intact
         # so failed/declined candidates cannot hide a later suitable option.
         return [r for _, r in ranked], excluded
+
+    def planning_routes(self, project, *, input_tokens=0):
+        """Use the shared evaluator, with a frontier reasoning floor for Build."""
+        routes, excluded = self.routes(project, '', for_build=True, input_tokens=input_tokens,
+            spec={'intent': 'build', 'work_type': 'planning', 'complexity': 'high'})
+        return [r for r in routes if r.runtime in {'codex', 'claude', 'copilot', 'opencode', 'kilo'}
+                and not any(name in r.model.lower() for name in ('astra', 'fable'))], excluded

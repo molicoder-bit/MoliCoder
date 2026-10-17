@@ -412,12 +412,14 @@ class MainWindow(QMainWindow):
         )
         self.build_request.setMinimumHeight(76)
         self.build_request.setMaximumHeight(115)
-        self.build_request.textChanged.connect(self._refresh_build_readiness)
+        self.build_request.textChanged.connect(lambda: self._refresh_build_readiness(check_repository=False))
         self.build_request.send_requested.connect(self._run_build)
         request_layout.addWidget(self.build_request)
         controls = QHBoxLayout()
         controls.addWidget(QLabel("Provider"))
         self.build_provider = QComboBox()
+        self.build_provider.addItem("Auto", "auto")
+        self.build_provider.setToolTip('Auto evaluates allowed frontier models for planning. Hybrid uses suitable local/free models for implementation tasks.')
         self.build_provider.addItem("Codex", "codex")
         self.build_provider.addItem("Claude", "claude")
         self.build_provider.addItem("Copilot", "copilot")
@@ -434,6 +436,9 @@ class MainWindow(QMainWindow):
         self.kandev_board_button = QPushButton("Open Kandev board")
         self.kandev_board_button.setToolTip("Open Kandev's own task board in your browser.")
         self.kandev_board_button.clicked.connect(self._open_kandev_board)
+        self.use_kandev = QCheckBox('Use Kandev board')
+        self.use_kandev.setToolTip('Optional task board. Connection and task capabilities are checked before generating a plan.')
+        self.use_kandev.toggled.connect(self._kandev_option_changed)
         controls.addWidget(self.kandev_board_button)
         controls.addWidget(QLabel("Fallback on provider failure"))
         self.build_fallback_provider = QComboBox()
@@ -481,12 +486,15 @@ class MainWindow(QMainWindow):
         self.build_cancel_button.clicked.connect(self._cancel_build)
         controls.addWidget(self.build_cancel_button)
         routing = QHBoxLayout()
-        for label, widget in (("Task owner", self.build_owner), ("Strategy", self.build_strategy), ("Provider", self.build_provider)):
+        for label, widget in (("Strategy", self.build_strategy), ("Planner", self.build_provider)):
             routing.addWidget(QLabel(label)); routing.addWidget(widget)
-        routing.addStretch(); routing.addWidget(self.kandev_board_button)
+        routing.addWidget(self.use_kandev)
+        routing.addWidget(self.build_owner); self.build_owner.hide()
+        routing.addStretch(); routing.addWidget(self.kandev_board_button); self.kandev_board_button.hide()
         request_layout.addLayout(routing)
         advanced = QHBoxLayout()
-        advanced.addWidget(QLabel("Fallback on provider failure")); advanced.addWidget(self.build_fallback_provider)
+        self.build_fallback_label = QLabel("Fallback on provider failure")
+        advanced.addWidget(self.build_fallback_label); advanced.addWidget(self.build_fallback_provider)
         advanced.addStretch()
         for widget in (self.build_run_button, self.build_pause_button, self.build_cancel_button): advanced.addWidget(widget)
         request_layout.addLayout(advanced)
@@ -562,6 +570,7 @@ class MainWindow(QMainWindow):
         self.build_tabs.addTab(status_card, "Run")
         self.kandev_panel = KandevPanel(self)
         self.build_tabs.addTab(self.kandev_panel, "Kandev board")
+        self.build_tabs.setTabVisible(1, False)
         self.build_tabs.currentChanged.connect(lambda index: request_card.setVisible(index == 0))
         self.build_tabs.currentChanged.connect(lambda: self._refresh_route_identity())
         layout.addWidget(self.build_tabs, 1)
@@ -1423,6 +1432,10 @@ class MainWindow(QMainWindow):
         self.open_folder_button.setEnabled(self.orchestration_worker is None)
         self.new_project_button.setEnabled(self.orchestration_worker is None)
         if project is None:
+            self.use_kandev.blockSignals(True)
+            self.use_kandev.setChecked(False)
+            self.use_kandev.blockSignals(False)
+            self._sync_kandev_visibility()
             self.build_project_title.setProperty("themeTone", "error")
             self.build_project_title.setText("No project selected — Build blocked")
             self.build_project_title.setStyleSheet(f"color: {theme_color('error')};")
@@ -1458,6 +1471,10 @@ class MainWindow(QMainWindow):
         self.build_strategy.setCurrentIndex(max(0, strategy_index))
         self.build_provider.blockSignals(False)
         self.build_strategy.blockSignals(False)
+        self.use_kandev.blockSignals(True)
+        self.use_kandev.setChecked(self.store.get_setting(f'kandev.mirror.{project.id}', 'false') == 'true')
+        self.use_kandev.blockSignals(False)
+        self._sync_kandev_visibility()
         self.build_request.setEnabled(True)
         self._refresh_recovery_actions(project)
         self._refresh_build_readiness()
@@ -2077,8 +2094,9 @@ class MainWindow(QMainWindow):
         worker.start()
         progress.show()
 
-    def _refresh_build_readiness(self) -> None:
-        self._refresh_route_identity()
+    def _refresh_build_readiness(self, *_args, check_repository=True) -> None:
+        if check_repository:
+            self._refresh_route_identity()
         if not hasattr(self, "build_status"):
             return
         self.change_project_button.setEnabled(self.orchestration_worker is None)
@@ -2087,13 +2105,20 @@ class MainWindow(QMainWindow):
         kandev_selected = self.build_owner.currentData() == "kandev"
         internal_controls = not kandev_selected and self.orchestration_worker is None and self.registry.selected() is not None
         self.build_provider.setEnabled(internal_controls)
-        self.build_fallback_provider.setEnabled(internal_controls)
+        automatic = self.build_provider.currentData() == 'auto'
+        self.build_fallback_provider.setEnabled(internal_controls and not automatic)
+        self.build_fallback_provider.setVisible(not automatic)
+        self.build_fallback_label.setVisible(not automatic)
+        self.use_kandev.setEnabled(self.orchestration_worker is None)
         self.build_strategy.setEnabled(internal_controls)
         if kandev_selected:
             self.build_agent_info.setText(
                 "Kandev owns the task and agent session. MoliCoder keeps local acceptance and apply control. "
                 "A pending task is reconciled by its saved external ID; it never switches to Internal Build."
             )
+        elif automatic:
+            self.build_agent_info.setText('Auto planning · choose an allowed frontier model using reasoning capability and cost evidence; verify access on invocation. '
+                'Effort follows advertised support. Hybrid assigns suitable local/free models to implementation tasks; review assignments before execution.')
         else:
             profile = agent_profile(str(self.build_provider.currentData() or "codex"))
             route = "Coding runtime · model sets cost" if profile.provider in {'opencode', 'kilo'} else "Opaque subscription CLI"
@@ -2119,7 +2144,9 @@ class MainWindow(QMainWindow):
         elif not Path(project.path).is_dir():
             status = "The selected project folder is missing."
         else:
-            git_state = read_git_state(project.path)
+            if check_repository or getattr(self, '_build_git_cache', (None, None))[0] != project.path:
+                self._build_git_cache = (project.path, read_git_state(project.path))
+            git_state = self._build_git_cache[1]
             if not git_state.available:
                 status = "Build mode requires a Git repository."
             elif git_state.branch == "Detached HEAD":
@@ -2140,7 +2167,7 @@ class MainWindow(QMainWindow):
                 status = "The molicoder:latest model is not installed in Ollama."
             else:
                 ready = True
-                provider = str(self.build_provider.currentData() or "codex").title()
+                provider = 'Automatic frontier planning' if automatic else str(self.build_provider.currentData()).title()
                 strategy = str(self.build_strategy.currentText())
                 status = f"Ready · {provider} · {strategy} · isolated sequential execution and automatic validation."
         self.build_status.setText(status)
@@ -2190,6 +2217,8 @@ class MainWindow(QMainWindow):
         request = self.build_request.toPlainText().strip()
         if project is None or not request:
             return
+        if self.use_kandev.isChecked() and not self._verify_kandev_for_build(project):
+            return
         from ..molicoder.intake import clarification_needed
         issue = clarification_needed(request)
         if issue:
@@ -2207,19 +2236,23 @@ class MainWindow(QMainWindow):
             return
         mode = str(self.build_strategy.currentData() or "HYBRID")
         provider_name = str(self.build_provider.currentData() or "codex")
-        fallback_name = str(self.build_fallback_provider.currentData() or "")
+        fallback_name = '' if provider_name == 'auto' else str(self.build_fallback_provider.currentData() or "")
         preferences = self.store.get_project_preferences(project.id)
         if fallback_name and (mode == 'LOCAL_OFFLINE' or fallback_name == provider_name):
             QMessageBox.information(self, 'Fallback provider', 'Choose a distinct fallback for a provider-backed Build.')
             return
-        needed = [p for p in (provider_name, fallback_name) if p and p not in preferences.trusted_providers] if mode != 'LOCAL_OFFLINE' else []
+        automatic = provider_name == 'auto'
+        needed = ([p for p in (provider_name, fallback_name) if p and p not in preferences.trusted_providers]
+                  if not automatic else ([] if set(preferences.trusted_providers) & {'codex', 'claude', 'copilot'} else ['codex', 'claude', 'copilot'])) if mode != 'LOCAL_OFFLINE' else []
         if needed:
             from .provider_setup import choose_project_access
-            if not choose_project_access(self, project, needed=needed, build=True,
+            if not choose_project_access(self, project, needed=needed, build=True, automatic_build=automatic,
                     valid=lambda: self.current_project_id == project.id and self.orchestration_worker is None):
                 return
             preferences = self.store.get_project_preferences(project.id)
         model = preferences.model_overrides.get(provider_name, "")
+        if automatic and mode == 'LOCAL_OFFLINE':
+            provider_name = 'codex'  # Unused by the local planner; retain legacy authorization scopes.
         risk = ActionRisk.MUTATION if mode == "LOCAL_OFFLINE" else ActionRisk.EXTERNAL
         request_hash = hashlib.sha256(request.encode("utf-8")).hexdigest()
         scope = f"project:{project.id}:provider:{provider_name}:mode:{mode}:request:{request_hash}"
@@ -2246,9 +2279,10 @@ class MainWindow(QMainWindow):
                 provider_name=provider_name, model=model, authorization_scope=scope,
                 fallback_provider_name=fallback_name,
                 fallback_authorization_scope=fallback_scope,
+                request_text=request,
             )
         except (OSError, ValueError, ProviderUnavailable) as exc:
-            QMessageBox.critical(self, "Build configuration error", str(exc))
+            self._show_build_setup_error(exc)
             return
         pending_runs = self.store.list_project_runs(project.id)
         pending_plan = next((run for run in pending_runs
@@ -2292,6 +2326,50 @@ class MainWindow(QMainWindow):
     def _open_kandev_board(self) -> None:
         self.build_tabs.setCurrentWidget(self.kandev_panel)
         self.kandev_panel.connect_board()
+
+    def _sync_kandev_visibility(self):
+        enabled = self.use_kandev.isChecked()
+        self.build_owner.setVisible(enabled)
+        self.kandev_board_button.setVisible(enabled)
+        self.build_tabs.setTabVisible(1, enabled)
+
+    def _kandev_option_changed(self, enabled):
+        if self.current_project_id:
+            self.store.set_setting(f'kandev.mirror.{self.current_project_id}', str(enabled).lower())
+        if not enabled:
+            self.build_owner.setCurrentIndex(0)
+        self._sync_kandev_visibility()
+        self._refresh_build_readiness()
+
+    def _verify_kandev_for_build(self, project):
+        try:
+            adapter = configured_kandev_adapter(self.store, project_id=project.id)
+            if adapter.probe().health_state != 'ready':
+                raise ValueError('The required task capabilities are unavailable.')
+            return True
+        except Exception:
+            message = QMessageBox(self)
+            message.setWindowTitle('Kandev needs setup')
+            message.setText('Kandev is enabled, but its connection or project setup is not ready. '
+                'Start the service and configure this project in Settings → Kandev, or uncheck Use Kandev board. No plan was generated.')
+            setup = message.addButton('Open Kandev settings', QMessageBox.ActionRole)
+            message.addButton('Back', QMessageBox.RejectRole); message.exec()
+            if message.clickedButton() is setup:
+                from .settings_window import show_settings_window
+                show_settings_window(self, 'Kandev')
+            return False
+
+    def _show_build_setup_error(self, error):
+        from ..molicoder.build_selection import ProviderSetupRequired
+        if not isinstance(error, ProviderSetupRequired):
+            QMessageBox.critical(self, 'Build configuration error', str(error)); return
+        message = QMessageBox(self); message.setWindowTitle('Provider setup required')
+        message.setText(str(error))
+        choices = {message.addButton(name.title() + ' · Set up / sign in', QMessageBox.ActionRole): name for name in error.providers}
+        message.addButton('Back', QMessageBox.RejectRole); message.exec()
+        if message.clickedButton() in choices:
+            from .provider_connection import show_provider_connection
+            show_provider_connection(self, choices[message.clickedButton()])
 
     def _workspace_task_selected(self, item) -> None:
         from .workspace import open_drawer
@@ -2765,6 +2843,7 @@ class MainWindow(QMainWindow):
         self.build_status.setText(f"Plan revision {plan['id']} awaits approval. Review the tasks and checks.")
         owner = self.orchestration_worker
         editor = orchestrator or (owner.orchestrator if owner is not None else None)
+        self._plan_review_context = (plan, run)
         decision = self._plan_review_decision(detail, can_edit=run["provider"] != "kandev" and editor is not None)
         if decision == "dismiss":
             return
@@ -2822,20 +2901,11 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, lambda: self._launch_approved_build(*pending))
 
     def _plan_review_decision(self, detail: str, *, can_edit: bool) -> str:
-        dialog = QMessageBox(self)
-        dialog.setWindowTitle("Review Build plan")
-        dialog.setText(detail + "\n\nApprove this exact revision for isolated execution?")
-        approve = dialog.addButton("Approve plan", QMessageBox.ButtonRole.AcceptRole)
-        edit = dialog.addButton("Edit plan JSON", QMessageBox.ButtonRole.ActionRole) if can_edit else None
-        reject = dialog.addButton("Reject plan", QMessageBox.ButtonRole.RejectRole)
-        dialog.setDefaultButton(reject)
+        from .plan_review import PlanReviewDialog
+        plan, run = self._plan_review_context
+        dialog = PlanReviewDialog(self, plan=plan, run=run, detail=detail, can_edit=can_edit)
         dialog.exec()
-        clicked = dialog.clickedButton()
-        if clicked is approve:
-            return "approve"
-        if clicked is edit:
-            return "edit"
-        return "reject" if clicked is reject else "dismiss"
+        return dialog.decision
 
     def _launch_approved_build(self, orchestrator, run_id: int) -> None:
         run = self.store.get_run(run_id)
@@ -3025,14 +3095,14 @@ class MainWindow(QMainWindow):
         language, accepted = QInputDialog.getItem(
             self,
             "New project",
-            "Language",
-            ["Python", "Node.js", "Flutter"],
+            "Starter template (optional). Empty project supports any language; configure its validation commands before execution.",
+            ["Empty project · any language", "Python", "Node.js", "Flutter"],
             0,
             False,
         )
         if not accepted:
             return
-        kinds = {"Python": "python", "Node.js": "node", "Flutter": "flutter"}
+        kinds = {"Empty project · any language": "unknown", "Python": "python", "Node.js": "node", "Flutter": "flutter"}
         try:
             self.build_status.setText("Creating the project, local environment, and initial Git commit…")
             QApplication.processEvents()

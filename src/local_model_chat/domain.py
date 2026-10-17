@@ -59,7 +59,7 @@ class Project:
 @dataclass(frozen=True, slots=True)
 class ProjectPreferences:
     project_id: int
-    provider: str = "codex"
+    provider: str = "auto"
     strategy: str = "HYBRID"
     trusted_providers: tuple[str, ...] = ()
     model_overrides: dict[str, str] = field(default_factory=dict)

@@ -60,18 +60,23 @@ def save_access(w, project, selected, automatic):
     w._refresh_route_identity()
 
 
-def choose_project_access(w, project, *, needed=(), first_open=False, build=False, explanation='', valid=lambda: True):
+def choose_project_access(w, project, *, needed=(), first_open=False, build=False, automatic_build=False, explanation='', valid=lambda: True):
     """One permission decision for a project, with a captured scope and owner guard."""
     dialog = QDialog(w)
-    dialog.setWindowTitle('Choose providers for this project' if not needed else 'Another provider is needed')
+    dialog.setWindowTitle('Project access for automatic planning' if automatic_build else 'Choose providers for this project' if not needed else 'Provider project access')
     dialog.resize(640, 540)
+    area = dialog.screen().availableGeometry()
+    dialog.setMaximumSize(area.width()-24, area.height()-64)
+    dialog.setSizeGripEnabled(True)
     outer = QVBoxLayout(dialog)
     scroll = QScrollArea(); scroll.setWidgetResizable(True)
     page = QWidget(); layout = QVBoxLayout(page)
     scroll.setWidget(page); outer.addWidget(scroll)
     intro = QLabel(f'{project.name}\n{project.path}')
     intro.setWordWrap(True); layout.addWidget(intro)
-    note = QLabel((explanation + '\n\n' if explanation else 'Allow the selected Build providers to continue.\n\n' if build else
+    note = QLabel((explanation + '\n\n' if explanation else
+        'Allow one or more providers for this project. Auto chooses a suitable signed-in frontier planner from your selection. This grants access; it does not select a fixed provider.\n\n' if automatic_build else
+        'Grant project access to the providers selected for Build. This permission is saved for future requests.\n\n' if build else
         'The available local models could not complete this request. Select a provider to continue.\n\n' if needed else '') +
         'Selected providers may receive messages and relevant project files. Account charges may apply. '
         'File changes and commands keep their existing review steps.')
@@ -86,15 +91,16 @@ def choose_project_access(w, project, *, needed=(), first_open=False, build=Fals
         check.setToolTip(detail)
         # On-demand selection only offers discovered candidates; setup can grant
         # access before installation so the user can finish setup in Settings.
-        check.setEnabled(not needed or provider in needed or check.isChecked())
+        check.setEnabled(build or not needed or provider in needed or check.isChecked())
         checks[provider] = check; layout.addWidget(check)
     automatic = QCheckBox('Use selected providers automatically')
     automatic.setChecked(w.store.get_setting(f'repository.external_fallback.{project.id}', 'true') == 'true')
     automatic.setToolTip('Ask before using another provider. Turn off to keep chat requests local. Build still asks for its selected provider.')
     layout.addWidget(automatic)
+    automatic.setVisible(not build)
     hint = QLabel('Downloads and sign-in are available in Settings → Models & providers.')
     hint.setWordWrap(True); layout.addWidget(hint)
-    if not needed:
+    if not needed or build:
         setup = QPushButton('Install / sign in…')
         setup.clicked.connect(lambda: (dialog.reject(), w._provider_settings()))
         layout.addWidget(setup)
@@ -105,7 +111,7 @@ def choose_project_access(w, project, *, needed=(), first_open=False, build=Fals
         def enabled():
             buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(
                 (build or automatic.isChecked()) and
-                (all(checks[p].isChecked() for p in needed) if build else any(checks[p].isChecked() for p in needed)))
+                (all(checks[p].isChecked() for p in needed) if build and not automatic_build else any(checks[p].isChecked() for p in needed)))
         for check in checks.values(): check.toggled.connect(enabled)
         automatic.toggled.connect(enabled); enabled()
     buttons.accepted.connect(dialog.accept); buttons.rejected.connect(dialog.reject)

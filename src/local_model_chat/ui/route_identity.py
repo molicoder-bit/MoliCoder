@@ -23,6 +23,9 @@ def _build_selection(w):
     if strategy == 'LOCAL_OFFLINE':
         return f'Ollama (local) · {LOCAL_BUILD_MODEL}'
     provider = str(w.build_provider.currentData() or 'codex')
+    if provider == 'auto':
+        return ('Auto · frontier planner · capability and cost evaluation' +
+            (' · local/free implementation where suitable' if strategy == 'HYBRID' else ''))
     preferences = w.store.get_project_preferences(w.current_project_id) if w.current_project_id else None
     model = preferences.model_overrides.get(provider, '') if preferences else ''
     route = f'{w.build_provider.currentText()} · {_model_label(model)}'

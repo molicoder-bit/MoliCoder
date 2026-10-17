@@ -36,7 +36,7 @@ _VALIDATION: dict[str, list[dict[str, Any]]] = {
     "unknown": [],
 }
 
-_CREATABLE_KINDS = {"python", "node", "flutter"}
+_CREATABLE_KINDS = {"python", "node", "flutter", "unknown"}
 _PROJECT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
@@ -103,6 +103,7 @@ def bootstrap_project(parent: str | Path, name: str, kind: str) -> ProjectState:
             "python": {".molicoder", ".venv", ".gitignore", "README.md", "pyproject.toml"},
             "node": {".molicoder", ".gitignore", "README.md", "package.json"},
             "flutter": {".molicoder"},
+            "unknown": {".molicoder", "README.md"},
         }[normalized_kind]
         unrelated = [entry.name for entry in root.iterdir() if entry.name not in resumable_entries]
         if unrelated:
@@ -168,7 +169,7 @@ def bootstrap_project(parent: str | Path, name: str, kind: str) -> ProjectState:
             'import test from "node:test";\nimport assert from "node:assert/strict";\n'
             'import { start } from "./app.js";\ntest("starter is ready", () => assert.equal(start(), "ready"));\n',
         )
-    else:
+    elif normalized_kind == "flutter":
         flutter_name = re.sub(r"[^a-z0-9_]", "_", clean_name.lower().replace("-", "_"))
         _run_checked(
             ["flutter", "create", "--empty", "--project-name", flutter_name, "."],

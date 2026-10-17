@@ -68,7 +68,7 @@ def build_validator(
     # isolated worktree.
     python = _python_executable(
         Path(environment_root).resolve() if environment_root is not None else state.root
-    )
+    ) if any('{python}' in str(raw.get('argv', [])) for raw in raw_commands if isinstance(raw, dict)) else ''
     for raw in raw_commands:
         if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
             raise ValueError("invalid validation command in .molicoder/project.json")
@@ -181,6 +181,7 @@ def build_orchestrator(
     kandev_connection: KandevConnection | None = None,
     kandev_adapter: KandevTaskAdapter | None = None,
     kandev_authorize_launch: Callable | None = None,
+    request_text: str = "",
 ) -> SequentialRunOrchestrator | KandevRunOrchestrator:
     connection = kandev_connection or KandevConnection()
     if connection.mode != KandevMode.DISABLED:
@@ -204,6 +205,17 @@ def build_orchestrator(
             ).run_and_summarize(),
         )
     root = Path(project.path).resolve()
+    automatic = provider_name == 'auto' and mode not in {'LOCAL_OFFLINE', 'LOCAL_ONLY'}
+    auto_routes, selection_failures = [], []
+    if automatic:
+        if not authorization_scope:
+            raise ProviderUnavailable('Build needs an exact user authorization scope before selecting a CLI agent')
+        AuthorizationPolicy(store).require(ActionRequest(project.id, 'build_run', authorization_scope, ActionRisk.EXTERNAL))
+        from .build_selection import select_planner
+        auto_routes, selection_failures = select_planner(store, project, client, create_provider,
+            input_tokens=max(1, len(request_text) // 4))
+        selected_route, selected_provider = auto_routes[0]
+        provider_name, model = selected_route.provider, selected_route.model
     ensure_project_state(root)
     preset = MODEL_PRESETS["molicoder:latest"]
     client = client or OllamaClient()
@@ -262,6 +274,12 @@ def build_orchestrator(
     if default_planner:
         model = default_planner['model']
     provider = create_provider(provider_name, model=model, project_root=root)
+    if automatic:
+        provider = selected_provider
+        route_decision.update(reason='Automatic frontier planning: ' + selected_route.reason,
+            effort=selected_route.effort, model=selected_route.model,
+            alternatives=[{'provider': r.provider, 'model': r.model, 'effort': r.effort} for r, _ in auto_routes[1:]],
+            unavailable=[message for _, message in selection_failures])
     if default_planner:
         provider.effort = 'medium'
     alternate_provider = None
@@ -282,7 +300,8 @@ def build_orchestrator(
         candidate_status = candidate.probe()
         if (not candidate_status.installed or not candidate_status.auth_verified
                 or not candidate_status.authenticated):
-            raise ProviderUnavailable(candidate_status.detail or "fallback provider authentication is unverified")
+            from .build_selection import ProviderSetupRequired, unavailable_message
+            raise ProviderSetupRequired([fallback_provider_name], unavailable_message(fallback_provider_name, candidate_status))
         alternate_provider = BoundedOpaqueProvider(
             candidate, store, project.id, fallback_authorization_scope,
             max_calls=2, max_seconds=1200,
@@ -294,7 +313,8 @@ def build_orchestrator(
         if not status.installed or not status.authenticated:
             trusted_alternatives = set(store.get_project_preferences(project.id).trusted_providers) & {'codex', 'claude', 'copilot'} - {provider_name}
             if not trusted_alternatives:
-                raise ProviderUnavailable(status.detail or f"{provider_name} is not authenticated")
+                from .build_selection import ProviderSetupRequired, unavailable_message
+                raise ProviderSetupRequired([provider_name], unavailable_message(provider_name, status))
             route_decision['initial_provider_unavailable'] = status.detail or provider_name + ' unavailable'
         provider = BoundedOpaqueProvider(
             provider, store, project.id, authorization_scope,
@@ -304,15 +324,18 @@ def build_orchestrator(
     planning_providers = []
     if strategy != 'LOCAL_OFFLINE':
         preferences = store.get_project_preferences(project.id)
-        for name in ('codex', 'claude', 'copilot'):
-            if name == provider.name or name not in preferences.trusted_providers:
+        for option in ([p for _, p in auto_routes[1:]] if automatic else ('codex', 'claude', 'copilot')):
+            name = option.name if automatic else option
+            if (name == provider.name and not automatic) or name not in preferences.trusted_providers:
                 continue
             override = preferences.model_overrides.get(name, '')
             metadata = CapabilityCatalogService.planner_default() if name == 'codex' and not override else None
             candidate = create_provider(name, model=override or (metadata['model'] if metadata else ''), project_root=root)
-            if metadata:
+            if automatic:
+                candidate = option
+            if metadata and not automatic:
                 candidate.effort = 'medium'
-            candidate_scope = authorization_scope + ':planning-fallback:' + name
+            candidate_scope = authorization_scope + ':planning-fallback:' + name + (':' + candidate.model if automatic else '')
             store.record_action_authorization(project_id=project.id, action='build_run', scope=candidate_scope,
                 risk=ActionRisk.EXTERNAL.value, decision='approved', actor='project_trusted_automatic_routing',
                 reason='Automatic reasoning fallback within the authorized Build; actual assignments still require plan approval',
@@ -416,7 +439,7 @@ def build_orchestrator(
         task_providers=tuple(economical_providers),
         planning_providers=tuple(planning_providers),
     )
-    if store.get_setting(f'kandev.project.{project.id}') and store.get_setting(f'kandev.mirror.{project.id}', 'true') == 'true':
+    if store.get_setting(f'kandev.project.{project.id}') and store.get_setting(f'kandev.mirror.{project.id}', 'false') == 'true':
         from ..kandev.mirror import KandevPlanMirror
         orchestrator.kandev_mirror = KandevPlanMirror(store, project)
         orchestrator.event_listeners = (orchestrator.kandev_mirror.observe,)

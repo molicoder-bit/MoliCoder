@@ -57,7 +57,10 @@ class KandevPanel(QWidget):
             if not self._browser_loading: self.loading.hide()
             if outcome:
                 if outcome[-1][0]: done(outcome[-1][1])
-                else: self.status.setText('Needs attention · ' + outcome[-1][1])
+                else:
+                    self.status.setText('Kandev connection or operation failed. Start the managed service, then Connect / reload. '
+                        'Use Configure to check this project, or disable Use Kandev board to build without it.')
+                    self.status.setToolTip(outcome[-1][1])
         worker.finished.connect(finished)
         worker.start()
 
@@ -77,7 +80,7 @@ class KandevPanel(QWidget):
                 self.status.setText(f'Unsupported service version: {version}. Use the pinned 0.97.0 service.'); return
             self.status.setText('Connected · ' + origin)
             project = self.window.registry.selected()
-            if project and self.window.store.get_setting(f'kandev.mirror.{project.id}', 'true') == 'true':
+            if project and self.window.store.get_setting(f'kandev.mirror.{project.id}', 'false') == 'true':
                 from ..kandev.mirror import KandevPlanMirror
                 self._mirror_replay = KandevPlanMirror(self.window.store, project)
                 self._mirror_replay.replay_pending()
@@ -188,7 +191,7 @@ class KandevPanel(QWidget):
             populate(combos['workflow_step_id'], catalog.get('steps', {}).get(fid, []))
         refresh.clicked.connect(fetch); combos['workspace_id'].activated.connect(load_workspace); combos['workflow_id'].activated.connect(load_steps)
         mirror = QCheckBox('Show internal Builds on this Kandev board')
-        mirror.setChecked(self.window.store.get_setting(f'kandev.mirror.{project.id}', 'true') == 'true')
+        mirror.setChecked(self.window.store.get_setting(f'kandev.mirror.{project.id}', 'false') == 'true')
         mirror.setToolTip('Mirror approved tasks, assignments and verified progress. MoliCoder remains the execution owner.')
         form.addRow(mirror)
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel); form.addRow(buttons)

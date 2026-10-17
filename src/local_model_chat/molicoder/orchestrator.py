@@ -912,7 +912,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             "local_model": "molicoder:latest" if self.local_executor else None,
             "fallback_provider": self.alternate_provider.name if self.alternate_provider else None,
             "fallback_model": self.alternate_provider.model if self.alternate_provider else None,
-            "selection_reason": "local eligible tasks use the local executor in Hybrid mode; otherwise the selected provider",
+            "selection_reason": ((self.route_decision or {}).get('reason', '') + '; '
+                if (self.route_decision or {}).get('reason', '').startswith('Automatic frontier') else '') +
+                "local eligible tasks use the local executor in Hybrid mode; otherwise the selected provider",
             "auto_apply": self.auto_apply,
             "max_task_attempts": self.max_task_attempts,
         }

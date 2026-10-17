@@ -544,7 +544,7 @@ def test_new_project_is_immediately_ready_for_a_build(qtbot, tmp_path, monkeypat
     assert "Ready" in window.build_status.text()
     assert (tmp_path / "ready-project" / "src" / "ready_project" / "__init__.py").is_file()
     assert (tmp_path / "ready-project" / "tests" / "test_smoke.py").is_file()
-    assert window.build_provider.currentData() == "codex"
+    assert window.build_provider.currentData() == "auto"
     assert window.build_strategy.currentData() == "HYBRID"
 
 
@@ -660,6 +660,8 @@ def test_provider_settings_distinguishes_verified_auth_from_installed_cli(qtbot,
     assert 'OpenCode' in labels and 'Kilo' in labels
     assert not any('Save model' in b.text() for b in window._settings_dialog.findChildren(QPushButton))
     window._settings_dialog.close()
+    assert "Auto planning" in window.build_agent_info.text()
+    window.build_provider.setCurrentIndex(window.build_provider.findData('codex'))
     assert "Opaque subscription CLI" in window.build_agent_info.text()
     assert "external side effects" in window.build_agent_info.text()
     window.build_provider.setCurrentIndex(window.build_provider.findData("claude"))

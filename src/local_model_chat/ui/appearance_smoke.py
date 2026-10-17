@@ -95,6 +95,27 @@ def appearance_smoke(app, report_path):
             window._settings_dialog.close(); window.resize(1020, 680); settle()
             check('folder and project controls fit minimum window', window.new_project_button.geometry().right() < window.width() and window.chat_switch.width() >= 100)
             window.grab().save(str(report_path.with_name(f'{report_path.stem}-light-1020.png')))
+            from .plan_review import PlanReviewDialog
+            tasks = [{'key': f'task-{i}', 'title': f'Implement and verify feature {i}',
+                      'objective': 'Detailed implementation scope. ' * 30,
+                      'acceptance_criteria': ['Expected behavior is verified.']} for i in range(1, 21)]
+            plan = {'id': 1, 'payload': {'objective': 'Review a complete plan before execution.', 'tasks': tasks,
+                'task_assignments': {t['key']: {'provider': 'fixture', 'model': 'review-model', 'effort': 'high'} for t in tasks}}}
+            for theme in ('default', 'light'):
+                apply_theme(window, theme)
+                review = PlanReviewDialog(window, plan=plan, run={'provider': 'fixture', 'model': 'review-model'},
+                    detail='Full revision details', can_edit=True)
+                review.show(); settle()
+                screen = review.screen().availableGeometry()
+                check(theme + ' plan stays inside screen', review.width() < screen.width() and review.height() < screen.height())
+                check(theme + ' tasks scroll', review.tasks.verticalScrollBar().maximum() > 0)
+                review.grab().save(str(report_path.with_name(f'{report_path.stem}-plan-{theme}.png')))
+                review.show_task(review.tasks.item(0)); settle()
+                check(theme + ' task details readable', 'Expected behavior is verified.' in review.details.toPlainText())
+                review.back.click()
+                check(theme + ' task back navigation', review.pages.currentIndex() == 0)
+                review.close()
+                check(theme + ' close never approves', review.decision == 'dismiss')
             window.close()
         report['status'] = 'passed'
     except Exception as exc:

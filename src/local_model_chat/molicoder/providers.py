@@ -289,6 +289,11 @@ class CliFrontierProvider:
                     timeout=15, check=False, creationflags=creationflags, env=_safe_environment(),
                 )
                 authenticated = auth.returncode == 0
+                if self.name == 'claude':
+                    try:
+                        authenticated = authenticated and json.loads(auth.stdout).get('loggedIn') is True
+                    except (ValueError, AttributeError):
+                        authenticated = False
                 auth_verified = True
                 detail = "Ready." if authenticated else redact_text((auth.stderr or auth.stdout).strip()[-500:])
         except (OSError, subprocess.TimeoutExpired) as exc:
