@@ -182,6 +182,7 @@ def build_orchestrator(
     kandev_adapter: KandevTaskAdapter | None = None,
     kandev_authorize_launch: Callable | None = None,
     request_text: str = "",
+    planning_required: bool = True,
 ) -> SequentialRunOrchestrator | KandevRunOrchestrator:
     connection = kandev_connection or KandevConnection()
     if connection.mode != KandevMode.DISABLED:
@@ -253,7 +254,7 @@ def build_orchestrator(
             explicit_intent=IntentKind.EXECUTION,
             candidate_offering_ids=(local_offering_id(preset.name),),
         ))
-        if route.offering_id != local_offering_id(preset.name):
+        if route.offering_id != local_offering_id(preset.name) and planning_required:
             raise ProviderUnavailable(route.reason + ": " + "; ".join(route.alternatives))
         route_decision = {
             "selected": route.offering_id, "reason": route.reason,
@@ -309,8 +310,8 @@ def build_orchestrator(
     if strategy != "LOCAL_OFFLINE":
         if not authorization_scope:
             raise ProviderUnavailable("Build needs an exact user authorization scope before launching a CLI agent")
-        status = provider.probe()
-        if not status.installed or not status.authenticated:
+        status = provider.probe() if planning_required else None
+        if status is not None and (not status.installed or not status.authenticated):
             trusted_alternatives = set(store.get_project_preferences(project.id).trusted_providers) & {'codex', 'claude', 'copilot'} - {provider_name}
             if not trusted_alternatives:
                 from .build_selection import ProviderSetupRequired, unavailable_message
@@ -322,7 +323,7 @@ def build_orchestrator(
         )
     planner = local_planner if strategy == "LOCAL_OFFLINE" else provider
     planning_providers = []
-    if strategy != 'LOCAL_OFFLINE':
+    if strategy != 'LOCAL_OFFLINE' and planning_required:
         preferences = store.get_project_preferences(project.id)
         for option in ([p for _, p in auto_routes[1:]] if automatic else ('codex', 'claude', 'copilot')):
             name = option.name if automatic else option

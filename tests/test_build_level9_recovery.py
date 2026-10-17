@@ -110,9 +110,9 @@ def test_s092_interrupted_task_reconciles_dirty_worktree_without_claiming_succes
     window = MainWindow(reopened, FakeClient(), start_ollama_check=False)
     qtbot.addWidget(window)
     window._load_project_list(select_id=project.id)
-    assert "worktree dirty" in window.build_ownership_status.text()
+    assert "Task paused for review" in window.build_ownership_status.text()
     assert window.build_resume_button.isEnabled()
-    assert window.build_resume_button.text() == "Review interrupted run"
+    assert window.build_resume_button.text() == "Review & continue"
     assert window.build_open_worktree_button.isEnabled()
     replay = ScriptedExecutor("hello.txt", "complete\n")
     restarted = SequentialRunOrchestrator(

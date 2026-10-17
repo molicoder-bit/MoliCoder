@@ -1490,11 +1490,15 @@ class MainWindow(QMainWindow):
             if event.kind == "run_recovery_observed"
         ), None) if run and not kandev_owned else None
         self.recoverable_run_id = int(run["id"]) if run and available else None
+        needs_review = bool(run and any(t.status == 'review_required' for t in self.store.list_run_tasks(int(run['id']))))
         self.build_resume_button.setEnabled(available and self.orchestration_worker is None)
         self.build_resume_button.setText(
             "Reconcile Kandev run" if kandev_owned else
+            "Review & continue" if needs_review else
+            "Review continuation plan" if run and run['status'] == 'awaiting_approval' else
             "Review interrupted run" if observed is not None else "Resume preserved run"
         )
+        self.build_resume_button.setToolTip('Review the pending checks and saved changes, then accept the result or request changes.' if needs_review else '')
         self.build_open_worktree_button.setEnabled(bool(path and path.is_dir()))
         self.build_discard_button.setEnabled(available and not kandev_owned and self.orchestration_worker is None)
         self.build_ownership_status.setText(
@@ -1506,6 +1510,8 @@ class MainWindow(QMainWindow):
             self.build_ownership_status.setText(
                 f"Recovered run {run['id']} · worktree {state} · review before retrying."
             )
+        if needs_review and not kandev_owned:
+            self.build_ownership_status.setText('Task paused for review. Select Review & continue to inspect the reason and choose the next action.')
         if kandev_owned and run["status"] == "ready_to_apply" and path and path.is_dir():
             tasks = self.store.list_run_tasks(int(run["id"]))
             if len(tasks) == 1 and tasks[0].status == "completed" and tasks[0].branch:
@@ -1529,7 +1535,7 @@ class MainWindow(QMainWindow):
             }:
                 return run
             if (run["provider"] != "kandev" and run["status"] in {
-                "needs_attention", "ready_to_apply", "cancelled", "failed",
+                "needs_attention", "ready_to_apply", "cancelled", "failed", "awaiting_approval",
             } and run.get("worktree") and Path(str(run["worktree"])).is_dir()):
                 return run
         return None
@@ -1547,6 +1553,16 @@ class MainWindow(QMainWindow):
             return
         if run["provider"] == "kandev":
             self._reconcile_kandev_run(project, run)
+            return
+        if any(t.status == 'review_required' for t in self.store.list_run_tasks(int(run['id']))):
+            self._review_pending_task(project, run)
+            return
+        if run['status'] == 'awaiting_approval':
+            try:
+                runner = self._task_review_runner(project, run)
+                self._review_build_plan(int(run['id']), orchestrator=runner)
+            except (OSError, ValueError, RuntimeError, PermissionError) as exc:
+                QMessageBox.warning(self, 'Continuation unavailable', str(exc))
             return
         provider_name = str(run.get("provider") or self.build_provider.currentData() or "codex")
         preferences = self.store.get_project_preferences(project.id)
@@ -1602,6 +1618,36 @@ class MainWindow(QMainWindow):
         self._build_activity_timer.start()
         self._refresh_recovery_actions(project)
         worker.start()
+
+    def _task_review_runner(self, project, run):
+        saved = self.store.get_latest_plan_record(run['id'])
+        if not saved:
+            raise ValueError('The saved plan is missing.')
+        policy = saved['payload'].get('runner_policy', {})
+        scope = f"task-review:{project.id}:{run['id']}:{saved['id']}"
+        self.store.record_action_authorization(project_id=project.id, action='build_run', scope=scope,
+            risk=ActionRisk.EXTERNAL.value, decision='approved', actor='local_user_review_button',
+            expires_at=(datetime.now(timezone.utc)+timedelta(hours=2)).isoformat())
+        return build_orchestrator(store=self.store, project=project, client=self.client,
+            mode=run['mode'], provider_name=policy.get('provider', run['provider']),
+            model=policy.get('model', run['model']), authorization_scope=scope, planning_required=False)
+
+    def _review_pending_task(self, project, run):
+        from .task_review import TaskReviewDialog
+        try:
+            runner = self._task_review_runner(project, run)
+            snapshot = runner.review_snapshot(int(run['id']))
+            dialog = TaskReviewDialog(self, snapshot)
+            dialog.exec()
+            decision, feedback, checked = dialog.selection()
+            if decision == 'dismiss':
+                return
+            if self.current_project_id != project.id or self.orchestration_worker is not None:
+                raise ValueError('Project or active run changed. Reopen task review.')
+            self._launch_approved_build(runner, int(run['id']),
+                task_review=(int(run['id']),snapshot,decision,feedback,checked))
+        except (OSError, ValueError, RuntimeError, PermissionError) as exc:
+            QMessageBox.warning(self, 'Task review unavailable', str(exc))
 
     def _reconcile_kandev_run(self, project: Project, run: dict) -> None:
         try:
@@ -2907,13 +2953,14 @@ class MainWindow(QMainWindow):
         dialog.exec()
         return dialog.decision
 
-    def _launch_approved_build(self, orchestrator, run_id: int) -> None:
+    def _launch_approved_build(self, orchestrator, run_id: int, *, task_review=None) -> None:
         run = self.store.get_run(run_id)
         if run is None:
             self.build_status.setText("Approved Build run is missing.")
             return
         worker = OrchestrationWorker(
-            orchestrator, str(run["request"]), str(run["mode"]), approved_run_id=run_id,
+            orchestrator, str(run["request"]), str(run["mode"]),
+            approved_run_id=run_id if task_review is None else None, task_review=task_review,
         )
         orchestrator.on_event = worker.relay_event
         worker.event.connect(lambda kind, payload, owner=worker: self._build_event(kind, payload) if self.orchestration_worker is owner else None)
@@ -2921,7 +2968,8 @@ class MainWindow(QMainWindow):
         worker.failed.connect(lambda error, owner=worker: self._build_failed(error) if self.orchestration_worker is owner else None)
         worker.finished.connect(lambda: self._orchestration_worker_finished(worker))
         self.orchestration_worker = worker
-        self.build_status.setText(f"Executing approved plan for run {run_id}…")
+        self.build_status.setText(f"Checking reviewed result and continuing run {run_id}…" if task_review else f"Executing approved plan for run {run_id}…")
+        self.build_resume_button.setEnabled(False)
         self.build_request.setEnabled(False)
         self.build_owner.setEnabled(False)
         self.build_mode.setEnabled(False)

@@ -875,6 +875,10 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             verified_work=verified_work,
         )
         rendered = handoff.render(project_kind=self.project.kind)
+        if run_id:
+            feedback = (self.store.get_run_plan(run_id) or {}).get('task_review_feedback', {}).get(task.key)
+            if feedback:
+                rendered += '\n\nHuman review requested these changes within the approved task scope:\n' + feedback
         if task.artifact_checks:
             rendered += "\n\nApproved exact artifact checks:\n" + json.dumps(
                 task.artifact_checks, ensure_ascii=False, indent=2,
@@ -1006,6 +1010,11 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             if " -> " in raw:
                 raw = raw.split(" -> ", 1)[1]
             normalized = raw.strip().strip('"').replace("\\", "/")
+            if line.startswith('?? ') and (
+                {'__pycache__', '.pytest_cache'} & set(Path(normalized).parts)
+                or normalized.endswith(('.pyc', '.pyo'))
+            ):
+                continue
             if normalized and not normalized.startswith(".molicoder/"):
                 paths.append(normalized)
         return tuple(sorted(set(paths)))
@@ -1137,6 +1146,14 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             if self._active_run_id is None:
                 raise
             return self.fail_unexpected(str(exc))
+
+    def review_snapshot(self, run_id):
+        from .task_review import review_snapshot
+        return review_snapshot(self, run_id)
+
+    def continue_review(self, run_id, reviewed, decision, feedback='', checked=()):
+        from .task_review import continue_review
+        return continue_review(self, run_id, reviewed, decision, feedback, checked)
 
     def revise_plan(self, run_id: int, expected_revision: int, edited: str | dict) -> int:
         """Save a new unapproved plan revision after validating task scope and DAG."""
@@ -1374,9 +1391,13 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                     raise PermissionError("Approved runner policy changed")
                 plan = validate_plan_scope(parse_plan(saved["payload"]), self.root)
                 assignments = saved["payload"].get("task_assignments", {})
-                if assignments != self._task_assignments(
-                    plan, strategy, saved["payload"].get("task_model_overrides", {}),
-                ):
+                if saved['payload'].get('task_review_continuation'):
+                    from .task_review import continuation_assignments
+                    expected = continuation_assignments(self, plan, saved['payload'],
+                        {t.key for t in self.store.list_run_tasks(run_id) if t.status == 'completed'})
+                else:
+                    expected = self._task_assignments(plan, strategy, saved["payload"].get("task_model_overrides", {}))
+                if assignments != expected:
                     raise PermissionError("Approved task assignments changed")
             manager = WorktreeManager(self.root, run_id=run_id, base_dir=self.worktree_base)
             if approved_run_id is not None and manager.base_commit != approved_run["base_commit"]:
@@ -1462,11 +1483,14 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 self.inference_gateway.task_id = task_id
             prior_attempts = (
                 next(item.attempts for item in existing_tasks if item.key == task.key)
-                if (resume_approved_workspace and str(approved_run.get("recovery_reason") or "").startswith(
-                    "Interrupted task output"
+                if (resume_approved_workspace and (
+                    saved['payload'].get('task_review_continuation') or
+                    str(approved_run.get("recovery_reason") or "").startswith("Interrupted task output")
                 )) else 0
             )
-            if prior_attempts >= self.max_task_attempts:
+            attempt_limit = (saved['payload'].get('task_review_attempt_limits', {}).get(task.key, self.max_task_attempts)
+                             if resume_approved_workspace else self.max_task_attempts)
+            if prior_attempts >= attempt_limit:
                 return self._finish_run(
                     run_id, "needs_attention", completed, len(plan.tasks),
                     error=f"Task {task.key} exhausted its approved attempt limit before recovery",
@@ -1483,7 +1507,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             prompt = self._task_prompt(
                 request, plan, task, packet, validation_error,
                 run_id=run_id, task_id=task_id,
-                base_commit=workspace.base_commit, remaining_attempts=self.max_task_attempts - prior_attempts,
+                base_commit=workspace.base_commit, remaining_attempts=attempt_limit - prior_attempts,
             )
             attempts = prior_attempts
             changed: tuple[str, ...] = ()
@@ -1572,7 +1596,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 effort = assignments[task.key].get('fallback_effort' if local_used else 'effort', getattr(attempt_provider, 'effort', None))
                 failed_fingerprints: set[str] = set()
                 validation_fingerprints: list[str] = []
-                for frontier_attempt in range(prior_attempts + int(local_used) + 1, self.max_task_attempts + 1):
+                for frontier_attempt in range(prior_attempts + int(local_used) + 1, attempt_limit + 1):
                     attempts = frontier_attempt
                     if (local_used and frontier_attempt == 1) or frontier_attempt > 1:
                         try:
@@ -1603,7 +1627,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                     self._event(run_id, "provider_attempt_started", {
                         "key": task.key, "provider": attempt_provider.name, "attempt": frontier_attempt,
                         "model": attempt_provider.model, "effort": effort,
-                    "maximum_attempts": self.max_task_attempts,
+                    "maximum_attempts": attempt_limit,
                     }, task_id)
                     opaque_attempt = getattr(attempt_provider, "enforcement_class", "") == "opaque_agent"
                     calls_before = getattr(attempt_provider, "calls", None) if opaque_attempt else None
@@ -1616,7 +1640,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                             self._task_prompt(
                                 request, plan, task, packet, validation_error,
                                 run_id=run_id, task_id=task_id, base_commit=workspace.base_commit,
-                                remaining_attempts=self.max_task_attempts - frontier_attempt + 1,
+                                remaining_attempts=attempt_limit - frontier_attempt + 1,
                             ),
                             timeout_seconds=self.task_timeout_seconds,
                         )
@@ -1654,7 +1678,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                             opaque_review_required = True
                             break
                         next_provider = self._execution_fallback(assignments[task.key], attempt_provider)
-                        if next_provider is not None and frontier_attempt < self.max_task_attempts:
+                        if next_provider is not None and frontier_attempt < attempt_limit:
                             self._event(run_id, 'model_handoff', {'key': task.key, 'from_provider': attempt_provider.name,
                                 'provider': next_provider.name, 'model': next_provider.model, 'reason': validation_error[:500]}, task_id)
                             attempt_provider = next_provider
@@ -1676,7 +1700,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                         if not action.retry_same_route:
                             if (not getattr(self, 'task_router', None) and self.alternate_provider is not None
                                     and attempt_provider is self.provider
-                                    and frontier_attempt < self.max_task_attempts):
+                                    and frontier_attempt < attempt_limit):
                                 try:
                                     alternate_status = self.alternate_provider.probe()
                                 except Exception as exc:
@@ -1691,7 +1715,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                                         "key": task.key, "from_provider": attempt_provider.name,
                                         "provider": self.alternate_provider.name,
                                         "reason": validation_error[:500], "checkpoint": checkpoint,
-                                        "remaining_attempts": self.max_task_attempts - frontier_attempt,
+                                        "remaining_attempts": attempt_limit - frontier_attempt,
                                         "diagnostic_fingerprint": fingerprint,
                                     }, task_id)
                                     attempt_provider = self.alternate_provider
@@ -1704,7 +1728,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                                     "reason": alternate_status.detail or "fallback authentication is unverified",
                                 }, task_id)
                             break
-                        if frontier_attempt < self.max_task_attempts:
+                        if frontier_attempt < attempt_limit:
                             self._event(run_id, "repair_started", {"key": task.key, "reason": validation_error, "attempt": frontier_attempt + 1}, task_id)
                             continue
                         break
@@ -1741,7 +1765,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                     if validation_error.startswith("architectural review required:"):
                         break
                     next_provider = self._execution_fallback(assignments[task.key], attempt_provider)
-                    if next_provider is not None and frontier_attempt < self.max_task_attempts and not opaque_attempt:
+                    if next_provider is not None and frontier_attempt < attempt_limit and not opaque_attempt:
                         self._event(run_id, 'model_handoff', {'key': task.key, 'from_provider': attempt_provider.name,
                             'provider': next_provider.name, 'model': next_provider.model, 'reason': validation_error[:500]}, task_id)
                         attempt_provider = next_provider
@@ -1760,7 +1784,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                         }, task_id)
                         validation_error = f"repair {progress} after repeated validation failure: " + validation_error
                         break
-                    if frontier_attempt < self.max_task_attempts:
+                    if frontier_attempt < attempt_limit:
                         self._event(run_id, "repair_started", {"key": task.key, "reason": validation_error, "attempt": frontier_attempt + 1}, task_id)
 
             if not changed and not verified_no_change:
@@ -1996,6 +2020,8 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         ), None)
         if recovery_observation is not None:
             return self._propose_interrupted_recovery(run_id, run)
+        if any(t.status == 'review_required' for t in self.store.list_run_tasks(run_id)):
+            raise ValueError('This task needs Review & continue. Resume does not approve a pending review.')
         path = Path(str(run.get("worktree") or "")).resolve()
         if not path.is_dir():
             raise ValueError("the preserved run worktree is missing")
