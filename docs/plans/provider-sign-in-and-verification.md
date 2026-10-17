@@ -77,4 +77,6 @@ All **eight packaged gates passed**: startup/storage migration, WebEngine, actua
 
 The opt-in real setup/conversation test was repeated against the final source: **1 passed in 73.48 seconds**. The assistant described Seaside from its README, then correctly explained that a missing `archived` flag defaults to `False` using an exact `notes.py:2` citation. The source files remained unchanged. Final machine-readable evidence is in `artifacts/provider-login-20261017/qualified/`, including retained reports from the earlier failed candidate under the sibling `release/` directory.
 
-Installation is awaiting the user closing the running MoliCoder window, as required by `scripts/install.ps1` to preserve drafts.
+Installed through `scripts/install.ps1` on 2026-10-17 after the user closed MoliCoder. The installed executable matches the qualified package SHA-256 above. All four installed-copy checks passed through the CLI with Qt offscreen: startup/storage migration, WebEngine, the actual provider setup button with a fresh real OpenCode response, and General project identity. Setup did not grant project trust. Reports: `qualified/installed-checks.json` and `qualified/installed-provider-button.json`.
+
+The previous installation was preserved at `%LOCALAPPDATA%\Programs\MoliCoder.previous-20261017-103417-ff45c39b3dd1485fa970da22eca44f27`. The desktop shortcut points to the updated installation. No interactive application window was opened during verification.
