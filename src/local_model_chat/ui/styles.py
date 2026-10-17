@@ -106,6 +106,13 @@ QFrame#reasoningPanel {
 }
 QSplitter::handle { background: #303A33; width: 1px; }
 QToolTip { background: #19221C; color: #EAE9E1; border: 1px solid #475569; padding: 6px; }
+QMenu { background: #19221C; color: #EAE9E1; border: 1px solid #3B4940; padding: 4px; }
+QMenu::item { background: transparent; padding: 6px 24px 6px 12px; }
+QMenu::item:selected { background: #355440; color: #EAE9E1; }
+QMenu::item:disabled { color: #64748B; }
+QMenu::separator { background: #3B4940; height: 1px; margin: 4px 8px; }
+QMenuBar { background: #151816; color: #EAE9E1; }
+QMenuBar::item:selected { background: #355440; }
 """
 
 

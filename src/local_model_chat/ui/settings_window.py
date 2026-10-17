@@ -1,6 +1,6 @@
 """Persistent, navigable settings with everyday actions first."""
 from PySide6.QtWidgets import (QDialog, QHBoxLayout, QVBoxLayout, QListWidget,
-    QStackedWidget, QWidget, QLabel, QPushButton, QCheckBox, QComboBox, QScrollArea, QSpinBox)
+    QStackedWidget, QWidget, QLabel, QPushButton, QCheckBox, QComboBox, QFontComboBox, QScrollArea, QSpinBox)
 from PySide6.QtCore import QThread, Signal
 
 
@@ -99,14 +99,29 @@ def show_settings_window(w, category='General'):
                 theme.currentIndexChanged.connect(w.theme_selector.setCurrentIndex)
                 w._settings_theme_selector = theme
                 body.addWidget(QLabel('Appearance')); body.addWidget(theme)
-                from .theme import MAX_TEXT_SIZE, MIN_TEXT_SIZE, current_text_size, set_text_size
+                from PySide6.QtGui import QFont
+                from .theme import (MAX_TEXT_SIZE, MIN_TEXT_SIZE, current_text_size, set_text_size,
+                    current_font_family, set_font_family, compact_chat, set_chat_density)
+                font = QFontComboBox(); font.setCurrentFont(QFont(current_font_family(w)))
+                font.setAccessibleName('App font family')
+                font.currentFontChanged.connect(lambda value: set_font_family(w, value.family()))
+                w._settings_font_control = font
+                font_label = QLabel('Font · App and chat'); font_label.setBuddy(font)
+                body.addWidget(font_label); body.addWidget(font)
                 size = QSpinBox(); size.setRange(MIN_TEXT_SIZE, MAX_TEXT_SIZE); size.setSuffix(' px')
+                size.setAccessibleName('App text size')
                 size.setValue(current_text_size(w))
                 w._settings_text_size_control = size
                 def set_size(value):
                     set_text_size(w, value)
                 size.valueChanged.connect(set_size)
                 body.addWidget(QLabel('Text size · Entire app')); body.addWidget(size)
+                density = QComboBox(); density.addItem('Compact', 'compact'); density.addItem('Comfortable', 'comfortable')
+                density.setCurrentIndex(0 if compact_chat(w) else 1)
+                density.setAccessibleName('Chat spacing')
+                density.currentIndexChanged.connect(lambda: set_chat_density(w, density.currentData()))
+                w._settings_density_control = density
+                body.addWidget(QLabel('Chat spacing')); body.addWidget(density)
                 for label, key in [('Remember last workspace on launch', 'ui.remember_workspace'), ('Reduce animation', 'ui.reduce_motion')]:
                     check = QCheckBox(label); check.setChecked(w.store.get_setting(key, 'false') == 'true')
                     check.toggled.connect(lambda value, setting=key: w.store.set_setting(setting, str(value).lower()))

@@ -1,11 +1,43 @@
 """Apply and persist the application theme without rebuilding the workspace."""
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication, QLabel
 from .styles import stylesheet_for_theme
 
 DEFAULT_TEXT_SIZE = 17
 MIN_TEXT_SIZE = 12
-MAX_TEXT_SIZE = 22
+MAX_TEXT_SIZE = 32
+DEFAULT_FONT_FAMILY = 'Segoe UI'
+
+
+def current_font_family(window):
+    family = window.store.get_setting('ui.font_family', DEFAULT_FONT_FAMILY)
+    return family if family in QFontDatabase.families() else DEFAULT_FONT_FAMILY
+
+
+def set_font_family(window, family):
+    if family not in QFontDatabase.families():
+        return
+    window.store.set_setting('ui.font_family', family)
+    apply_theme(window, window.theme_selector.currentData(), persist=False)
+
+
+def compact_chat(window):
+    return window.store.get_setting('ui.chat_density', 'compact') != 'comfortable'
+
+
+def set_chat_density(window, density):
+    window.store.set_setting('ui.chat_density', 'comfortable' if density == 'comfortable' else 'compact')
+    apply_chat_density(window)
+
+
+def apply_chat_density(window):
+    from .widgets import ChatBubble
+    compact = compact_chat(window)
+    QApplication.instance().setProperty('molicoderCompactChat', compact)
+    window.transcript_layout.setSpacing(6 if compact else 12)
+    for bubble in window.findChildren(ChatBubble):
+        bubble.set_compact(compact)
+    window.composer.set_compact(compact)
 
 
 def current_text_size(window):
@@ -63,10 +95,16 @@ def apply_theme(window, theme, *, persist=True):
     app.setPalette(palette)
     sheet = stylesheet_for_theme(theme)
     text_size = current_text_size(window)
-    sheet += f'QWidget {{ font-size: {text_size}px; }}'
+    family = current_font_family(window)
+    font = QFont(family)
+    font.setPixelSize(text_size)
+    app.setFont(font)
+    escaped_family = family.replace('\\', '\\\\').replace('"', '\\"')
+    sheet += f'QWidget {{ font-family: "{escaped_family}"; font-size: {text_size}px; }}'
     if light:
         sheet += 'QLabel#modelBadge, QLabel#buildActivity { color: #216442; } QLabel#brandLogo { background: #FFFFFF; }'
     app.setStyleSheet(sheet)
+    apply_chat_density(window)
     window.theme_selector.blockSignals(True)
     window.theme_selector.setCurrentIndex(window.theme_selector.findData(theme))
     window.theme_selector.blockSignals(False)

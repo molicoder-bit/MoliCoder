@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import math
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication, QTextCursor
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QTextBrowser,
+    QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QTextBrowser,
     QToolButton, QVBoxLayout, QWidget, QTextEdit,
 )
 
@@ -27,12 +28,22 @@ class ChatBubble(QFrame):
         author = QLabel("You" if role == "user" else "MoliCoder")
         author.setObjectName("messageAuthor")
         header.addWidget(author)
-        header.addStretch()
-        copy_button = QPushButton("Copy")
-        copy_button.setObjectName("ghost")
-        copy_button.setMinimumHeight(copy_button.sizeHint().height())
-        copy_button.clicked.connect(self.copy_content)
-        header.addWidget(copy_button)
+        self.origin_label = QLabel()
+        self.origin_label.setObjectName('muted')
+        self.origin_label.setTextFormat(Qt.PlainText)
+        self.origin_label.setWordWrap(True)
+        self.origin_label.setMinimumWidth(0)
+        self.origin_label.hide()
+        header.addWidget(self.origin_label, 1)
+        self.elapsed_label = QLabel()
+        self.elapsed_label.setObjectName('muted')
+        self.elapsed_label.hide()
+        header.addWidget(self.elapsed_label)
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setObjectName("ghost")
+        self.copy_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.copy_button.clicked.connect(self.copy_content)
+        header.addWidget(self.copy_button)
         outer.addLayout(header)
 
         self.reasoning_frame = QFrame()
@@ -59,12 +70,33 @@ class ChatBubble(QFrame):
         self.body.setFrameShape(QFrame.Shape.NoFrame)
         self.body.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.body.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.body.setStyleSheet("background: transparent; border: none; padding: 0;")
+        self.body.setStyleSheet("QTextBrowser { background: transparent; border: none; padding: 0; }")
+        self.body.document().setDocumentMargin(0)
         self.apply_theme()
         self.body.document().documentLayout().documentSizeChanged.connect(self._resize_body)
         outer.addWidget(self.body)
         self.set_content(content)
         self.set_thinking(thinking)
+        self.set_compact(QApplication.instance().property('molicoderCompactChat') is not False)
+
+    def set_compact(self, compact: bool) -> None:
+        margins = (10, 6, 10, 6) if compact else (14, 10, 14, 10)
+        self.layout().setContentsMargins(*margins)
+        self.layout().setSpacing(4 if compact else 8)
+        self.copy_button.setStyleSheet('padding: 2px 6px;' if compact else '')
+
+    def set_reply_details(self, origin: str, seconds=None) -> None:
+        self.origin_label.setText(origin)
+        self.origin_label.setToolTip(origin)
+        self.origin_label.setVisible(bool(origin))
+        valid = isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and math.isfinite(seconds) and seconds >= 0
+        self.elapsed_label.setVisible(valid)
+        if valid:
+            minutes, remainder = divmod(round(seconds), 60)
+            duration = '<0.1s' if seconds < 0.1 else f'{seconds:.1f}s' if seconds < 60 else f'{minutes}m {remainder}s'
+            self.elapsed_label.setText(duration)
+            self.elapsed_label.setAccessibleName(f'Response time: {duration}')
+            self.elapsed_label.setToolTip('Time from sending to the completed reply, including evaluation, tools, fallbacks and any approval wait.')
 
     def apply_theme(self) -> None:
         from PySide6.QtWidgets import QApplication
@@ -74,12 +106,13 @@ class ChatBubble(QFrame):
             f"blockquote {{ background-color: {background}; border-left: 4px solid {border}; "
             f"margin: 8px 0; padding: 10px 12px; color: {foreground}; }}"
         )
+        self.body.document().setDefaultFont(self.body.font())
         # Reparse only this displayed document; stored content/history is untouched.
         if self.content:
             self._set_body_markdown(normalize_model_markdown(self.content))
 
     def _resize_body(self, size) -> None:
-        self.body.setFixedHeight(max(28, int(size.height()) + 8))
+        self.body.setFixedHeight(max(self.body.fontMetrics().height() + 2, math.ceil(size.height()) + 2))
 
     def _toggle_reasoning(self, checked: bool) -> None:
         self.reasoning_view.setVisible(checked)
@@ -168,6 +201,17 @@ class MessageComposer(QTextEdit):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAcceptDrops(True)
+        self._compact = True
+        self.document().documentLayout().documentSizeChanged.connect(lambda _: self._resize_to_draft())
+        self.textChanged.connect(self._resize_to_draft)
+
+    def set_compact(self, compact: bool) -> None:
+        self._compact = compact
+        self._resize_to_draft()
+
+    def _resize_to_draft(self) -> None:
+        minimum = 56 if self._compact else 76
+        self.setFixedHeight(max(minimum, min(160, math.ceil(self.document().size().height()) + 22)))
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):

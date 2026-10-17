@@ -31,6 +31,8 @@ Provider sign-in and verified access in 1.4.3: [provider flows, official documen
 
 Request evaluation and economical model selection in 1.4.4: [policy, model/effort matching and evidence](docs/plans/request-evaluator-and-cost-routing.md).
 
+Chat appearance in 1.4.5: **Settings → General** saves your font, text size (12–32 px), and Compact/Comfortable spacing immediately. **View → Font and chat appearance** opens these controls; Ctrl++/Ctrl+- also adjust size. Compact is the default, with inline reply details and a composer that grows with your draft. Each new reply shows its elapsed response time, including evaluation, tools, fallback attempts, and approval waits; the measurement survives reopening the chat. Older replies without measurements remain unlabeled. Copy menus follow the selected theme. **Open folder** and **New project** are available beside the main project selector.
+
 1.4.0 implementation and verification: [unified orchestration evidence](docs/plans/unified-request-orchestration-evidence.md), including real provider results, retained failures, package checks and unverified installed UI layers.
 
 ## What works today

@@ -341,8 +341,6 @@ class MainWindow(QMainWindow):
         composer_layout.setContentsMargins(10, 9, 10, 9)
         self.composer = MessageComposer()
         self.composer.setPlaceholderText("Ask about your project or describe a task…  Enter to send · Shift+Enter for a new line.")
-        self.composer.setMinimumHeight(76)
-        self.composer.setMaximumHeight(160)
         self.composer.textChanged.connect(self._refresh_context_meter)
         self.composer.files_dropped.connect(self._add_attachment_paths)
         self.composer.send_requested.connect(self._send_message)
@@ -1183,6 +1181,9 @@ class MainWindow(QMainWindow):
         reset_text.setShortcut(QKeySequence("Ctrl+0"))
         reset_text.triggered.connect(lambda: set_text_size(self, DEFAULT_TEXT_SIZE))
         view_menu.addAction(reset_text)
+        font_settings = QAction('Font and chat appearance…', self)
+        font_settings.triggered.connect(lambda: __import__('local_model_chat.ui.workspace', fromlist=['show_settings']).show_settings(self, 'General'))
+        view_menu.addAction(font_settings)
 
     def _start_ollama_check(self) -> None:
         self.startup_worker = StartupWorker(self.client, self.store)
@@ -1418,6 +1419,8 @@ class MainWindow(QMainWindow):
         self.project_actions.setVisible(project is None)
         self.change_project_button.setVisible(project is not None)
         self.change_project_button.setEnabled(self.orchestration_worker is None)
+        self.open_folder_button.setEnabled(self.orchestration_worker is None)
+        self.new_project_button.setEnabled(self.orchestration_worker is None)
         if project is None:
             self.build_project_title.setProperty("themeTone", "error")
             self.build_project_title.setText("No project selected — Build blocked")
@@ -2078,6 +2081,8 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "build_status"):
             return
         self.change_project_button.setEnabled(self.orchestration_worker is None)
+        self.open_folder_button.setEnabled(self.orchestration_worker is None)
+        self.new_project_button.setEnabled(self.orchestration_worker is None)
         kandev_selected = self.build_owner.currentData() == "kandev"
         internal_controls = not kandev_selected and self.orchestration_worker is None and self.registry.selected() is not None
         self.build_provider.setEnabled(internal_controls)
@@ -2997,6 +3002,8 @@ class MainWindow(QMainWindow):
         self._load_project_list(select_id=project.id)
 
     def _add_project(self) -> None:
+        if self.orchestration_worker is not None:
+            return
         path = QFileDialog.getExistingDirectory(self, "Add local project")
         if not path:
             return
@@ -3006,6 +3013,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Could not add project", str(exc))
 
     def _create_project(self) -> None:
+        if self.orchestration_worker is not None:
+            return
         parent = QFileDialog.getExistingDirectory(self, "Choose where to create the project")
         if not parent:
             return
@@ -3294,10 +3303,12 @@ class MainWindow(QMainWindow):
             else:
                 from ..work_state import RouteIdentity
                 origin = RouteIdentity.from_receipt(receipt).render()
-            label = QLabel(origin)
-            label.setWordWrap(True)
-            label.setTextFormat(Qt.PlainText)
-            bubble.layout().insertWidget(1, label)
+            seconds = receipt.get('response_seconds') if receipt else None
+            if seconds is None and receipt:
+                measured = (receipt.get('metrics') or {}).get('total_seconds')
+                if isinstance(measured, (int, float)) and measured > 0:
+                    seconds = measured
+            bubble.set_reply_details(origin, seconds)
         return self._register_transcript_bubble(bubble)
 
     def _register_transcript_bubble(self, bubble):
@@ -3461,6 +3472,7 @@ class MainWindow(QMainWindow):
         content = self._pending_content()
         if not content.strip():
             return
+        self._response_started_at = time.monotonic()
         if not getattr(self, '_resume_request_id', None) and not self.current_attachments and (self.controller.is_deterministic_question(content)
                 or folder_intent(content) is not None or empty_file_intent(content, None) is not None):
             from ..orchestration.coordinator import RequestCoordinator
@@ -3468,8 +3480,10 @@ class MainWindow(QMainWindow):
                 preferred_model=self.preset.name, policy=self.inference_policy,
                 review=self._approve_request_operation, conversation_id=self.current_conversation_id).run(content)
             self._send_controller_reply(content, ControllerResult('shared_request', result.content,
-                action_state=result.receipt['outcome']))
-            self.store.set_message_receipt(self._current_messages()[-1].id, result.receipt)
+                action_state=result.receipt['outcome']), receipt={**result.receipt,
+                    'response_seconds': time.monotonic() - self._response_started_at,
+                    'metrics': asdict(result.metrics)})
+            self._response_started_at = None
             self._refresh_route_identity()
             return
         file_context = None
@@ -3631,13 +3645,14 @@ class MainWindow(QMainWindow):
         self.composer.clear()
         self._load_conversation_list(select_id=conversation_id)
         self.active_bubble = self._register_transcript_bubble(ChatBubble('assistant', 'Reading folder…'))
-        self.active_bubble.layout().insertWidget(1, QLabel('Read-only local listing · No AI model used'))
+        self.active_bubble.set_reply_details('Read-only local listing · No AI model used')
         self.transcript_layout.insertWidget(self.transcript_layout.count() - 1, self.active_bubble)
         self._pending_receipt = {'provider': 'none', 'model_source': 'no_inference',
                                  'operation': 'Read-only folder listing', 'target': str(path)}
         worker = DirectoryReadWorker(path)
         self.chat_worker = worker
         self._local_read_started_at = time.monotonic()
+        self._response_started_at = self._local_read_started_at
         worker.completed.connect(lambda result, owner=worker, cid=conversation_id:
             self._directory_read_finished(result) if self.chat_worker is owner and self.current_conversation_id == cid else None)
         self.send_button.hide(); self.stop_button.show(); self.model_combo.setEnabled(False)
@@ -3657,15 +3672,16 @@ class MainWindow(QMainWindow):
         from .workspace import refresh_workspace
         refresh_workspace(self)
 
-    def _send_controller_reply(self, content: str, result: ControllerResult) -> None:
+    def _send_controller_reply(self, content: str, result: ControllerResult, *, receipt=None) -> None:
         conversation_id = self.current_conversation_id
         if conversation_id is None:
             return
         self.transcript_selection.clear()
         self.store.add_message(Message(None, conversation_id, "user", content))
         message_id = self.store.add_message(Message(None, conversation_id, "assistant", result.content))
-        self.store.set_message_receipt(message_id, {"provider": "none", "model_source": "no_inference", "operation": result.kind,
-                                                   "outcome": result.action_state, "evidence": result.evidence})
+        self.store.set_message_receipt(message_id, receipt if receipt is not None else {
+            "provider": "none", "model_source": "no_inference", "operation": result.kind,
+            "outcome": result.action_state, "evidence": result.evidence})
         if result.kind == "execution_proposal" and result.action_state in {"awaiting_approval", "awaiting_clarification"}:
             self.pending_build_request = (self.current_project_id, content)
             self._update_pending_build_card()
@@ -3746,7 +3762,11 @@ class MainWindow(QMainWindow):
                 metrics.prompt_tokens or None, metrics.output_tokens or None,
             )
             message_id = self.store.add_message(message, metrics)
-            self.store.set_message_receipt(message_id, {**getattr(self, "_pending_receipt", {}), "metrics": asdict(metrics)})
+            receipt = {**getattr(self, "_pending_receipt", {}), "metrics": asdict(metrics)}
+            started = getattr(self, '_response_started_at', None)
+            if started is not None:
+                receipt['response_seconds'] = max(0.0, time.monotonic() - started)
+            self.store.set_message_receipt(message_id, receipt)
         self._reset_generation_state()
         self._update_metrics_cards()
         self._load_conversation_list(select_id=self.current_conversation_id)
@@ -3762,7 +3782,8 @@ class MainWindow(QMainWindow):
     def _generation_failed(self, error: str) -> None:
         if self.active_bubble:
             self.active_bubble.set_content(f"**Generation failed:** {error}")
-        self._reset_generation_state()
+        self._pending_receipt = {**getattr(self, '_pending_receipt', {}), 'outcome': 'failed'}
+        self._generation_finished(GenerationMetrics(done_reason='failed'))
         QMessageBox.critical(self, "Generation failed", error)
 
     def _reset_generation_state(self) -> None:
@@ -3770,6 +3791,7 @@ class MainWindow(QMainWindow):
             self._request_activity_timer.stop()
         worker = self.chat_worker
         self.chat_worker = None
+        self._response_started_at = None
         from .workspace import refresh_activity
         refresh_activity(self)
         self._refresh_route_identity()

@@ -44,6 +44,10 @@ def main() -> int:
     if sys.platform == "win32":
         app.setFont(QFont("Segoe UI Variable", 10))
     app.setStyleSheet(APP_STYLESHEET)
+    if '--package-appearance-smoke-check' in sys.argv:
+        from .ui.appearance_smoke import appearance_smoke
+        report = Path(sys.argv[sys.argv.index('--package-appearance-smoke-check') + 1])
+        return appearance_smoke(app, report)
     if '--package-provider-smoke-check' in sys.argv:
         from .ui.provider_smoke import provider_smoke
         report = Path(sys.argv[sys.argv.index('--package-provider-smoke-check') + 1])
