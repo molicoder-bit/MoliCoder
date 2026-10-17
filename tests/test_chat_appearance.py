@@ -40,7 +40,7 @@ def add_reply(w, text='The README describes the project.', receipt=None):
     return w.transcript_selection._bubbles[-1]
 
 
-@pytest.mark.parametrize('theme', ['light', 'matrix'])
+@pytest.mark.parametrize('theme', ['light', 'default'])
 def test_actual_right_click_menu_follows_theme_and_copies(qtbot, tmp_path, theme):
     w = make_window(qtbot, tmp_path)
     bubble = add_reply(w)
@@ -66,7 +66,7 @@ def test_actual_right_click_menu_follows_theme_and_copies(qtbot, tmp_path, theme
     event = QContextMenuEvent(QContextMenuEvent.Mouse, point, bubble.body.viewport().mapToGlobal(point))
     QApplication.sendEvent(bubble.body.viewport(), event)
     assert len(observed) == 1
-    assert observed[0] > 220 if theme == 'light' else observed[0] < 30
+    assert observed[0] > 220 if theme == 'light' else observed[0] < 45
     assert QApplication.clipboard().text() == bubble.content
 
 

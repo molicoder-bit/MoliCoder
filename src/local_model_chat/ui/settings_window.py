@@ -94,7 +94,7 @@ def show_settings_window(w, category='General'):
             def action(label, callback):
                 button = QPushButton(label); button.clicked.connect(callback); body.addWidget(button)
             if name == 'General':
-                theme = QComboBox(); theme.addItems(['Matrix', 'Light'])
+                theme = QComboBox(); theme.addItems(['Default', 'Light'])
                 theme.setCurrentIndex(w.theme_selector.currentIndex())
                 theme.currentIndexChanged.connect(w.theme_selector.setCurrentIndex)
                 w._settings_theme_selector = theme

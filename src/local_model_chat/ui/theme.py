@@ -1,7 +1,7 @@
 """Apply and persist the application theme without rebuilding the workspace."""
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication, QLabel
-from .styles import stylesheet_for_theme
+from .styles import stylesheet_for_theme, theme_tokens, normalize_theme
 
 DEFAULT_TEXT_SIZE = 17
 MIN_TEXT_SIZE = 12
@@ -60,38 +60,23 @@ def set_text_size(window, value):
 
 
 def theme_color(role):
-    light = QApplication.instance().property('molicoderTheme') == 'light'
-    colors = {
-        'accent': ('#216442', '#00EE24'),
-        'muted': ('#536650', '#69B875'),
-        'success': ('#216442', '#00EE24'),
-        'warning': ('#8A5409', '#F59E0B'),
-        'error': ('#B02743', '#FB7185'),
-    }
-    return colors[role][0 if light else 1]
+    return theme_tokens(QApplication.instance().property('molicoderTheme'))[role]
 
 
 def apply_theme(window, theme, *, persist=True):
-    theme = 'matrix' if theme == 'dark' else theme
-    theme = theme if theme in {'matrix', 'light'} else 'matrix'
+    theme = normalize_theme(theme)
     app = QApplication.instance()
     app.setProperty('molicoderTheme', theme)
     palette = QPalette()
-    light = theme == 'light'
-    for role, color in {
-        QPalette.Window: '#F6F7F2' if light else '#000000',
-        QPalette.WindowText: '#202C23' if light else '#85FF9C',
-        QPalette.Base: '#FFFFFF' if light else '#020A03',
-        QPalette.AlternateBase: '#E7EEE3' if light else '#041508',
-        QPalette.Text: '#202C23' if light else '#85FF9C',
-        QPalette.Button: '#E7EEE3' if light else '#041508',
-        QPalette.ButtonText: '#202C23' if light else '#85FF9C',
-        QPalette.Highlight: '#CEE6CD' if light else '#07551A',
-        QPalette.HighlightedText: '#202C23' if light else '#A3FFB0',
-        QPalette.PlaceholderText: '#61755F' if light else '#69B875',
-        QPalette.Link: '#216442' if light else '#00EE24',
+    tokens = theme_tokens(theme)
+    for role, key in {
+        QPalette.Window: 'canvas', QPalette.WindowText: 'text', QPalette.Base: 'input',
+        QPalette.AlternateBase: 'raised', QPalette.Text: 'text', QPalette.Button: 'raised',
+        QPalette.ButtonText: 'text', QPalette.Highlight: 'selected', QPalette.HighlightedText: 'text',
+        QPalette.PlaceholderText: 'muted', QPalette.Link: 'accent', QPalette.LinkVisited: 'magenta',
+        QPalette.ToolTipBase: 'panel', QPalette.ToolTipText: 'text',
     }.items():
-        palette.setColor(role, QColor(color))
+        palette.setColor(role, QColor(tokens[key]))
     app.setPalette(palette)
     sheet = stylesheet_for_theme(theme)
     text_size = current_text_size(window)
@@ -101,8 +86,6 @@ def apply_theme(window, theme, *, persist=True):
     app.setFont(font)
     escaped_family = family.replace('\\', '\\\\').replace('"', '\\"')
     sheet += f'QWidget {{ font-family: "{escaped_family}"; font-size: {text_size}px; }}'
-    if light:
-        sheet += 'QLabel#modelBadge, QLabel#buildActivity { color: #216442; } QLabel#brandLogo { background: #FFFFFF; }'
     app.setStyleSheet(sheet)
     apply_chat_density(window)
     window.theme_selector.blockSignals(True)

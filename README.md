@@ -31,6 +31,8 @@ Provider sign-in and verified access in 1.4.3: [provider flows, official documen
 
 Request evaluation and economical model selection in 1.4.4: [policy, model/effort matching and evidence](docs/plans/request-evaluator-and-cost-routing.md).
 
+The 1.5.0 visual system offers **Default** (charcoal/cyan) and **Light** (warm neutral/teal), with angular panels, bold control borders, distinct focus states, and semantic status colors. Both use shared tokens; normal text pairs meet 4.5:1 contrast and control boundaries meet 3:1. Saved Matrix/dark preferences open as Default. The embedded Kandev website retains its own appearance; its surrounding desktop controls use the selected app theme.
+
 Chat appearance in 1.4.5: **Settings → General** saves your font, text size (12–32 px), and Compact/Comfortable spacing immediately. **View → Font and chat appearance** opens these controls; Ctrl++/Ctrl+- also adjust size. Compact is the default, with inline reply details and a composer that grows with your draft. Each new reply shows its elapsed response time, including evaluation, tools, fallback attempts, and approval waits; the measurement survives reopening the chat. Older replies without measurements remain unlabeled. Copy menus follow the selected theme. **Open folder** and **New project** are available beside the main project selector.
 
 1.4.0 implementation and verification: [unified orchestration evidence](docs/plans/unified-request-orchestration-evidence.md), including real provider results, retained failures, package checks and unverified installed UI layers.

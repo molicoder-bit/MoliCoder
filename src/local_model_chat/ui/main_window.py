@@ -132,7 +132,7 @@ class MainWindow(QMainWindow):
             except (ValueError, TypeError):
                 pass
         self._build_ui()
-        apply_theme(self, self.store.get_setting("ui.theme", "matrix"), persist=False)
+        apply_theme(self, self.store.get_setting("ui.theme", "default"), persist=False)
         self._build_menu()
         new_chat_action = QAction('New chat', self)
         new_chat_action.setShortcut(QKeySequence.StandardKey.New)
@@ -336,7 +336,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.pending_build_card)
 
         composer_frame = QFrame()
-        composer_frame.setObjectName("metricCard")
+        composer_frame.setObjectName("composerPanel")
         composer_layout = QVBoxLayout(composer_frame)
         composer_layout.setContentsMargins(10, 9, 10, 9)
         self.composer = MessageComposer()
@@ -1302,7 +1302,8 @@ class MainWindow(QMainWindow):
                 self._blocker_pulse = QPropertyAnimation(effect, b'opacity', self)
                 self._blocker_pulse.setDuration(900)
                 self._blocker_pulse.setStartValue(1.0)
-                self._blocker_pulse.setKeyValueAt(0.5, 0.55)
+                # Keep warning text readable throughout the brief attention pulse.
+                self._blocker_pulse.setKeyValueAt(0.5, 0.9)
                 self._blocker_pulse.setEndValue(1.0)
                 self._blocker_pulse.setLoopCount(2)
                 self._blocker_pulse.start()

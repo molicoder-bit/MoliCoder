@@ -68,7 +68,7 @@ def test_shift_click_all_and_composer_shortcuts_stay_separate(qtbot, tmp_path):
     assert QApplication.clipboard().text() == 'You:\nAlpha user question\n\nMoliCoder:\nBeta assistant answer'
 
 
-@pytest.mark.parametrize('theme', ['light', 'matrix'])
+@pytest.mark.parametrize('theme', ['light', 'default'])
 def test_selection_survives_stream_theme_and_same_chat_refresh(qtbot, tmp_path, theme):
     w = window(qtbot, tmp_path)
     w.select_chat_button.click()

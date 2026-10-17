@@ -100,11 +100,13 @@ class ChatBubble(QFrame):
 
     def apply_theme(self) -> None:
         from PySide6.QtWidgets import QApplication
-        light = QApplication.instance().property("molicoderTheme") == "light"
-        background, border, foreground = ("#E7EEE3", "#216442", "#202C23") if light else ("#001006", "#00EE24", "#85FF9C")
+        from .styles import theme_tokens
+        t = theme_tokens(QApplication.instance().property('molicoderTheme'))
         self.body.document().setDefaultStyleSheet(
-            f"blockquote {{ background-color: {background}; border-left: 4px solid {border}; "
-            f"margin: 8px 0; padding: 10px 12px; color: {foreground}; }}"
+            f"blockquote {{ background-color: {t['code']}; border-left: 4px solid {t['accent']}; "
+            f"margin: 8px 0; padding: 10px 12px; color: {t['text']}; }}"
+            f"pre, code {{ background-color: {t['code']}; color: {t['text']}; }}"
+            f"a {{ color: {t['accent']}; }}"
         )
         self.body.document().setDefaultFont(self.body.font())
         # Reparse only this displayed document; stored content/history is untouched.

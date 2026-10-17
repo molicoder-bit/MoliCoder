@@ -9,9 +9,9 @@ def test_theme_switch_is_immediate_and_preserves_drafts(qtbot, tmp_path):
     store = ChatStore(tmp_path/'theme.db')
     window = MainWindow(store, start_ollama_check=False)
     qtbot.addWidget(window)
-    assert QApplication.instance().property('molicoderTheme') == 'matrix'
-    assert window.theme_selector.currentData() == 'matrix'
-    assert [window.theme_selector.itemText(i) for i in range(window.theme_selector.count())] == ['Matrix', 'Light']
+    assert QApplication.instance().property('molicoderTheme') == 'default'
+    assert window.theme_selector.currentData() == 'default'
+    assert [window.theme_selector.itemText(i) for i in range(window.theme_selector.count())] == ['Default', 'Light']
     window.composer.setPlainText('Keep this chat draft')
     window.build_request.setPlainText('Keep this build draft')
     bubble = ChatBubble('assistant', '> Quoted project evidence', parent=window)
@@ -19,13 +19,13 @@ def test_theme_switch_is_immediate_and_preserves_drafts(qtbot, tmp_path):
     assert QApplication.instance().property('molicoderTheme') == 'light'
     assert store.get_setting('ui.theme') == 'light'
     assert window.theme_selector.currentText() == 'Light'
-    assert '#F6F7F2' in QApplication.instance().styleSheet()
-    assert '#202C23' in bubble.body.document().defaultStyleSheet()
+    assert '#F3F1EA' in QApplication.instance().styleSheet()
+    assert '#171C27' in bubble.body.document().defaultStyleSheet()
     assert window.composer.toPlainText() == 'Keep this chat draft'
     assert window.build_request.toPlainText() == 'Keep this build draft'
-    window.theme_selector.setCurrentIndex(window.theme_selector.findData('matrix'))
-    assert store.get_setting('ui.theme') == 'matrix'
-    assert '#85FF9C' in bubble.body.document().defaultStyleSheet()
+    window.theme_selector.setCurrentIndex(window.theme_selector.findData('default'))
+    assert store.get_setting('ui.theme') == 'default'
+    assert '#F0F3FA' in bubble.body.document().defaultStyleSheet()
 
 
 def test_saved_theme_restores_without_rewriting_preference(qtbot, tmp_path):
@@ -43,8 +43,8 @@ def test_invalid_theme_falls_back_to_matrix(qtbot, tmp_path):
     store.set_setting('ui.theme', 'unrecognized')
     window = MainWindow(store, start_ollama_check=False)
     qtbot.addWidget(window)
-    assert QApplication.instance().property('molicoderTheme') == 'matrix'
-    assert window.theme_selector.currentText() == 'Matrix'
+    assert QApplication.instance().property('molicoderTheme') == 'default'
+    assert window.theme_selector.currentText() == 'Default'
 
 
 def test_view_text_size_controls_cover_header_and_editor(qtbot, tmp_path):

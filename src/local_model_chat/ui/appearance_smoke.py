@@ -58,7 +58,7 @@ def appearance_smoke(app, report_path):
             check('empty composer does not reserve a large editor', window.composer.height() < 80)
             check('saved per-reply response times', all(b.elapsed_label.text() == '8.4s' for b in bubbles if b.role == 'assistant'))
             check('main page folder and project actions', window.open_folder_button.isVisible() and window.new_project_button.isVisible())
-            for theme in ('light', 'matrix'):
+            for theme in ('light', 'default'):
                 apply_theme(window, theme); settle()
                 window.transcript_selection.select_all()
                 expected = window.transcript_selection.selected_text()
@@ -78,7 +78,7 @@ def appearance_smoke(app, report_path):
                 view = bubbles[-1].body
                 point = view.viewport().rect().center()
                 app.sendEvent(view.viewport(), QContextMenuEvent(QContextMenuEvent.Mouse, point, view.viewport().mapToGlobal(point)))
-                check(theme + ' actual context menu', len(observed) == 1 and (observed[0] > 220 if theme == 'light' else observed[0] < 30))
+                check(theme + ' actual context menu', len(observed) == 1 and (observed[0] > 220 if theme == 'light' else observed[0] < 45))
                 check(theme + ' selection copied', bool(expected) and QApplication.clipboard().text() == expected)
                 window.transcript_selection.clear()
                 window.grab().save(str(report_path.with_name(f'{report_path.stem}-{theme}-1440.png')))
