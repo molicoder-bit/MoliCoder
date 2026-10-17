@@ -61,7 +61,8 @@ class LocalPlanner:
                     "expected_paths, acceptance_criteria, verification_checks, and optional artifact_checks. "
                     "For an exact text-file result, use file_equals with path and exact content. "
                     "For an empty directory, use directory_empty with path. Include checked paths in expected_paths. "
-                    "Tasks must be small, explicit, single-file where possible, and mechanically verifiable. "
+                    "Tasks must be coherent reviewable/mergeable changes, include focused tests, and be mechanically verifiable. "
+                    "Avoid microscopic tasks and unnecessary single-file decomposition. Declare dependencies explicitly. "
                     "For edits, copy exact project-relative paths from the evidence. Never prepend src/ to a root-level file. "
                     "Use Configured validation must pass for the configured test gate; do not invent prose review requirements. "
                     + output_contract

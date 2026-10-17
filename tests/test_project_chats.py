@@ -147,6 +147,7 @@ def test_switch_cancels_old_stream_and_blocks_cross_project_during_build(qtbot, 
         failed = Signal(str)
         finished = Signal()
         route_changed = Signal(object)
+        review_required = Signal(object)
         repository_analysis = repository_mode
 
         def __init__(self, *args):
@@ -161,6 +162,7 @@ def test_switch_cancels_old_stream_and_blocks_cross_project_during_build(qtbot, 
 
     monkeypatch.setattr('local_model_chat.ui.main_window.ChatWorker', Worker)
     monkeypatch.setattr('local_model_chat.ui.main_window.RepositoryChatWorker', Worker)
+    monkeypatch.setattr('local_model_chat.ui.main_window.RequestWorker', Worker)
     store = ChatStore(tmp_path / 'workers.db')
     a = project(store, tmp_path, 'A')
     b = project(store, tmp_path, 'B')

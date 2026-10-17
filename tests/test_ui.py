@@ -29,6 +29,17 @@ class FakeClient:
         return None
 
 
+class BuildEvaluationClient(FakeClient):
+    def chat(self, model, messages, **kwargs):
+        import json
+        from local_model_chat.domain import GenerationMetrics
+        from local_model_chat.ollama import ChatResponse
+        payload = {'schema_version': '1.0', 'intent': 'build', 'objective': 'Implement a parser',
+            'required_capabilities': ['coding'], 'complexity': 'medium', 'acceptance_checks': [],
+            'missing_information': [], 'reason': 'Development requires a reviewed plan'}
+        return ChatResponse({'content': json.dumps(payload)}, GenerationMetrics())
+
+
 def test_main_window_starts_and_creates_initial_chat(qtbot, tmp_path) -> None:
     window = MainWindow(ChatStore(tmp_path / "ui.sqlite3"), FakeClient())
     qtbot.addWidget(window)
@@ -81,7 +92,7 @@ def test_first_message_in_new_chat_renders_once(qtbot, tmp_path, monkeypatch) ->
     window = MainWindow(store, FakeClient())
     qtbot.addWidget(window)
     qtbot.waitUntil(lambda: "connected" in window.connection_label.text().lower())
-    monkeypatch.setattr("local_model_chat.ui.main_window.ChatWorker.start", lambda _worker: None)
+    monkeypatch.setattr("local_model_chat.ui.main_window.RequestWorker.start", lambda _worker: None)
 
     window.composer.setPlainText("hi")
     window._send_message()
@@ -115,7 +126,7 @@ def test_current_task_reply_in_chat_uses_sqlite_without_model(qtbot, tmp_path, m
     qtbot.waitUntil(lambda: window.startup_worker is None)
     window._load_project_list(select_id=project.id)
     monkeypatch.setattr(
-        "local_model_chat.ui.main_window.ChatWorker.start",
+        "local_model_chat.ui.main_window.RequestWorker.start",
         lambda _worker: (_ for _ in ()).throw(AssertionError("status launched model")),
     )
 
@@ -137,7 +148,7 @@ def test_chat_folder_request_requires_exact_confirmation_and_creates_folder(qtbo
     folder = tmp_path / "confirmed"
     monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Yes)
     monkeypatch.setattr(
-        "local_model_chat.ui.main_window.ChatWorker.start",
+        "local_model_chat.ui.main_window.RequestWorker.start",
         lambda _worker: (_ for _ in ()).throw(AssertionError("folder launched model")),
     )
 
@@ -187,25 +198,22 @@ def test_implement_request_creates_reviewable_build_proposal(qtbot, tmp_path, mo
     root = tmp_path / "sample"
     root.mkdir()
     project = store.upsert_project("Sample", str(root), "python")
-    window = MainWindow(store, FakeClient())
+    window = MainWindow(store, BuildEvaluationClient())
     qtbot.addWidget(window)
     qtbot.waitUntil(lambda: window.startup_worker is None)
     window._load_project_list(select_id=project.id)
-    monkeypatch.setattr(
-        "local_model_chat.ui.main_window.ChatWorker.start",
-        lambda _worker: (_ for _ in ()).throw(AssertionError("proposal launched model")),
-    )
+    planning = []
+    monkeypatch.setattr(window, '_run_build', lambda: planning.append(window.build_request.toPlainText()))
 
     window.composer.setPlainText("Implement a parser")
     window._send_message()
-
-    assert window.pending_build_request == (project.id, "Implement a parser")
-    assert not window.pending_build_card.isHidden()
+    qtbot.waitUntil(lambda: bool(planning), timeout=10000)
+    assert planning == ['Implement a parser']
+    assert window.pending_build_request is None
     assert store.list_project_runs(project.id) == []
     window._set_view("build")
     window._set_view("chat")
-    assert window.pending_build_request is not None
-    window._review_pending_build()
+    window._set_view('build')
     assert window.view_stack.currentWidget() is window.build_view
     assert window.doctor_button.text() == "Environment doctor"
     assert window.build_request.toPlainText() == "Implement a parser"
@@ -218,14 +226,15 @@ def test_pending_build_proposal_can_be_cancelled(qtbot, tmp_path) -> None:
     root = tmp_path / "sample"
     root.mkdir()
     project = store.upsert_project("Sample", str(root), "python")
-    window = MainWindow(store, FakeClient())
+    window = MainWindow(store, BuildEvaluationClient())
     qtbot.addWidget(window)
     qtbot.waitUntil(lambda: window.startup_worker is None)
     window._load_project_list(select_id=project.id)
     window.composer.setPlainText("Build a parser")
     window._send_message()
 
-    window._cancel_pending_build()
+    window._stop_generation()
+    qtbot.waitUntil(lambda: window.chat_worker is None, timeout=10000)
 
     assert window.pending_build_request is None
     assert not window.pending_build_card.isVisible()
@@ -234,14 +243,15 @@ def test_pending_build_proposal_can_be_cancelled(qtbot, tmp_path) -> None:
 
 def test_build_request_without_project_waits_for_selection(qtbot, tmp_path) -> None:
     store = ChatStore(tmp_path / "select-project.sqlite3")
-    window = MainWindow(store, FakeClient())
+    window = MainWindow(store, BuildEvaluationClient())
     qtbot.addWidget(window)
     qtbot.waitUntil(lambda: window.startup_worker is None)
     window.composer.setPlainText("Implement a parser")
 
     window._send_message()
-
-    assert window.pending_build_request == (None, "Implement a parser")
+    qtbot.waitUntil(lambda: window.chat_worker is None, timeout=10000)
+    assert 'Select a project' in store.list_messages(window.current_conversation_id)[-1].content
+    assert window.pending_build_request is None
     assert not window.pending_build_review.isEnabled()
     window._cancel_pending_build()
     assert window.pending_build_request is None
@@ -258,7 +268,7 @@ def test_evaluation_stays_in_read_only_chat_path(qtbot, tmp_path, monkeypatch) -
     window._load_project_list(select_id=project.id)
     launches = []
     monkeypatch.setattr(
-        "local_model_chat.ui.main_window.ChatWorker.start",
+        "local_model_chat.ui.main_window.RequestWorker.start",
         lambda _worker: launches.append("chat"),
     )
     window.composer.setPlainText("Evaluate this code")
@@ -647,6 +657,7 @@ def test_provider_settings_distinguishes_verified_auth_from_installed_cli(qtbot,
         return QDialog.DialogCode.Rejected
 
     monkeypatch.setattr(QDialog, "exec", inspect_dialog)
+    window._provider_statuses = {s.provider: s for s in __import__('local_model_chat.ui.main_window', fromlist=['probe_all_providers']).probe_all_providers()}
     window._provider_settings()
 
     labels = captured["labels"]
@@ -654,8 +665,8 @@ def test_provider_settings_distinguishes_verified_auth_from_installed_cli(qtbot,
     assert "Installed; sign-in and entitlement unverified" in labels
     assert "Sign-in verified" in labels
     assert "Copilot — Opaque subscription CLI" in labels
-    assert "OpenCode — Local gateway preview" in labels
-    assert "Build selection unavailable" in labels
+    assert "OpenCode — Coding runtime" in labels
+    assert "Kilo — Coding runtime" in labels
     assert "Sandbox: CLI tool permissions" in labels
     assert "Capabilities: planning, editing" in labels
     assert "Unavailable: CLI is not installed" in labels

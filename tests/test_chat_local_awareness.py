@@ -100,7 +100,7 @@ def test_project_metadata_follows_conversation_instead_of_old_model_guess(qtbot,
     bpath = tmp_path / 'b';bpath.mkdir()
     b = w.store.upsert_project('Project Beta', str(bpath), 'node')
     w._load_project_list(select_id=a.id)
-    monkeypatch.setattr('local_model_chat.ui.main_window.ChatWorker.start', lambda _: None)
+    monkeypatch.setattr('local_model_chat.ui.main_window.RequestWorker.start', lambda _: None)
     w.composer.setPlainText('Explain a helpful next step')
     w._send_message()
     worker = w.chat_worker
@@ -148,13 +148,18 @@ def test_late_local_read_cannot_write_into_new_chat(qtbot, tmp_path, monkeypatch
     class FakeRead(QObject):
         completed = Signal(object)
         finished = Signal()
+        content_delta = Signal(str)
+        thinking_delta = Signal(str)
+        failed = Signal(str)
+        route_changed = Signal(object)
+        review_required = Signal(object)
         local_read = True
-        def __init__(self, path):
-            super().__init__();self.path=path;self._cancelled=False
+        def __init__(self, *args):
+            super().__init__();self.path=tmp_path;self._cancelled=False
         def start(self): pass
         def cancel(self): self._cancelled=True
         def isRunning(self): return False
-    monkeypatch.setattr('local_model_chat.ui.main_window.DirectoryReadWorker', FakeRead)
+    monkeypatch.setattr('local_model_chat.ui.main_window.RequestWorker', FakeRead)
     w = MainWindow(ChatStore(tmp_path / 'late.db'), FakeClient(), start_ollama_check=False)
     qtbot.addWidget(w)
     w.composer.setPlainText(f'List contents of "{tmp_path}"')

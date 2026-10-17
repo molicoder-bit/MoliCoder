@@ -70,6 +70,10 @@ def test_folder_outcomes_are_verified_recorded_and_visible(qtbot,tmp_path,monkey
     w.build_request.setPlainText(f'Let\'s create a new folder called "new folder" in {tmp_path}')
     w._run_build();assert target.is_dir()
     assert w.store.list_local_actions()[0]['outcome'] == 'created'
+    from local_model_chat.orchestration.journal import RequestJournal
+    saved = RequestJournal.load(w.store, w._last_local_action['request_id'])
+    assert saved['state'] == 'completed'
+    assert any(e['kind'] == 'evaluation' and e['payload']['intent'] == 'action' for e in saved['events'])
     w._run_build();assert w.store.list_local_actions()[0]['outcome'] == 'already_exists'
     file=tmp_path/'conflict';file.write_text('keep')
     result=w._confirm_directory_creation(file)

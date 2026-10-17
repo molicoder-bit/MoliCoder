@@ -13,6 +13,9 @@ from .ui.styles import APP_STYLESHEET
 
 
 def main() -> int:
+    if '--request' in sys.argv:
+        from .orchestration.cli import main as request_main
+        return request_main(sys.argv[sys.argv.index('--request') + 1:])
     if '--package-live-file-check' in sys.argv:
         import json
         from .package_acceptance import verify_file_workflow
@@ -77,7 +80,7 @@ def main() -> int:
                 raise RuntimeError('Legacy chat history did not survive migration')
             if upgraded.get_run(run_id)['status'] != 'needs_attention':
                 raise RuntimeError('Interrupted fixture was not reconciled')
-            if not list(Path(temporary).glob('smoke.sqlite3.pre-v15-*.bak')):
+            if not list(Path(temporary).glob(f'smoke.sqlite3.pre-v{ChatStore.SCHEMA_VERSION}-*.bak')):
                 raise RuntimeError('Legacy schema backup was not created')
             from .ui.chat_smoke import verify_local_chat
             verify_local_chat(window, project.id, conversation.id, temporary, app)

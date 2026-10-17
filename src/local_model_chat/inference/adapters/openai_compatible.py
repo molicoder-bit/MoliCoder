@@ -65,12 +65,17 @@ class OpenAICompatibleAdapter:
             headers["Authorization"] = "Bearer " + self.credentials.get(str(row[0]))
         if self._is_cancelled(request.request_id):
             return self._result(request, "cancelled", error=InferenceError.CANCELLED)
-        payload = json.dumps({
+        body = {
             "model": request.model_id,
             "messages": request.messages,
             "max_tokens": request.max_output_tokens,
             "stream": False,
-        }, separators=(",", ":")).encode("utf-8")
+        }
+        if request.options.get('reasoning_effort') is not None:
+            if offering.capabilities.get('reasoning_effort_parameter') != 'reasoning_effort':
+                raise ValueError('Reasoning effort transport is not configured for this offering')
+            body['reasoning_effort'] = request.options['reasoning_effort']
+        payload = json.dumps(body, separators=(",", ":")).encode("utf-8")
         if len(payload) > 1_048_576:
             raise ValueError("request body exceeds transport limit")
         transport_request = urllib.request.Request(

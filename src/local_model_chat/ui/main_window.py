@@ -37,7 +37,7 @@ from ..inference.pacing import project_pacing
 from ..inference.registry import ProviderRegistry
 from ..kandev.ui_config import configured_kandev_adapter, kandev_board_url
 from ..local_actions import requested_folder, folder_intent
-from ..file_actions import empty_file_intent, create_empty_file
+from ..file_actions import empty_file_intent
 from ..molicoder.projectstate import read_git_state
 from ..molicoder.recovery import recover_interrupted_builds
 from ..molicoder.registry import ProjectRegistry
@@ -48,7 +48,7 @@ from ..ollama import OllamaClient
 from ..storage import ChatStore
 from ..telemetry import format_bytes, read_nvidia_telemetry
 from ..workers import (
-    ChatWorker, RepositoryChatWorker, DirectoryReadWorker, CustomApiWorker, DoctorWorker, ManagedInstallWorker,
+    ChatWorker, RepositoryChatWorker, RequestWorker, DirectoryReadWorker, CustomApiWorker, DoctorWorker, ManagedInstallWorker,
     ManagedRepairWorker, ModelInspectWorker, ModelPullWorker, OrchestrationWorker, StartupWorker,
     WindowsOllamaInstallWorker,
 )
@@ -65,6 +65,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.store = store or ChatStore()
         recover_interrupted_builds(self.store)
+        from ..orchestration.journal import RequestJournal
+        RequestJournal.recover_interrupted(self.store)
         self.controller = MainController(self.store)
         self.inference_registry = ProviderRegistry(self.store)
         self.inference_policy = InferencePolicy(self.inference_registry)
@@ -83,6 +85,13 @@ class MainWindow(QMainWindow):
         self.current_conversation_id: int | None = None
         self._scope_chat_selection: dict[int | None, int] = {}
         self.current_attachments: list[Attachment] = []
+        self._conversation_drafts = {}
+        try:
+            saved_drafts = json.loads(self.store.get_setting('ui.saved_drafts', '{}'))
+            self._conversation_drafts = {int(key): (value['text'], [Attachment(**(item | {'path': Path(item['path'])}))
+                for item in value.get('attachments', [])]) for key, value in saved_drafts.items()}
+        except (ValueError, KeyError, TypeError):
+            pass
         self.managed_install_worker: ManagedInstallWorker | None = None
         self.managed_repair_worker: ManagedRepairWorker | None = None
         self.model_inspect_worker: ModelInspectWorker | None = None
@@ -262,6 +271,10 @@ class MainWindow(QMainWindow):
         self.model_badge.setParent(center)
         self.model_badge.hide()
         model_row.addStretch()
+        self.request_resume_button = QPushButton('Resume interrupted request')
+        self.request_resume_button.clicked.connect(self._resume_interrupted_request)
+        self.request_resume_button.setVisible(False)
+        model_row.addWidget(self.request_resume_button)
         self.select_chat_button = QPushButton("Select all")
         self.select_chat_button.setObjectName("ghost")
         self.select_chat_button.setToolTip("Select text across all visible messages; Ctrl+A when the chat has focus")
@@ -288,7 +301,7 @@ class MainWindow(QMainWindow):
         self.transcript_layout = QVBoxLayout(self.transcript)
         self.transcript_layout.setContentsMargins(6, 8, 6, 8)
         self.transcript_layout.setSpacing(12)
-        self.chat_welcome = QLabel("A clearer path from question to working code.\n\nChat with your local model, inspect project facts, or take a request into Build.")
+        self.chat_welcome = QLabel("Ask a question or describe the work.\n\nMoliCoder inspects the project, uses local tools and suitable models, checks the result, and continues with trusted alternatives when needed.")
         self.chat_welcome.setWordWrap(True)
         self.chat_welcome.setObjectName("welcome")
         self.transcript_layout.addWidget(self.chat_welcome)
@@ -313,6 +326,7 @@ class MainWindow(QMainWindow):
         self.pending_build_label.setWordWrap(True)
         pending_layout.addWidget(self.pending_build_label, 1)
         self.pending_build_review = QPushButton("Review in Build")
+        self.pending_build_review.setEnabled(False)
         self.pending_build_review.clicked.connect(self._review_pending_build)
         pending_layout.addWidget(self.pending_build_review)
         self.pending_build_cancel = QPushButton("Cancel")
@@ -326,7 +340,7 @@ class MainWindow(QMainWindow):
         composer_layout = QVBoxLayout(composer_frame)
         composer_layout.setContentsMargins(10, 9, 10, 9)
         self.composer = MessageComposer()
-        self.composer.setPlaceholderText("Message your local model…  Enter to send · Shift+Enter for a new line. Drop text/code files here.")
+        self.composer.setPlaceholderText("Ask about your project or describe a task…  Enter to send · Shift+Enter for a new line.")
         self.composer.setMinimumHeight(76)
         self.composer.setMaximumHeight(160)
         self.composer.textChanged.connect(self._refresh_context_meter)
@@ -1136,7 +1150,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(reset_text)
 
     def _start_ollama_check(self) -> None:
-        self.startup_worker = StartupWorker(self.client)
+        self.startup_worker = StartupWorker(self.client, self.store)
         self.startup_worker.ready.connect(self._ollama_ready)
         self.startup_worker.finished.connect(
             lambda: self._startup_worker_finished(self.startup_worker)
@@ -1619,16 +1633,19 @@ class MainWindow(QMainWindow):
         if project is None:
             QMessageBox.information(self, "Provider settings", "Select a project first.")
             return
-        statuses = {status.provider: status for status in probe_all_providers()}
+        statuses = getattr(self, '_provider_statuses', {})
         preferences = self.store.get_project_preferences(project.id)
         selected = str(self.build_provider.currentData() or preferences.provider)
         dialog = QDialog(self)
         dialog.setWindowTitle("Frontier provider settings")
         dialog.setMinimumWidth(560)
         layout = QVBoxLayout(dialog)
-        intro = QLabel("Subscription CLIs are used only by Build. Chat stays local through Ollama.")
+        intro = QLabel("Requests use local tools and models first. Trusted providers can handle fallback and Build tasks automatically.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
+        connections = QPushButton('Check connections in Settings')
+        connections.clicked.connect(lambda: __import__('local_model_chat.ui.settings_window', fromlist=['show_settings_window']).show_settings_window(self, 'Models & providers'))
+        layout.addWidget(connections)
         for profile in AGENT_PROFILES:
             status = statuses.get(profile.provider)
             if status is None:
@@ -1641,7 +1658,7 @@ class MainWindow(QMainWindow):
                 availability = "Installed; sign-in and entitlement unverified"
             if not profile.selectable:
                 availability = f"Build selection unavailable: {profile.limitation}"
-            route = "Local gateway preview" if profile.route_class == "local_gateway_preview" else "Opaque subscription CLI"
+            route = "Coding runtime · model sets cost" if profile.provider in {'opencode', 'kilo'} else "Opaque subscription CLI"
             detail = status.detail if status is not None else ""
             label = QLabel(
                 f"{'OpenCode' if profile.provider == 'opencode' else profile.provider.title()} — {route}\n"
@@ -1670,10 +1687,10 @@ class MainWindow(QMainWindow):
         trusted = QCheckBox(f"Trust {selected.title()} for this project")
         trusted.setChecked(selected in preferences.trusted_providers)
         form.addRow("Project permission", trusted)
-        automatic_fallback = QCheckBox('Automatically try trusted external providers when local repository analysis cannot answer')
+        automatic_fallback = QCheckBox('Automatically continue requests with capable trusted providers')
         automatic_fallback.setChecked(self.store.get_setting(f'repository.external_fallback.{project.id}', 'true') == 'true')
-        automatic_fallback.setToolTip('Local models are tried first. Up to two distinct trusted external CLI calls per question, each capped at 90 seconds. Subscription usage/cost can be unknown.')
-        form.addRow('Repository questions', automatic_fallback)
+        automatic_fallback.setToolTip('Up to three routes, eight tool turns per route, and one schema correction per phase. Calls are bounded by the shared request deadline. Subscription usage/cost can be unknown.')
+        form.addRow('Automatic routing', automatic_fallback)
         layout.addLayout(form)
         setup = QPushButton(f"Open official {selected.title()} setup and sign-in guide")
         setup.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(agent_profile(selected).auth_guide)))
@@ -2090,7 +2107,7 @@ class MainWindow(QMainWindow):
             )
         else:
             profile = agent_profile(str(self.build_provider.currentData() or "codex"))
-            route = "Strict local gateway preview" if profile.route_class == "local_gateway_preview" else "Opaque subscription CLI"
+            route = "Coding runtime · model sets cost" if profile.provider in {'opencode', 'kilo'} else "Opaque subscription CLI"
             self.build_agent_info.setText(
                 f"{profile.provider.title()}: {route}. {profile.sandbox} "
                 f"{profile.limitation} Sign-in and entitlement are checked before Build starts; "
@@ -2317,66 +2334,33 @@ class MainWindow(QMainWindow):
             open_drawer(self, "Validation")
 
     def _confirm_empty_file(self, target: Path) -> ControllerResult:
-        outcome = 'cancelled'
-        detail = f'File creation cancelled: {target}'
-        if target.exists():
-            outcome, detail = 'failed', f'File already exists; preserved without changes: {target}'
-        elif QMessageBox.question(self, 'Review local file action',
-                f'Create this empty text file?\n\n{target}\n\n0 bytes · no AI calls · no existing files replaced') == QMessageBox.StandardButton.Yes:
-            self.store.record_action_authorization(
-                project_id=self.current_project_id, action='create_empty_file', scope=str(target),
-                risk=ActionRisk.MUTATION.value, decision='approved', actor='local_user_confirmed_exact_file',
-                expires_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat())
-            AuthorizationPolicy(self.store).require(ActionRequest(
-                self.current_project_id, 'create_empty_file', str(target), ActionRisk.MUTATION))
-            try:
-                detail, outcome = create_empty_file(target), 'created'
-            except OSError as exc:
-                detail, outcome = f'Could not create {target}: {exc}', 'failed'
-        action_id = self.store.record_local_action('create_empty_file', target, outcome, detail)
-        self._last_local_action = {'id': action_id, 'target': str(target), 'outcome': outcome, 'detail': detail}
-        return ControllerResult('file_creation', detail, str(target), outcome)
+        return self._run_local_build_action('write_file', target)
 
     def _confirm_directory_creation(self, folder: Path) -> ControllerResult:
-        result = self._create_directory_result(folder)
-        self._last_local_action = {
-            'id': self.store.record_local_action('create_directory', folder, result.action_state, result.content),
-            'target': str(folder), 'outcome': result.action_state, 'detail': result.content,
-        }
-        return result
+        return self._run_local_build_action('create_directory', folder)
 
-    def _create_directory_result(self, folder: Path) -> ControllerResult:
-        if folder.exists():
-            if not folder.is_dir():
-                return ControllerResult("directory_creation", f"A file already exists at {folder}", evidence=str(folder), action_state="failed")
-            return ControllerResult("directory_creation", f"Folder already exists: {folder}", evidence=str(folder), action_state='already_exists')
-        if QMessageBox.question(
-            self, "Create folder", f"Create this folder on your computer?\n\n{folder}",
-        ) != QMessageBox.StandardButton.Yes:
-            return ControllerResult(
-                "directory_creation", f"Folder creation cancelled: {folder}",
-                evidence=str(folder), action_state="cancelled",
-            )
-        scope = str(folder)
-        self.store.record_action_authorization(
-            project_id=None, action="create_directory", scope=scope,
-            risk=ActionRisk.MUTATION.value, decision="approved",
-            actor="local_user_confirmed_exact_directory",
-            expires_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
-        )
-        AuthorizationPolicy(self.store).require(ActionRequest(
-            None, "create_directory", scope, ActionRisk.MUTATION,
-        ))
-        try:
-            folder.mkdir()
-        except OSError as exc:
-            return ControllerResult(
-                "directory_creation", f"Could not create folder {folder}: {exc}",
-                evidence=str(folder), action_state="failed",
-            )
-        if not folder.is_dir():
-            return ControllerResult("directory_creation", f"Folder creation was not verified: {folder}", action_state="failed")
-        return ControllerResult("directory_creation", f"Created folder: {folder}", evidence=str(folder), action_state='created')
+    def _run_local_build_action(self, tool: str, target: Path) -> ControllerResult:
+        from ..orchestration.coordinator import RequestCoordinator
+        existed = target.exists()
+        declined = False
+        def review(proposal):
+            nonlocal declined
+            approved = QMessageBox.question(self, 'Review local action',
+                f"{proposal['objective']}\n\n{target}\n\nNo AI model used. Existing files are preserved.") == QMessageBox.StandardButton.Yes
+            declined = not approved
+            return approved
+        request = self.build_request.toPlainText().strip() or f"Create {'empty file' if tool == 'write_file' else 'folder'} {target}"
+        result = RequestCoordinator(self.store, self.registry.selected(), self.client,
+            review=review, allow_external=False).run_local_action(request, tool, target)
+        state = result.receipt['outcome']
+        outcome = ('already_exists' if existed else 'created') if state == 'completed' else (
+            'cancelled' if declined or state == 'cancelled' else 'failed')
+        action = 'create_empty_file' if tool == 'write_file' else 'create_directory'
+        action_id = self.store.record_local_action(action, target, outcome, result.content)
+        self._last_local_action = {'id': action_id, 'target': str(target), 'outcome': outcome,
+            'detail': result.content, 'request_id': result.receipt['request_id']}
+        return ControllerResult('file_creation' if tool == 'write_file' else 'directory_creation',
+            result.content, str(target), outcome)
 
     def _run_kandev_build(self, project: Project, request: str) -> None:
         try:
@@ -2769,6 +2753,7 @@ class MainWindow(QMainWindow):
                 f"{task.get('key')}: {task.get('title')}\n"
                 f"  Current state: {task_states.get(task.get('key'), 'pending')}\n"
                 f"  Runner/model: {runner} / {model}\n"
+                f"  Effort: {assignment.get('effort') or 'not configured'}; fallback: {assignment.get('fallback_provider', 'none')} / {assignment.get('fallback_model') or 'provider default'}\n"
                 f"  File scope: {', '.join(task.get('expected_paths', [])) or 'unspecified'}\n"
                 f"  Dependencies: {deps}; checks: {checks}; artifact checks: {artifacts}\n"
                 f"  Acceptance: {'; '.join(task.get('acceptance_criteria', []))}"
@@ -3267,16 +3252,24 @@ class MainWindow(QMainWindow):
         if self.chat_worker is None:
             return
         worker = self.chat_worker
+        if hasattr(self, '_request_activity_timer'):
+            self._request_activity_timer.stop()
         if not hasattr(self, "_retired_chat_workers"):
             self._retired_chat_workers = []
         self._retired_chat_workers.append(worker)
-        worker.finished.connect(lambda owner=worker: (self._retired_chat_workers.remove(owner), owner.deleteLater()))
+        worker.finished.connect(lambda owner=worker: self._release_retired_request(owner))
         self.chat_worker = None
         self.active_bubble = None
         worker.cancel()
         self.stop_button.hide()
         self.send_button.show()
         self.model_combo.setEnabled(True)
+
+    def _release_retired_request(self, worker):
+        if worker not in getattr(self, '_retired_chat_workers', []):
+            return
+        self._retired_chat_workers.remove(worker)
+        worker.deleteLater()
 
     def _conversation_selected(self, current: QListWidgetItem | None, _previous) -> None:
         if not current:
@@ -3301,6 +3294,8 @@ class MainWindow(QMainWindow):
             self.current_attachments = list(attachments)
             self._render_attachment_chips()
         self.current_conversation_id = conversation.id
+        from ..orchestration.journal import RequestJournal
+        self.request_resume_button.setVisible(bool(RequestJournal.pending(self.store, conversation.id)))
         self._scope_chat_selection[self.current_project_id] = conversation.id
         key = self._chat_selection_key()
         if self.store.get_setting(key) != str(conversation.id):
@@ -3361,7 +3356,7 @@ class MainWindow(QMainWindow):
                 widget.hide()
                 widget.deleteLater()
         if not messages:
-            welcome = QLabel("Start a conversation below, or choose Build to work on a project.")
+            welcome = QLabel("Ask a question or describe the work. MoliCoder uses project tools, checks the result, and chooses suitable trusted models.")
             welcome.setWordWrap(True); welcome.setObjectName("welcome")
             self.transcript_layout.insertWidget(0, welcome)
         for message in messages:
@@ -3444,11 +3439,11 @@ class MainWindow(QMainWindow):
         repository_request = self._repository_request(self.composer.toPlainText())
         can_send = bool(self.composer.toPlainText().strip() or self.current_attachments) and (deterministic_question or repository_request or not budget.blocked)
         can_send = can_send and self.chat_worker is None
-        if self._installed_model_names and not deterministic_question and not repository_request:
-            can_send = can_send and self.preset.name in self._installed_model_names
-            if self.preset.name not in self._installed_model_names:
-                self.composer_hint.setText('Selected model is not installed · Change model or open Settings')
+        # Availability/context are evaluated per candidate route by the coordinator.
+        can_send = bool(self.composer.toPlainText().strip() or self.current_attachments) and self.chat_worker is None
         self.send_button.setEnabled(can_send)
+        if self._installed_model_names and self.preset.name not in self._installed_model_names:
+            self.composer_hint.setText('Preferred model unavailable · routing will check alternatives')
         if repository_request:
             self.context_notice.setText('Repository analysis checks context and available models for each route; conversation history is preserved.')
             self.context_notice.setStyleSheet(f"color: {theme_color('muted')};")
@@ -3463,6 +3458,24 @@ class MainWindow(QMainWindow):
         else:
             self.context_notice.setText("Pre-send values are conservative estimates. Ollama's exact count appears after generation.")
             self.context_notice.setStyleSheet(f"color: {theme_color('muted')};")
+
+    def _resume_interrupted_request(self):
+        from ..orchestration.journal import RequestJournal
+        if self.chat_worker or self.composer.toPlainText().strip() or self.current_attachments:
+            self.statusBar().showMessage('Finish or save the current draft before resuming a preserved request.', 6000)
+            return
+        pending = RequestJournal.pending(self.store, self.current_conversation_id)
+        if not pending:
+            self.request_resume_button.hide()
+            return
+        labels = [spec['text'][:110] + ' [' + key[:8] + ']' for key, spec in pending]
+        selected, accepted = QInputDialog.getItem(self, 'Resume preserved request', 'Original objective', labels, 0, False)
+        if not accepted:
+            return
+        key, spec = pending[labels.index(selected)]
+        self.composer.setPlainText(spec['text'])
+        self._resume_request_id = key
+        self._send_message()
 
     def _send_message(self) -> None:
         if self.chat_worker or self.current_conversation_id is None:
@@ -3481,19 +3494,18 @@ class MainWindow(QMainWindow):
         content = self._pending_content()
         if not content.strip():
             return
+        if not getattr(self, '_resume_request_id', None) and not self.current_attachments and (self.controller.is_deterministic_question(content)
+                or folder_intent(content) is not None or empty_file_intent(content, None) is not None):
+            from ..orchestration.coordinator import RequestCoordinator
+            result = RequestCoordinator(self.store, self._chat_project(), self.client,
+                preferred_model=self.preset.name, policy=self.inference_policy,
+                review=self._approve_request_operation, conversation_id=self.current_conversation_id).run(content)
+            self._send_controller_reply(content, ControllerResult('shared_request', result.content,
+                action_state=result.receipt['outcome']))
+            self.store.set_message_receipt(self._current_messages()[-1].id, result.receipt)
+            self._refresh_route_identity()
+            return
         file_context = None
-        if not self.current_attachments:
-            result = self.controller.handle(self.composer.toPlainText(), chat_project_id, history=self._current_messages())
-            if result is not None and result.kind == 'project_file_context':
-                file_context = result
-            elif result is not None:
-                if result.kind == 'directory_listing_request' and result.evidence:
-                    self._start_directory_read(content, Path(result.evidence))
-                    return
-                if result.kind == "directory_creation_proposal" and result.evidence:
-                    result = self._confirm_directory_creation(Path(result.evidence))
-                self._send_controller_reply(content, result)
-                return
         messages_before = self._current_messages()
         chat_project = self._chat_project()
         repository_request = self._repository_request(content)
@@ -3512,12 +3524,6 @@ class MainWindow(QMainWindow):
             "keep_alive": "5m",
         }
         budget = ContextBudget(estimate_messages(api_messages), options['max_output_tokens'], options['context_window'])
-        if budget.blocked and not repository_request:
-            QMessageBox.warning(
-                self, "Context limit reached",
-                "This request would exceed the safe 95% context budget. Start a new chat or remove the last exchange.",
-            )
-            return
         user_message = Message(None, self.current_conversation_id, "user", content)
         self.transcript_selection.clear()
         user_message_id = self.store.add_message(user_message)
@@ -3550,19 +3556,28 @@ class MainWindow(QMainWindow):
         self._render_attachment_chips()
         self._scroll_to_bottom()
 
-        if repository_request:
-            self.chat_worker = RepositoryChatWorker(self.client, model, api_messages, options,
-                                                   self.inference_policy, chat_project)
-            self.chat_worker.route_changed.connect(self._repository_route_changed)
-        else:
-            self.chat_worker = ChatWorker(self.client, model, api_messages, options,
-                                          self.inference_policy, chat_project_id)
+        self.chat_worker = RequestWorker(self.client, model, api_messages, options,
+                                        self.inference_policy, chat_project)
+        self.chat_worker.conversation_id = self.current_conversation_id
+        self.chat_worker.resume_from = getattr(self, '_resume_request_id', None)
+        self._resume_request_id = None
+        self.request_resume_button.hide()
+        self.chat_worker.route_changed.connect(self._repository_route_changed)
+        self.chat_worker.review_required.connect(lambda proposal, owner=self.chat_worker:
+            self._review_request_operation(owner, proposal))
         self._pending_receipt['request_id'] = getattr(self.chat_worker, 'request_id', f'conversation:{self.current_conversation_id}')
         self.chat_worker.content_delta.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._append_content(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
         self.chat_worker.thinking_delta.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._append_thinking(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
         self.chat_worker.completed.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._generation_finished(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
         self.chat_worker.failed.connect(lambda value, owner=self.chat_worker, conversation_id=self.current_conversation_id: self._generation_failed(value) if self.chat_worker is owner and self.current_conversation_id == conversation_id else None)
         self.chat_worker.start()
+        self._request_started_at = time.monotonic()
+        self._request_status = 'Evaluating request'
+        self._request_frame = 0
+        if not hasattr(self, '_request_activity_timer'):
+            self._request_activity_timer = QTimer(self)
+            self._request_activity_timer.timeout.connect(self._animate_request_activity)
+        self._request_activity_timer.start(250)
         self._refresh_route_identity()
         self.send_button.setVisible(False)
         self.stop_button.setVisible(True)
@@ -3573,21 +3588,57 @@ class MainWindow(QMainWindow):
         if event.get('request_id') != self._pending_receipt.get('request_id') or not self.chat_worker:
             return
         if event.get('phase') == 'started':
+            self._request_status = 'Evaluating request' if not event.get('evaluation') else 'Working'
             self.chat_worker.provider = event['provider']
             self.chat_worker.model = event.get('model', 'CLI default')
             self._pending_receipt.update(provider=event['provider'], requested_model=self.chat_worker.model,
                                          model_source='requested' if event['provider'] == 'ollama' else 'configured')
             if self.active_bubble:
-                self.active_bubble.set_content(f"Inspecting repository · {event['provider']} / {event.get('model', 'CLI default')}…")
+                self.active_bubble.set_content(f"Evaluating request · {event['provider']} / {event.get('model', 'CLI default')}…")
         elif event.get('phase') == 'fallback':
+            self._request_status = 'Switching model · ' + event.get('error', 'incomplete result')[:100]
             if self.active_bubble:
                 self.active_bubble.set_content('Trying the next available model · ' + event.get('error', 'insufficient evidence'))
         elif event.get('phase') == 'completed':
+            if hasattr(self, '_request_activity_timer'):
+                self._request_activity_timer.stop()
             self._pending_receipt.update({key: value for key, value in event.items() if key != 'phase'})
             self._pending_receipt['runtime_metadata'] = getattr(self, '_model_facts', {}).get(event.get('requested_model'), {}) if event.get('provider') == 'ollama' else {}
             if self.active_bubble:
                 self.active_bubble.set_content('')
+            if event.get('outcome') == 'awaiting_approval' and (event.get('evaluation') or {}).get('intent') == 'build':
+                spec = event['evaluation']
+                self.pending_build_request = (self._chat_project().id, event.get('original_request', spec['objective']))
+                self._update_pending_build_card()
+        elif event.get('phase') in {'tool', 'awaiting_review'}:
+            self._request_status = event.get('message', 'Working')
+            if self.active_bubble:
+                self.active_bubble.set_content(event.get('message', 'Working…'))
         self._refresh_route_identity()
+
+    def _animate_request_activity(self):
+        if not isinstance(self.chat_worker, RequestWorker) or self.active_bubble is None:
+            self._request_activity_timer.stop()
+            return
+        self._request_frame += 1
+        elapsed = time.monotonic() - self._request_started_at
+        glyph = '' if self.store.get_setting('ui.reduce_motion', 'false') == 'true' else '◐◓◑◒'[self._request_frame % 4] + ' '
+        self.active_bubble.set_content(f'{glyph}{self._request_status} · {elapsed:.0f}s')
+
+    def _review_request_operation(self, owner, proposal):
+        if self.chat_worker is not owner:
+            owner.approve(False)
+            return
+        approved = self._approve_request_operation(proposal)
+        owner.approve(approved and self.chat_worker is owner)
+
+    def _approve_request_operation(self, proposal):
+        text = (proposal['objective'] + '\n\nProject: ' + proposal['project_root'] +
+                '\n\nProposed operation:\n' + json.dumps(proposal['call'], indent=2, ensure_ascii=False) +
+                '\n\nAcceptance checks:\n' + json.dumps(proposal['checks'], indent=2, ensure_ascii=False))
+        answer = QMessageBox.question(self, 'Review local operation', text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        return answer == QMessageBox.StandardButton.Yes
 
     def _start_directory_read(self, content: str, path: Path) -> None:
         project_id = self.store.get_conversation_project_id(self.current_conversation_id)
@@ -3650,6 +3701,7 @@ class MainWindow(QMainWindow):
         pending = self.pending_build_request
         self.pending_build_card.setVisible(pending is not None)
         if pending is None:
+            self.pending_build_review.setEnabled(False)
             return
         target_id = pending[0] if pending[0] is not None else self.current_project_id
         project = self.store.get_project(target_id) if target_id is not None else None
@@ -3677,6 +3729,8 @@ class MainWindow(QMainWindow):
         self._update_pending_build_card()
 
     def _append_content(self, delta: str) -> None:
+        if hasattr(self, '_request_activity_timer'):
+            self._request_activity_timer.stop()
         if self.active_bubble:
             self.active_bubble.append_content(delta)
             self._scroll_to_bottom()
@@ -3687,6 +3741,13 @@ class MainWindow(QMainWindow):
             self._scroll_to_bottom()
 
     def _generation_finished(self, metrics: GenerationMetrics) -> None:
+        if (getattr(self.chat_worker, '_cancelled', False)
+                and (getattr(self, '_pending_receipt', {}).get('evaluation') or {}).get('intent') == 'build'):
+            metrics.done_reason = 'cancelled'
+            self._pending_receipt['outcome'] = 'cancelled'
+        start_build = (getattr(self, '_pending_receipt', {}).get('outcome') == 'awaiting_approval'
+            and (getattr(self, '_pending_receipt', {}).get('evaluation') or {}).get('intent') == 'build'
+            and self.pending_build_request is not None and self.orchestration_worker is None)
         self.last_metrics = metrics
         if self.active_bubble and self.current_conversation_id is not None:
             if metrics.done_reason == 'cancelled' and getattr(self.chat_worker, 'repository_analysis', False):
@@ -3710,6 +3771,14 @@ class MainWindow(QMainWindow):
         self._reset_generation_state()
         self._update_metrics_cards()
         self._load_conversation_list(select_id=self.current_conversation_id)
+        if start_build:
+            self._review_pending_build()
+            captured = (self.current_project_id, self.current_conversation_id, self.build_request.toPlainText())
+            def launch_prepared_build():
+                if (captured == (self.current_project_id, self.current_conversation_id, self.build_request.toPlainText())
+                        and self.orchestration_worker is None and self.chat_worker is None):
+                    self._run_build()
+            QTimer.singleShot(0, self, launch_prepared_build)
 
     def _generation_failed(self, error: str) -> None:
         if self.active_bubble:
@@ -3718,8 +3787,12 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Generation failed", error)
 
     def _reset_generation_state(self) -> None:
+        if hasattr(self, '_request_activity_timer'):
+            self._request_activity_timer.stop()
         worker = self.chat_worker
         self.chat_worker = None
+        from .workspace import refresh_activity
+        refresh_activity(self)
         self._refresh_route_identity()
         self.active_bubble = None
         self.stop_button.setVisible(False)
@@ -3727,14 +3800,23 @@ class MainWindow(QMainWindow):
         self.model_combo.setEnabled(True)
         self._refresh_context_meter()
         if worker:
-            worker.deleteLater()
+            if getattr(worker, 'isRunning', lambda: False)():
+                if not hasattr(self, '_retired_chat_workers'):
+                    self._retired_chat_workers = []
+                self._retired_chat_workers.append(worker)
+                worker.finished.connect(lambda owner=worker: self._release_retired_request(owner))
+            else:
+                worker.deleteLater()
 
     def _stop_generation(self) -> None:
         if self.chat_worker:
             self.chat_worker.cancel()
             self.stop_button.setEnabled(False)
             self.stop_button.setText("Stopping…")
-            QTimer.singleShot(2500, lambda: (self.stop_button.setEnabled(True), self.stop_button.setText("Stop")))
+            self._stop_reset_timer = QTimer(self)
+            self._stop_reset_timer.setSingleShot(True)
+            self._stop_reset_timer.timeout.connect(lambda: (self.stop_button.setEnabled(True), self.stop_button.setText('Stop')))
+            self._stop_reset_timer.start(2500)
 
     def _scroll_to_bottom(self) -> None:
         if self.transcript_selection.has_selection():
@@ -3893,6 +3975,10 @@ class MainWindow(QMainWindow):
         open_drawer(self, "Performance")
 
     def closeEvent(self, event) -> None:
+        if getattr(self, '_catalog_refresh_worker', None) is not None:
+            event.ignore()
+            self.statusBar().showMessage('Model metadata refresh is finishing. Close again in a moment.', 4000)
+            return
         provider_check = getattr(self, '_provider_check_worker', None)
         if provider_check is not None and provider_check.isRunning():
             QMessageBox.information(self, 'Checking connections', 'Wait for the connection check to finish before closing.')
@@ -3916,8 +4002,17 @@ class MainWindow(QMainWindow):
             return
         if self.chat_worker:
             self.chat_worker.cancel()
-            self.chat_worker.wait(2500)
+            if not self.chat_worker.wait(2500):
+                QMessageBox.information(self, 'Stopping request', 'The current provider is stopping. Close again when it finishes.')
+                event.ignore()
+                return
         if self.startup_worker and self.startup_worker.isRunning():
-            self.startup_worker.wait(3000)
+            if not self.startup_worker.wait(3000):
+                event.ignore()
+                return
+        if self.current_conversation_id is not None:
+            self._conversation_drafts[self.current_conversation_id] = (self.composer.toPlainText(), list(self.current_attachments))
+        self.store.set_setting('ui.saved_drafts', json.dumps({str(key): {'text': value[0],
+            'attachments': [asdict(item) for item in value[1]]} for key, value in self._conversation_drafts.items()}, default=str))
         self.store.set_setting("ui.window_size", json.dumps([self.width(), self.height()]))
         event.accept()

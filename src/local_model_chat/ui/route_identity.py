@@ -41,7 +41,7 @@ def refresh_route_identity(w):
         text = f'API test running · {route}'
     elif w.view_stack.currentWidget() == w.chat_view:
         if getattr(w.chat_worker, 'repository_analysis', False):
-            text = f"Inspecting repository · {w.chat_worker.provider} · {w.chat_worker.model}"
+            text = f"Request running · {w.chat_worker.provider} · {w.chat_worker.model}"
             w.route_identity.setText(text)
             w.route_identity.setToolTip('Automatic fallback preserves the question and gathered repository evidence. Final sources are checked on disk.')
             return
@@ -50,7 +50,7 @@ def refresh_route_identity(w):
             w.route_identity.setToolTip(str(w.chat_worker.path))
             return
         model = getattr(w.chat_worker, 'model', w.preset.name)
-        text = f'Chat {"running" if w.chat_worker is not None else "selected"} · Ollama (local) · {model}'
+        text = f'Automatic request routing · Preferred local model: {model}'
         facts = getattr(w, '_model_facts', {}).get(model, {})
         if facts.get('family'):
             text += f" · runtime family: {facts['family']} {facts.get('parameter_size', '')}"
@@ -60,7 +60,7 @@ def refresh_route_identity(w):
             if receipt:
                 last = ('No AI model used' if receipt.get('model_source') == 'no_inference' else
                         f"{receipt.get('provider', 'Unknown provider')} · {receipt.get('requested_model', 'Model not reported')} ({receipt.get('model_source', 'unknown')})")
-                text = f'Last reply: {last}\nNext reply: Ollama (local) · {model}'
+                text = f'Last reply: {last}\nNext reply: Automatic routing · preferred local model: {model}'
     elif w.build_tabs.currentIndex() == 1:
         text = 'Kandev board · agent/model managed in Kandev · model not reported'
     elif w.orchestration_worker is not None:

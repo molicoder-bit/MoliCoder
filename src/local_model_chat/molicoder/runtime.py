@@ -4,6 +4,7 @@ import sys
 import shutil
 from pathlib import Path
 from typing import Callable
+from datetime import datetime, timedelta, timezone
 
 from ..config import MODEL_PRESETS
 from ..authorization import ActionRequest, ActionRisk, AuthorizationPolicy
@@ -256,7 +257,13 @@ def build_orchestrator(
             "alternatives": [local_offering_id(preset.name)] if local_ready else [],
             "usage_accuracy": "unknown",
         }
+    from ..orchestration.catalog import CapabilityCatalogService
+    default_planner = CapabilityCatalogService.planner_default() if provider_name == 'codex' and not model else None
+    if default_planner:
+        model = default_planner['model']
     provider = create_provider(provider_name, model=model, project_root=root)
+    if default_planner:
+        provider.effort = 'medium'
     alternate_provider = None
     if fallback_provider_name:
         if (strategy == "LOCAL_OFFLINE" or fallback_provider_name == provider_name
@@ -284,15 +291,50 @@ def build_orchestrator(
         if not authorization_scope:
             raise ProviderUnavailable("Build needs an exact user authorization scope before launching a CLI agent")
         status = provider.probe()
-        if not status.installed:
-            raise ProviderUnavailable(status.detail)
-        if not status.authenticated:
-            raise ProviderUnavailable(status.detail or f"{provider_name} is not authenticated")
+        if not status.installed or not status.authenticated:
+            trusted_alternatives = set(store.get_project_preferences(project.id).trusted_providers) & {'codex', 'claude', 'copilot'} - {provider_name}
+            if not trusted_alternatives:
+                raise ProviderUnavailable(status.detail or f"{provider_name} is not authenticated")
+            route_decision['initial_provider_unavailable'] = status.detail or provider_name + ' unavailable'
         provider = BoundedOpaqueProvider(
             provider, store, project.id, authorization_scope,
             max_calls=8, max_seconds=3600,
         )
     planner = local_planner if strategy == "LOCAL_OFFLINE" else provider
+    planning_providers = []
+    if strategy != 'LOCAL_OFFLINE':
+        preferences = store.get_project_preferences(project.id)
+        for name in ('codex', 'claude', 'copilot'):
+            if name == provider.name or name not in preferences.trusted_providers:
+                continue
+            override = preferences.model_overrides.get(name, '')
+            metadata = CapabilityCatalogService.planner_default() if name == 'codex' and not override else None
+            candidate = create_provider(name, model=override or (metadata['model'] if metadata else ''), project_root=root)
+            if metadata:
+                candidate.effort = 'medium'
+            candidate_scope = authorization_scope + ':planning-fallback:' + name
+            store.record_action_authorization(project_id=project.id, action='build_run', scope=candidate_scope,
+                risk=ActionRisk.EXTERNAL.value, decision='approved', actor='project_trusted_automatic_routing',
+                reason='Automatic reasoning fallback within the authorized Build; actual assignments still require plan approval',
+                expires_at=(datetime.now(timezone.utc) + timedelta(hours=2)).isoformat())
+            planning_providers.append(BoundedOpaqueProvider(candidate, store, project.id, candidate_scope, max_calls=6, max_seconds=1800))
+    economical_providers = []
+    if strategy == 'HYBRID':
+        preferences = store.get_project_preferences(project.id)
+        for runtime in ('opencode', 'kilo'):
+            if runtime == provider.name or runtime not in preferences.trusted_providers:
+                continue
+            candidate = create_provider(runtime, model=preferences.model_overrides.get(runtime, ''), project_root=root)
+            status = candidate.probe()
+            if not (status.installed and status.authenticated and status.auth_verified):
+                continue
+            candidate_scope = authorization_scope + ':automatic:' + runtime
+            store.record_action_authorization(project_id=project.id, action='build_run', scope=candidate_scope,
+                risk=ActionRisk.EXTERNAL.value, decision='approved', actor='project_trusted_automatic_routing',
+                reason='Primary Build authorized; candidate and fallback assignments are reviewed with the plan',
+                expires_at=(datetime.now(timezone.utc) + timedelta(hours=2)).isoformat())
+            economical_providers.append(BoundedOpaqueProvider(candidate, store, project.id, candidate_scope,
+                max_calls=4, max_seconds=1200))
 
     orchestrator: SequentialRunOrchestrator | None = None
 
@@ -351,7 +393,7 @@ def build_orchestrator(
         project=project,
         planner=planner,
         provider=provider,
-        local_executor=execute,
+        local_executor=execute if local_ready else None,
         validate=lambda worktree: build_validator(
             worktree, environment_root=root,
             should_cancel=cancelled, on_progress=validation_progress,
@@ -371,5 +413,11 @@ def build_orchestrator(
             gateway, preset.name, context_window=preset.context_window,
         ),
         alternate_provider=alternate_provider,
+        task_providers=tuple(economical_providers),
+        planning_providers=tuple(planning_providers),
     )
+    if store.get_setting(f'kandev.project.{project.id}') and store.get_setting(f'kandev.mirror.{project.id}', 'true') == 'true':
+        from ..kandev.mirror import KandevPlanMirror
+        orchestrator.kandev_mirror = KandevPlanMirror(store, project)
+        orchestrator.event_listeners = (orchestrator.kandev_mirror.observe,)
     return orchestrator

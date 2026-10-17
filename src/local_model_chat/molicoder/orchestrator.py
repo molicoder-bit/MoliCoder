@@ -103,6 +103,11 @@ class Phase2Orchestrator:
                 stream.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
         if self.on_event:
             self.on_event(kind, payload)
+        for listener in getattr(self, 'event_listeners', ()):
+            try:
+                listener(run_id, kind, payload, task_id)
+            except Exception as exc:
+                self.store.add_event(run_id, 'observer_failed', {'error': redact_text(str(exc))[:500]}, task_id)
 
     def _finish(self, run_id: int, status: str, completed: int, total: int, error: str = "") -> OrchestrationResult:
         self.store.finish_run(run_id, status)
@@ -114,6 +119,8 @@ class Phase2Orchestrator:
 
     def run(self, request: str, *, mode: str = "LOCAL_ONLY") -> OrchestrationResult:
         run_id = self.store.create_run(self.project.id, request, mode)
+        from ..orchestration.coordinator import RequestCoordinator
+        RequestCoordinator.register_build(self.store, self.project, run_id, request, mode)
         self._event(
             run_id,
             "run_started",
@@ -289,6 +296,9 @@ class WorktreeOrchestrator(Phase2Orchestrator):
 
     def _run(self, request: str, *, mode: str, approved_run_id: int | None = None) -> OrchestrationResult:
         run_id = approved_run_id or self.store.create_run(self.project.id, request, mode)
+        if approved_run_id is None:
+            from ..orchestration.coordinator import RequestCoordinator
+            RequestCoordinator.register_build(self.store, self.project, run_id, request, mode)
         self._event(
             run_id,
             "run_started",
@@ -672,6 +682,8 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         inference_gateway: object | None = None,
         model_reviewer: object | None = None,
         alternate_provider: FrontierProvider | None = None,
+        task_providers: tuple[FrontierProvider, ...] = (),
+        planning_providers: tuple[FrontierProvider, ...] = (),
         require_plan_approval: bool = False,
     ) -> None:
         self.store = store
@@ -693,6 +705,8 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         self.inference_gateway = inference_gateway
         self.model_reviewer = model_reviewer
         self.alternate_provider = alternate_provider
+        self.task_providers = tuple(task_providers)
+        self.planning_providers = tuple(planning_providers)
         self.require_plan_approval = require_plan_approval
         self._active_provider = provider
         self._event_log_lock = threading.Lock()
@@ -703,6 +717,10 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             self.provider.on_event = self._provider_event
         if self.alternate_provider is not None and hasattr(self.alternate_provider, "on_event"):
             self.alternate_provider.on_event = self._provider_event
+        for candidate in self.task_providers:
+            candidate.on_event = self._provider_event
+        for candidate in self.planning_providers:
+            candidate.on_event = self._provider_event
         if not self.root.is_dir():
             raise ValueError(f"project folder does not exist: {self.root}")
 
@@ -710,6 +728,61 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         self.provider.cancel()
         if self.alternate_provider is not None:
             self.alternate_provider.cancel()
+        for candidate in self.task_providers:
+            candidate.cancel()
+        for candidate in self.planning_providers:
+            candidate.cancel()
+
+    def _plan_with_fallback(self, run_id, packet, strategy):
+        import time
+        deadline = time.monotonic() + 300
+        candidates = [self.planner] if strategy == 'LOCAL_OFFLINE' else [self.planner, *self.planning_providers[:2]]
+        failures = []
+        for index, candidate in enumerate(candidates):
+            if self.should_cancel():
+                raise InterruptedError('Planning cancelled')
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            if index:
+                try:
+                    status = candidate.probe()
+                except Exception as exc:
+                    failures.append(f'{candidate.name}: {redact_text(str(exc))[:500]}')
+                    continue
+                if not (status.installed and status.authenticated):
+                    failures.append(f'{candidate.name}: {status.detail}')
+                    continue
+            timer = threading.Timer(remaining, getattr(candidate, 'cancel', lambda: None))
+            timer.daemon = True; timer.start()
+            try:
+                plan = candidate.plan(packet)
+            except PermissionError:
+                raise  # A new route cannot bypass an authorization boundary.
+            except Exception as exc:
+                failures.append(f'{getattr(candidate, "name", "local")}: {redact_text(str(exc))[:500]}')
+                self._event(run_id, 'planning_route_failed', {'provider': getattr(candidate, 'name', 'local'), 'error': failures[-1]})
+                continue
+            finally:
+                timer.cancel()
+            if self.should_cancel():
+                raise InterruptedError('Planning cancelled')
+            if index:
+                previous_provider = self.provider
+                previous = previous_provider.name
+                self.planner = self.provider = candidate
+                self.planning_providers = tuple(sorted(
+                    [previous_provider, *(p for p in self.planning_providers if p is not candidate)],
+                    key=lambda p: ('codex', 'claude', 'copilot').index(p.name) if p.name in {'codex', 'claude', 'copilot'} else 3))
+                self._active_provider = candidate
+                self.store.update_run_state(run_id, 'planning', provider=candidate.name, model=candidate.model)
+                self._event(run_id, 'model_handoff', {'phase': 'planning', 'from_provider': previous,
+                    'provider': candidate.name, 'model': candidate.model, 'effort': getattr(candidate, 'effort', None),
+                    'reason': 'Previous planner failed; continuing with a project-trusted reasoning provider'})
+            return plan
+        if self.should_cancel():
+            raise InterruptedError('Planning cancelled')
+        raise ProviderUnavailable('No planning route completed within its shared deadline: ' + '; '.join(failures))
 
     def _provider_event(self, kind: str, payload: dict) -> None:
         if self._active_run_id is not None:
@@ -833,6 +906,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         return {
             "backend": "internal", "strategy": strategy,
             "provider": self.provider.name, "model": self.provider.model,
+            "effort": getattr(self.provider, 'effort', None),
+            "task_providers": [{'provider': p.name, 'model': p.model, 'effort': getattr(p, 'effort', None)} for p in self.task_providers],
+            "planning_fallbacks": [{'provider': p.name, 'model': p.model, 'effort': getattr(p, 'effort', None)} for p in self.planning_providers],
             "local_model": "molicoder:latest" if self.local_executor else None,
             "fallback_provider": self.alternate_provider.name if self.alternate_provider else None,
             "fallback_model": self.alternate_provider.model if self.alternate_provider else None,
@@ -846,6 +922,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             return self.provider
         if self.alternate_provider is not None and model and model == self.alternate_provider.model:
             return self.alternate_provider
+        for candidate in self.task_providers:
+            if model and model == candidate.model:
+                return candidate
         raise ValueError(f"Model {model!r} is not a configured Build provider model")
 
     def _task_assignments(self, plan, strategy: str, model_overrides: dict[str, str] | None = None) -> dict[str, dict]:
@@ -857,6 +936,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
         for task in plan.tasks:
             override = model_overrides.get(task.key)
             selected_provider = self._provider_for_model(override) if override else self.provider
+            economical = next(iter(self.task_providers), None) if task.risk == 'low' and len(task.expected_paths) <= 3 else None
+            if not override and strategy == 'HYBRID' and economical:
+                selected_provider = economical
             local = override is None and self.local_executor is not None and self._local_eligible(task, self.root)
             if strategy == "LOCAL_OFFLINE" and override:
                 raise ValueError("Local offline Build cannot use a provider model override")
@@ -871,9 +953,13 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 "provider": "ollama" if runner == "local" else selected_provider.name if runner == "provider_cli" else None,
                 "model": "molicoder:latest" if runner == "local" else selected_provider.model if runner == "provider_cli" else None,
                 "fallback_runner": "provider_cli" if runner == "local" and strategy == "HYBRID" else None,
+                "effort": None if runner == 'local' else getattr(selected_provider, 'effort', None),
+                "fallback_model": selected_provider.model if runner == 'local' else self.provider.model,
+                "fallback_provider": selected_provider.name if runner == 'local' else self.provider.name,
                 "reason": "eligible bounded edit to existing files" if runner == "local" else
                           "local route cannot satisfy task capability" if runner == "unavailable" else
-                          "user-selected compatible model" if override else "selected coding provider",
+                          "user-selected compatible model" if override else
+                          "project-trusted economical runtime for a bounded low-risk task" if economical else "selected coding provider",
             }
         return assignments
 
@@ -1179,6 +1265,10 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             self.project.id, request, strategy,
             provider=self.provider.name, model=self.provider.model, log_version=2,
         )
+        if approved_run_id is None:
+            from ..orchestration.coordinator import RequestCoordinator
+            RequestCoordinator.register_build(self.store, self.project, run_id, request, strategy,
+                provider=self.provider.name, model=self.provider.model)
         self._active_run_id = run_id
         self.store.record_run_owner(run_id)
         if self.inference_gateway is not None:
@@ -1207,9 +1297,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
             if approved_run_id is None:
                 self._event(run_id, "run_stage", {"stage": "planning", "message": f"{self.provider.name.title()} is creating the plan"})
                 self.store.update_run_state(run_id, "planning")
-                plan = validate_plan_scope(self.planner.plan(packet), self.root)
-                if len(plan.tasks) > 5:
-                    raise ValueError("plan exceeds the five-task run limit")
+                plan = validate_plan_scope(self._plan_with_fallback(run_id, packet, strategy), self.root)
+                if len(plan.tasks) > 30:
+                    raise ValueError("plan exceeds the 30-task run limit")
                 plan_payload = plan.to_dict() | {
                     "runner_policy": self._runner_policy(strategy),
                     "task_assignments": self._task_assignments(plan, strategy),
@@ -1291,7 +1381,7 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 "worktree": str(workspace.path), "branch": workspace.branch, "base_commit": workspace.base_commit,
             })
         except Exception as exc:
-            return self._finish_run(run_id, "needs_attention", 0, 0, error=str(exc))
+            return self._finish_run(run_id, "cancelled" if self.should_cancel() else "needs_attention", 0, 0, error=str(exc))
 
         task_ids: dict[str, int] = {}
         if resume_approved_workspace:
@@ -1438,7 +1528,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                 assigned_model = assignments[task.key]["model"]
                 attempt_provider = (
                     self._provider_for_model(assigned_model)
-                    if assignments[task.key]["runner"] == "provider_cli" and assigned_model else self.provider
+                    if assignments[task.key]["runner"] == "provider_cli" and assigned_model else
+                    self._provider_for_model(assignments[task.key]['fallback_model'])
+                    if assignments[task.key].get('fallback_model') else self.provider
                 )
                 self._active_provider = attempt_provider
                 failed_fingerprints: set[str] = set()
@@ -1478,6 +1570,9 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                     opaque_attempt = getattr(attempt_provider, "enforcement_class", "") == "opaque_agent"
                     calls_before = getattr(attempt_provider, "calls", None) if opaque_attempt else None
                     try:
+                        set_scope = getattr(attempt_provider, 'set_task_scope', None)
+                        if set_scope:
+                            set_scope(task.expected_paths)
                         result = attempt_provider.execute(
                             workspace.path,
                             self._task_prompt(
@@ -1520,6 +1615,12 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                             validation_error = "Opaque agent execution requires review before retry: " + validation_error
                             opaque_review_required = True
                             break
+                        if attempt_provider in self.task_providers and frontier_attempt < self.max_task_attempts:
+                            self._event(run_id, 'model_handoff', {'key': task.key, 'from_provider': attempt_provider.name,
+                                'provider': self.provider.name, 'reason': validation_error[:500]}, task_id)
+                            attempt_provider = self.provider
+                            self._active_provider = attempt_provider
+                            continue
                         action = classify_provider_failure(result.status, validation_error)
                         wait_state = {"auth": "waiting_auth", "quota": "waiting_quota"}.get(action.category, "")
                         self._route_cooldowns.apply(attempt_provider.name, action)
@@ -1598,6 +1699,11 @@ class SequentialRunOrchestrator(Phase2Orchestrator):
                             validation_error = "provider completed without making a repository change"
                     if validation_error.startswith("architectural review required:"):
                         break
+                    if attempt_provider in self.task_providers and frontier_attempt < self.max_task_attempts:
+                        self._event(run_id, 'model_handoff', {'key': task.key, 'from_provider': attempt_provider.name,
+                            'provider': self.provider.name, 'reason': validation_error[:500]}, task_id)
+                        attempt_provider = self.provider
+                        self._active_provider = attempt_provider
                     if opaque_attempt:
                         validation_error = "Opaque agent output requires review before retry: " + validation_error
                         opaque_review_required = True

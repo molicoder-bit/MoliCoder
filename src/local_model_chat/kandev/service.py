@@ -81,12 +81,14 @@ class KandevServiceController:
         process_identity = identity(process.pid)
         self.receipt.write_text(json.dumps({'pid': process.pid, 'identity': process_identity, 'origin': origin,
             'executable': str(binary)}), encoding='utf-8')
-        for _ in range(30):
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
             if process.poll() is not None:
                 raise RuntimeError('Kandev exited during startup. See kandev-managed/stderr.log.')
             try:
-                health = get_json(origin, '/health')
-                if str(health.get('version', '')).lstrip('v') == '0.97.0':
+                health = get_json(origin, '/ready')
+                if (str(health.get('version', '')).lstrip('v') == '0.97.0'
+                        and health.get('startup', {}).get('phase') == 'ready'):
                     return health
             except Exception:
                 pass

@@ -16,6 +16,45 @@ class ProviderCheck(QThread):
             self.failed.emit(str(exc))
 
 
+class CatalogRefresh(QThread):
+    ready = Signal(object)
+    failed = Signal(str)
+    def __init__(self, store, client, parent):
+        super().__init__(parent); self.store, self.client = store, client
+    def run(self):
+        try:
+            from ..orchestration.catalog import CapabilityCatalogService
+            self.ready.emit(CapabilityCatalogService(self.store, self.client).refresh())
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+def show_catalog(w):
+    from PySide6.QtWidgets import QTextBrowser
+    from ..orchestration.catalog import CapabilityCatalogService
+    import json
+    dialog = QDialog(w); dialog.setWindowTitle('Models, capabilities and routing'); dialog.resize(860, 650)
+    layout = QVBoxLayout(dialog); status = QLabel(); status.setWordWrap(True); layout.addWidget(status)
+    report = QTextBrowser(); layout.addWidget(report)
+    refresh = QPushButton('Refresh available models · no generation'); layout.addWidget(refresh)
+    def render(snapshot):
+        status.setText(('Stale cached catalog · ' if snapshot.get('stale') else 'Catalog refreshed · ') +
+            str(snapshot.get('revision') or 'Not refreshed yet') + ('\n' + snapshot['error'] if snapshot.get('error') else ''))
+        catalog = CapabilityCatalogService(w.store, w.client)
+        routes, excluded = catalog.routes(w.registry.selected(), w.preset.name)
+        from dataclasses import asdict
+        report.setPlainText(json.dumps({'eligible_request_routes': [asdict(r) for r in routes],
+            'excluded_routes': excluded, 'observed_results': catalog.route_records(), 'catalog': snapshot}, indent=2))
+    def begin():
+        if getattr(w, '_catalog_refresh_worker', None): return
+        worker = CatalogRefresh(w.store, w.client, w); w._catalog_refresh_worker = worker
+        refresh.setEnabled(False); status.setText('Refreshing model metadata…')
+        worker.ready.connect(render); worker.failed.connect(status.setText)
+        worker.finished.connect(lambda: (refresh.setEnabled(True), setattr(w, '_catalog_refresh_worker', None), worker.deleteLater()))
+        worker.start()
+    refresh.clicked.connect(begin); render(CapabilityCatalogService(w.store, w.client).cached()); dialog.show()
+
+
 CATEGORIES = ('General', 'Models & providers', 'Projects & Build', 'Usage & limits', 'Kandev', 'Diagnostics')
 
 
@@ -30,10 +69,10 @@ def show_settings_window(w, category='General'):
         layout.addWidget(nav); layout.addWidget(pages, 1)
         descriptions = (
             'App preferences · Changes are saved immediately.',
-            'Choose the model for your next Chat reply. External agents and API connections have separate supported uses.',
+            'Choose a preferred local model. The request coordinator selects capable trusted alternatives automatically.',
             'Choose a folder for repository work and review how Build runs.',
             'Review measured usage and set project limits. Subscription agent usage may be unavailable.',
-            'Optional task board and agent ownership. Choose Kandev deliberately for each Build.',
+            'Connect a local board to display internal Build tasks and live execution state, or configure Kandev execution.',
             'Inspect local runtime health, installation readiness, and run evidence.',
         )
         for name, description in zip(CATEGORIES, descriptions):
@@ -61,20 +100,22 @@ def show_settings_window(w, category='General'):
                     check.toggled.connect(lambda value, setting=key: w.store.set_setting(setting, str(value).lower()))
                     body.addWidget(check)
             elif name == 'Models & providers':
-                body.addWidget(QLabel('Local Chat model · App/next reply'))
+                body.addWidget(QLabel('Preferred local model · Automatic request routing'))
                 body.addWidget(w.model_combo); w.model_combo.show()
                 detail = QLabel('Changing a model can open a new chat. Previous replies keep their recorded origin.'); detail.setWordWrap(True); body.addWidget(detail)
                 action('Install or inspect local models', w._show_environment_doctor)
                 action('Connect an account or configure Build models', w._provider_settings)
+                action('Available models, efforts, capabilities and routing', lambda: show_catalog(w))
                 health = QLabel(w.connection_label.text()); body.addWidget(health)
                 w._settings_local_health = health
                 provider_labels = {}
                 model_fields = {}
+                trust_fields = {}
                 scope_label = QLabel('Project model overrides · Select a project first')
                 scope_label.setWordWrap(True); body.addWidget(scope_label)
-                for provider in ('codex', 'claude', 'copilot'):
+                for provider in ('codex', 'claude', 'copilot', 'opencode', 'kilo'):
                     card = QFrame(); card.setObjectName('metricCard'); card_body = QVBoxLayout(card)
-                    heading = QLabel(f'{provider.title()} · External agent · Build only')
+                    heading = QLabel(f'{provider.title()} · Request fallback and Build')
                     card_body.addWidget(heading)
                     readiness = QLabel('Not checked · Check connection to verify installation and sign-in')
                     readiness.setWordWrap(True); card_body.addWidget(readiness); provider_labels[provider] = readiness
@@ -82,8 +123,9 @@ def show_settings_window(w, category='General'):
                     model = QLineEdit(); model.setPlaceholderText('Exact model ID from your provider')
                     choice.currentIndexChanged.connect(lambda index, field=model: field.setEnabled(index == 1))
                     card_body.addWidget(choice); card_body.addWidget(model)
+                    trust = QCheckBox(f'Trust {provider.title()} for this project'); card_body.addWidget(trust)
                     save = QPushButton('Save model for this project'); card_body.addWidget(save)
-                    def save_model(*_, name=provider, field=model, picker=choice, feedback=readiness):
+                    def save_model(*_, name=provider, field=model, picker=choice, feedback=readiness, permission=trust):
                         project = w.registry.selected()
                         if project is None or project.id != getattr(w, '_settings_scope_id', None):
                             feedback.setText('Project changed. Reopen Settings before saving this project setting.'); return
@@ -92,9 +134,12 @@ def show_settings_window(w, category='General'):
                             feedback.setText('Enter a model ID or choose Provider default.'); field.setFocus(); return
                         preferences = w.store.get_project_preferences(project.id)
                         overrides = dict(preferences.model_overrides); overrides[name] = value
+                        trusted = set(preferences.trusted_providers)
+                        if permission.isChecked(): trusted.add(name)
+                        else: trusted.discard(name)
                         w.store.set_project_preferences(project.id, provider=preferences.provider, strategy=preferences.strategy,
-                                                        trusted_providers=preferences.trusted_providers, model_overrides=overrides)
-                        feedback.setText(f'Saved for {project.name} · Applies to the next Build call')
+                                                        trusted_providers=tuple(sorted(trusted)), model_overrides=overrides)
+                        feedback.setText(f'Saved for {project.name} · Applies to the next request or Build')
                         w._refresh_route_identity()
                     save.clicked.connect(save_model)
                     guide = QPushButton('Open official sign-in instructions')
@@ -105,6 +150,7 @@ def show_settings_window(w, category='General'):
                         QDesktopServices.openUrl(QUrl(agent_profile(name).auth_guide))
                     guide.clicked.connect(open_guide); card_body.addWidget(guide)
                     model_fields[provider] = (choice, model, save)
+                    trust_fields[provider] = trust
                     body.addWidget(card)
                 check_button = QPushButton('Check agent connections · no model request')
                 body.addWidget(check_button)
@@ -112,6 +158,7 @@ def show_settings_window(w, category='General'):
                     check_button.setEnabled(False); check_button.setText('Checking installation and sign-in…')
                     worker = ProviderCheck(dialog); w._provider_check_worker = worker
                     def show_status(statuses):
+                        w._provider_statuses = {s.provider: s for s in statuses}
                         for status in statuses:
                             if status.provider not in provider_labels:
                                 continue
@@ -126,13 +173,14 @@ def show_settings_window(w, category='General'):
                 check_button.clicked.connect(check_connections)
                 action('Add custom API connection', w._add_custom_provider)
                 action('Add API connection from a preset', w._add_api_preset)
-                body.addWidget(QLabel('API connections support capped tests; they do not change the local Chat route.'))
+                body.addWidget(QLabel('Enabled API connections can join automatic routing after route permission, capability and budget checks.'))
                 from ..environment.security import platform_security
                 security = platform_security()
                 security_note = QLabel(security.reason); security_note.setWordWrap(True); body.addWidget(security_note)
                 for account in w.inference_registry.list_account_statuses():
                     account_label = QLabel(f'{account.provider_id} · {account.auth_status} · API tests'); account_label.setWordWrap(True); body.addWidget(account_label)
                 w._settings_model_fields, w._settings_scope_label = model_fields, scope_label
+                w._settings_trust_fields = trust_fields
                 body.addWidget(QLabel('Advanced generation controls and context estimates are in Performance.'))
             elif name == 'Projects & Build':
                 project = w.registry.selected()
@@ -180,4 +228,6 @@ def show_settings_window(w, category='General'):
         value = preferences.model_overrides.get(provider, '') if preferences else ''
         field.setText(value); choice.setCurrentIndex(1 if value else 0)
         choice.setEnabled(project is not None); field.setEnabled(project is not None and bool(value)); save.setEnabled(project is not None)
+        trust = w._settings_trust_fields[provider]
+        trust.setEnabled(project is not None); trust.setChecked(preferences is not None and provider in preferences.trusted_providers)
     w._settings_dialog.show(); w._settings_dialog.raise_()

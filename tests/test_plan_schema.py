@@ -127,14 +127,14 @@ def test_plan_records_bounded_task_acceptance_and_named_checks() -> None:
         parse_plan(payload)
 
 
-def test_plan_rejects_more_than_five_tasks() -> None:
+def test_plan_rejects_more_than_thirty_tasks() -> None:
     tasks = [
         {
             "key": f"task-{index}", "title": f"Task {index}", "objective": "Do work",
             "risk": "low", "depends_on": [], "expected_paths": [f"file-{index}.txt"],
         }
-        for index in range(6)
+        for index in range(31)
     ]
 
-    with pytest.raises(PlanValidationError, match="between 1 and 5"):
+    with pytest.raises(PlanValidationError, match="between 1 and 30"):
         parse_plan({"objective": "Too large", "tasks": tasks})

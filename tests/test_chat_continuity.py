@@ -26,10 +26,16 @@ def test_complete_chat_context_preserves_order_and_excludes_reasoning():
 
 def test_reopened_chat_sends_all_its_turns_through_the_gateway(qtbot, tmp_path, monkeypatch):
     class RecordingClient(FakeClient):
-        def stream_chat(self, model, messages, **options):
+        def chat(self, model, messages, **options):
+            from local_model_chat.ollama import ChatResponse
             self.sent = (model, messages, options)
-            yield {'message': {'content': 'Cedar Compass'}}
-            return GenerationMetrics(prompt_tokens=120, output_tokens=3, done_reason='stop')
+            if messages[0]['content'].startswith('You evaluate requests'):
+                value = {'schema_version': '1.0', 'intent': 'conversation', 'objective': 'Recall project name',
+                    'required_capabilities': [], 'complexity': 'low', 'acceptance_checks': [], 'missing_information': [], 'reason': ''}
+            else:
+                value = {'schema_version': '1.0', 'status': 'answer_ready', 'message': 'Cedar Compass',
+                    'tool_calls': [], 'evidence_refs': [], 'unmet_criteria': [], 'failure': None}
+            return ChatResponse({'content': json.dumps(value)}, GenerationMetrics(prompt_tokens=120, output_tokens=3, done_reason='stop'))
 
     store = ChatStore(tmp_path / 'reopen.db')
     chat = store.create_conversation('molicoder:latest', 'Existing chat')
@@ -46,7 +52,7 @@ def test_reopened_chat_sends_all_its_turns_through_the_gateway(qtbot, tmp_path, 
     qtbot.addWidget(w)
     w._ollama_ready(True, client.tags())
     w._load_conversation_list(select_id=chat.id)
-    monkeypatch.setattr('local_model_chat.ui.main_window.ChatWorker.start', lambda _: None)
+    monkeypatch.setattr('local_model_chat.ui.main_window.RequestWorker.start', lambda _: None)
     w.composer.setPlainText('What name did I tell you?')
     w._send_message()
     worker = w.chat_worker
@@ -56,7 +62,8 @@ def test_reopened_chat_sends_all_its_turns_through_the_gateway(qtbot, tmp_path, 
     assert len(planned_messages) == 6  # system, four saved turns, current question
     assert planned_messages[1]['content'] == 'My project is Cedar Compass.'
     worker.run()  # exercise policy, adapter and response persistence
-    assert client.sent[1] == planned_messages
+    assert planned_messages[1:-1] == client.sent[1][1:-1]
+    assert 'Other-chat secret sentinel' not in json.dumps(client.sent[1])
     reply = store.list_messages(chat.id)[-1]
     receipt = store.message_receipt(reply.id)
     assert receipt['turn_ids'] == expected_ids
@@ -70,16 +77,19 @@ def test_safe_limit_includes_system_and_never_drops_older_turns(qtbot, tmp_path,
     from dataclasses import replace
     w = MainWindow(ChatStore(tmp_path / 'limit.db'), FakeClient(), start_ollama_check=False)
     qtbot.addWidget(w)
-    monkeypatch.setattr('local_model_chat.ui.main_window.ChatWorker.start', lambda _: None)
+    monkeypatch.setattr('local_model_chat.ui.main_window.RequestWorker.start', lambda _: None)
     monkeypatch.setitem(MODEL_PRESETS, 'molicoder:latest', replace(MODEL_PRESETS['molicoder:latest'], context_window=128))
     w.output_spin.setValue(32)
     w.composer.setPlainText('Hello')
     warnings = []
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: warnings.append(args))
     w._send_message()
-    assert warnings and w.chat_worker is None
-    assert not w.store.list_messages(w.current_conversation_id)
-    assert w.composer.toPlainText() == 'Hello'
+    worker = w.chat_worker
+    worker.run()
+    receipt = w.store.message_receipt(w._current_messages()[-1].id)
+    assert receipt['outcome'] == 'failed'
+    assert 'exceed' in receipt['attempts'][0]['error']
+    assert w.chat_worker is None
 
 
 def test_ollama_stream_transport_contains_the_complete_message_array(monkeypatch):

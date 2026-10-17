@@ -28,7 +28,7 @@ def window(qtbot, tmp_path):
 def test_route_follows_mode_and_selection_without_using_runtime_health(window):
     window._ollama_ready(True, [{'name': 'molicoder:latest'}, {'name': 'qwen:7b'}])
     window.model_combo.setCurrentIndex(window.model_combo.findData('qwen:7b'))
-    assert window.route_identity.text() == 'Chat selected · Ollama (local) · qwen:7b'
+    assert window.route_identity.text() == 'Automatic request routing · Preferred local model: qwen:7b'
     window._set_view('build')
     assert window.route_identity.text() == 'Build selected · Codex · gpt-4 (configured)'
     assert 'connected' in window.connection_label.text()
@@ -90,7 +90,7 @@ def test_api_test_identity_overrides_local_chat_header(window, monkeypatch):
     assert window.route_identity.text() == 'API test running · example-api · gpt-4 (configured)'
     window.custom_api_worker = None
     window._refresh_route_identity()
-    assert window.route_identity.text().startswith('Chat selected · Ollama (local)')
+    assert window.route_identity.text().startswith('Automatic request routing · Preferred local model:')
 
 
 def test_runtime_facts_and_live_model_reports_use_evidence(window):

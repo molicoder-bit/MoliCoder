@@ -86,12 +86,19 @@ AGENT_PROFILES = (
         ("planning", "editing", "cancellation"),
     ),
     AgentProfile(
-        "opencode", "local_gateway_preview", "https://opencode.ai/docs/providers/",
+        "opencode", "opaque_agent", "https://opencode.ai/docs/providers/",
         "", "Deny-default local gateway profile",
-        "process termination pending regression", False,
-        "Build selection awaits local sandbox and cancellation validation; account terms depend on the chosen model provider.",
-        "Local gateway and deny-default tools are configured, but platform isolation is unverified.",
+        "terminate process group", True,
+        "Account terms and privacy depend on the selected provider/model; free price is rechecked before use.",
+        "Deny-default tool permissions; independent operating-system isolation is unverified.",
         ("planning", "editing", "local_gateway_preview"),
+    ),
+    AgentProfile(
+        "kilo", "opaque_agent", "https://kilo.ai/docs/code-with-ai/platforms/cli",
+        "", "Deny-default permissions and explicit provider/model", "terminate process group", True,
+        "Auto Free can rotate underlying providers; project trust is required and CLI internal routing can remain unknown.",
+        "CLI permissions; independent operating-system isolation unverified.",
+        ("planning", "editing", "streamed_events", "cancellation"),
     ),
 )
 
@@ -150,7 +157,16 @@ def _safe_environment() -> dict[str, str]:
 def _usage_from_events(events: list[dict]) -> tuple[int, int, str]:
     input_tokens = output_tokens = 0
     model = ""
+    native_input = native_output = 0
+    seen_steps = set()
     for event in events:
+        part = event.get('part', {})
+        if isinstance(part, dict) and part.get('type') == 'step-finish' and part.get('id') not in seen_steps:
+            seen_steps.add(part.get('id'))
+            tokens = part.get('tokens', {})
+            cache = tokens.get('cache', {})
+            native_input += int(tokens.get('input', 0) or 0) + int(cache.get('read', 0) or 0) + int(cache.get('write', 0) or 0)
+            native_output += int(tokens.get('output', 0) or 0) + int(tokens.get('reasoning', 0) or 0)
         candidates = [event]
         if isinstance(event.get("result"), dict):
             candidates.append(event["result"])
@@ -163,7 +179,7 @@ def _usage_from_events(events: list[dict]) -> tuple[int, int, str]:
                 output_tokens = max(output_tokens, int(usage.get("output_tokens", usage.get("outputTokens", 0)) or 0))
             if isinstance(candidate.get("model"), str):
                 model = candidate["model"]
-    return input_tokens, output_tokens, model
+    return max(input_tokens, native_input), max(output_tokens, native_output), model
 
 
 def _extract_plan_payload(text: str) -> str | dict:
@@ -304,7 +320,10 @@ class CliFrontierProvider:
         purpose: str,
         timeout_seconds: float,
     ) -> ProviderResult:
-        self._cancelled.clear()
+        # Cancellation belongs to this provider instance. A late probe must not
+        # clear it and launch a new process after the user pressed Stop.
+        if self._cancelled.is_set():
+            return ProviderResult('cancelled', '', error='Cancelled before process launch')
         started = time.monotonic()
         events: list[dict] = []
         output: list[str] = []
@@ -335,11 +354,12 @@ class CliFrontierProvider:
             self._process = process
         self._emit("provider_started", {"provider": self.name, "purpose": purpose, "pid": process.pid})
         assert process.stdin and process.stdout and process.stderr
-        try:
-            process.stdin.write(prompt)
-            process.stdin.close()
-        except OSError:
-            pass
+        def write_prompt():
+            try:
+                process.stdin.write(prompt)
+                process.stdin.close()
+            except (OSError, ValueError):
+                pass
         lines: queue.Queue[tuple[str, str | None]] = queue.Queue()
 
         def read_stream(label: str, stream) -> None:
@@ -353,7 +373,10 @@ class CliFrontierProvider:
         ]
         for reader in readers:
             reader.start()
+        writer = threading.Thread(target=write_prompt, daemon=True)
+        writer.start()
         closed: set[str] = set()
+        timed_out = False
         last_activity = started
         while len(closed) < 2 or process.poll() is None:
             if self._cancelled.is_set():
@@ -362,7 +385,8 @@ class CliFrontierProvider:
             elapsed = time.monotonic() - started
             if elapsed > timeout_seconds:
                 self._terminate_process(process)
-                return ProviderResult("needs_attention", "", seconds=elapsed, error=f"{purpose} timed out after {timeout_seconds:.0f}s")
+                timed_out = True
+                break
             try:
                 label, line = lines.get(timeout=0.25)
             except queue.Empty:
@@ -392,10 +416,12 @@ class CliFrontierProvider:
         input_tokens, output_tokens, reported_model = _usage_from_events(events)
         message = "\n".join(output).strip()
         error = "\n".join(errors).strip()
+        if timed_out:
+            error = f"{purpose} timed out after {timeout_seconds:.0f}s\n" + error
         if return_code != 0 and self.name == 'codex':
             from .planner.codex_cli import provider_failure
             error = provider_failure(message, error)
-        status = "cancelled" if self._cancelled.is_set() else "completed" if return_code == 0 else "needs_attention"
+        status = "cancelled" if self._cancelled.is_set() else "completed" if return_code == 0 and not timed_out else "needs_attention"
         if status != "completed" and not error:
             error = message[-4000:] or f"{self.display_name} exited with code {return_code}"
         result = ProviderResult(
@@ -440,7 +466,9 @@ class CliFrontierProvider:
     def _planning_prompt(self, packet: ReconPacket) -> str:
         return (
             "Create a source-grounded implementation plan as JSON matching the supplied schema. "
-            "Use one to five sequential, independently verifiable tasks. Do not edit files, invent paths "
+            "Use as many coherent, independently verifiable tasks as needed, up to thirty. "
+            "Each task should be suitable for its own review/merge and include focused tests. "
+            "Atomic does not mean single-file or microscopic. Declare dependencies. Do not edit files, invent paths "
             "as existing, or include dependency installation unless the evidence explicitly requires it. "
             "MoliCoder owns dependency manifests: do not plan manifest edits for ordinary application work. "
             "For an unspecified Python desktop UI use standard-library Tkinter; for an unspecified Node UI "
@@ -545,6 +573,53 @@ class OpenCodeProvider(CliFrontierProvider):
 
     name = "opencode"
     display_name = "OpenCode"
+    enforcement_class = 'scoped_tools'
+
+    def set_task_scope(self, paths):
+        if not hasattr(self, '_request_context'):
+            self._request_context = threading.local()
+        if not paths or any(Path(path).is_absolute() or '..' in Path(path).parts for path in paths):
+            raise ValueError('Runtime editing requires explicit project-relative task paths')
+        self._request_context.write_paths = tuple(paths)
+
+    def _check_profile(self):
+        if self.model in {'opencode/big-pickle', 'kilo/kilo-auto/free'}:
+            status = self.probe()
+            if not status.authenticated:
+                raise ProviderUnavailable(status.detail)
+
+    def plan(self, packet):
+        self._check_profile()
+        return super().plan(packet)
+
+    def execute(self, worktree, prompt, *, timeout_seconds=1200):
+        self._check_profile()
+        return super().execute(worktree, prompt, timeout_seconds=timeout_seconds)
+
+    def tool_permissions(self, purpose):
+        reads = {'*': 'allow', '.env*': 'deny', '**/.env*': 'deny', '**/auth.json': 'deny',
+                 '**/credentials.json': 'deny', '**/id_rsa': 'deny', '**/id_ed25519': 'deny',
+                 '**/*.pem': 'deny', '**/.git/**': 'deny', '**/.molicoder/**': 'deny'}
+        writes = {'*': 'deny'}
+        if purpose == 'implementation':
+            paths = getattr(getattr(self, '_request_context', None), 'write_paths', ('*',))
+            for path in paths:
+                writes[path] = 'allow'
+                if path != '*':
+                    writes[path.rstrip('/') + '/**'] = 'allow'
+            for path in reads:
+                if path != '*':
+                    writes[path] = 'deny'
+        return {'*': 'deny', 'read': reads, 'glob': 'allow', 'grep': 'allow', 'edit': writes,
+                'external_directory': 'deny', 'webfetch': 'deny', 'websearch': 'deny', 'bash': 'deny'}
+
+    def discover_binary(self):
+        binary = super().discover_binary()
+        if binary and not self._explicit_binary and os.name == 'nt' and self.name == 'opencode':
+            native = binary.parent / 'node_modules' / 'opencode-ai' / 'bin' / 'opencode.exe'
+            if native.is_file():
+                return native.resolve()
+        return binary
 
     def configure_local_gateway(self, endpoint: str, model_id: str, access_token: str) -> None:
         parsed = urlparse(endpoint)
@@ -566,11 +641,14 @@ class OpenCodeProvider(CliFrontierProvider):
         environment["OPENCODE_DISABLE_AUTOUPDATE"] = "1"
         environment["OPENCODE_DISABLE_LSP_DOWNLOAD"] = "1"
         purpose = getattr(getattr(self, "_request_context", None), "purpose", "planning")
-        environment["OPENCODE_PERMISSION"] = json.dumps({
-            "*": "deny", "read": "allow", "glob": "allow", "grep": "allow",
-            "external_directory": "deny", "webfetch": "deny", "websearch": "deny",
-            "edit": "allow" if purpose == "implementation" else "deny", "bash": "deny",
-        })
+        environment["OPENCODE_PERMISSION"] = json.dumps(self.tool_permissions(purpose))
+        if self.model:
+            environment['OPENCODE_CONFIG_CONTENT'] = json.dumps({
+                'model': self.model, 'small_model': self.model,
+                'enabled_providers': [self.model.split('/', 1)[0]],
+                'permission': json.loads(environment['OPENCODE_PERMISSION']),
+                'agent': {name: {'model': self.model} for name in ('plan', 'build', 'code')},
+            })
         if hasattr(self, "_gateway_endpoint"):
             request_id = getattr(getattr(self, "_request_context", None), "request_id", "")
             environment["OPENCODE_CONFIG_CONTENT"] = json.dumps({
@@ -607,6 +685,18 @@ class OpenCodeProvider(CliFrontierProvider):
                     self.name, True, False, version.stdout.strip()[:100], self.model,
                     "Local gateway profile configured; endpoint health has not been verified.", str(binary),
                 )
+            free_defaults = {'opencode': 'opencode/big-pickle', 'kilo': 'kilo/kilo-auto/free'}
+            if self.model == free_defaults.get(self.name):
+                from ..orchestration.catalog import CapabilityCatalogService
+                try:
+                    facts = next((m for m in CapabilityCatalogService.runtime_models(self.name, binary, refresh=True)
+                                  if m['model'] == self.model), None)
+                except Exception:
+                    facts = None
+                free = bool(facts and all(type(facts['cost'].get(k)) in (int, float) and facts['cost'][k] == 0 for k in ('input', 'output')))
+                return ProviderStatus(self.name, True, free, version.stdout.strip()[:100], self.model,
+                    'Pinned free model advertised; inference remains authoritative for availability.' if free else
+                    'The selected free model is unavailable or its zero price could not be confirmed.', str(binary), free)
             model_provider = self.model.split("/", 1)[0] if "/" in self.model else ""
             if not model_provider:
                 return ProviderStatus(
@@ -634,6 +724,8 @@ class OpenCodeProvider(CliFrontierProvider):
                    "--agent", agent, "--dir", str(root.resolve())]
         if self.model:
             command.extend(["--model", self.model])
+        if getattr(self, 'effort', None):
+            command.extend(['--variant', self.effort])
         return command
 
     def plan_command(self, root: Path) -> tuple[list[str], Path | None]:
@@ -641,6 +733,11 @@ class OpenCodeProvider(CliFrontierProvider):
 
     def execute_command(self, worktree: Path) -> list[str]:
         return self._base(worktree, "build")
+
+    def analyze(self, root, prompt, *, timeout_seconds=90):
+        self._check_profile()
+        return self._invoke(self._base(Path(root), 'plan'), prompt, cwd=Path(root),
+                            purpose='repository_analysis', timeout_seconds=timeout_seconds)
 
     def _invoke(self, command: list[str], prompt: str, *, cwd: Path, purpose: str,
                 timeout_seconds: float) -> ProviderResult:
@@ -652,7 +749,7 @@ class OpenCodeProvider(CliFrontierProvider):
         self._emit("provider_request", {"provider": self.name, "request_id": request_id, "purpose": purpose})
         try:
             result = super()._invoke(
-                [*command, "--title", f"MoliCoder {request_id}", prompt], "", cwd=cwd,
+                [*command, "--title", f"MoliCoder {request_id}"], prompt, cwd=cwd,
                 purpose=purpose, timeout_seconds=timeout_seconds,
             )
         finally:
@@ -663,7 +760,63 @@ class OpenCodeProvider(CliFrontierProvider):
             part = event.get("part") if isinstance(event.get("part"), dict) else event
             if part.get("type") == "text" and isinstance(part.get("text"), str):
                 text_parts.append(part["text"])
-        return replace(result, message="".join(text_parts) or result.message)
+        message = ''.join(text_parts) or result.message
+        # Some hosted reasoning profiles leak their transport delimiter into a
+        # text event instead of separating the final answer from reasoning.
+        # Only the final segment is an answer; the caller still validates its
+        # complete JSON schema before any proposed tool can execute.
+        if '</think>' in message:
+            final_segment = message.rsplit('</think>', 1)[1].strip()
+            if final_segment:
+                message = final_segment
+        fence = re.fullmatch(r'\s*```(?:json)?\s*(.*?)\s*```\s*', message, flags=re.DOTALL)
+        if fence:
+            try:
+                json.loads(fence[1])
+                message = fence[1]
+            except ValueError:
+                pass
+        return replace(result, message=message)
+
+
+class KiloProvider(OpenCodeProvider):
+    """Kilo 7 CLI contract: explicit model, JSON events, scoped permission policy."""
+    name = "kilo"
+    display_name = "Kilo Code"
+
+    def discover_binary(self):
+        binary = super().discover_binary()
+        if binary and not self._explicit_binary and os.name == 'nt':
+            native = binary.parent / 'node_modules' / '@kilocode' / 'cli' / 'node_modules' / '@kilocode' / 'cli-windows-x64' / 'bin' / 'kilo.exe'
+            if native.is_file():
+                return native.resolve()
+        return binary
+
+    def invocation_environment(self):
+        environment = super().invocation_environment()
+        purpose = getattr(getattr(self, '_request_context', None), 'purpose', 'planning')
+        permission = self.tool_permissions(purpose)
+        config = json.loads(environment.pop('OPENCODE_CONFIG_CONTENT', '{}'))
+        config['permission'] = permission
+        environment['KILO_CONFIG_CONTENT'] = json.dumps(config)
+        environment['KILO_DISABLE_PROJECT_CONFIG'] = '1'
+        return environment
+
+    def _base(self, root, agent):
+        binary = self.discover_binary()
+        command = [str(binary) if binary else 'kilo', '--pure', 'run', '--format', 'json',
+                   '--agent', 'code' if agent == 'build' else 'plan', '--dir', str(root.resolve())]
+        if self.model:
+            command.extend(['--model', self.model])
+        effort = getattr(self, 'effort', None)
+        if effort:
+            command.extend(['--variant', effort])
+        return command
+
+    def analyze(self, root, prompt, *, timeout_seconds=90):
+        self._check_profile()
+        return self._invoke(self._base(Path(root), 'plan'), prompt, cwd=Path(root),
+                            purpose='repository_analysis', timeout_seconds=timeout_seconds)
 
 
 class CodexProvider(CliFrontierProvider):
@@ -699,6 +852,8 @@ class CodexProvider(CliFrontierProvider):
             command.append("--approve-for-me")
         else:
             command.extend(["-a", "never", "-s", sandbox])
+        if getattr(self, 'effort', None):
+            command.extend(['-c', 'model_reasoning_effort=' + json.dumps(self.effort)])
         command.extend([
             "exec", "--ignore-user-config", "--ignore-rules", "--json",
             "-C", str(root.resolve()),
@@ -790,14 +945,17 @@ def create_provider(
     binary: str | Path | None = None,
     project_root: str | Path | None = None,
 ) -> CliFrontierProvider:
-    providers = {"codex": CodexProvider, "claude": ClaudeProvider, "copilot": CopilotProvider}
+    providers = {"codex": CodexProvider, "claude": ClaudeProvider, "copilot": CopilotProvider,
+                 "opencode": OpenCodeProvider, "kilo": KiloProvider}
     try:
         provider_type = providers[name.strip().lower()]
     except KeyError as exc:
         raise ValueError(f"unsupported frontier provider: {name}") from exc
+    if not model and name in {'opencode', 'kilo'}:
+        model = {'opencode': 'opencode/big-pickle', 'kilo': 'kilo/kilo-auto/free'}[name]
     return provider_type(binary=binary, model=model, on_event=on_event, project_root=project_root)
 
 
 def probe_all_providers() -> tuple[ProviderStatus, ...]:
     return (*tuple(create_provider(name).probe() for name in ("codex", "claude", "copilot")),
-            OpenCodeProvider().probe())
+            OpenCodeProvider().probe(), KiloProvider().probe())

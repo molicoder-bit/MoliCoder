@@ -46,6 +46,8 @@ def test_new_chat_rejects_late_tokens_from_previous_reply(qtbot, tmp_path, monke
         completed = Signal(object)
         failed = Signal(str)
         finished = Signal()
+        route_changed = Signal(object)
+        review_required = Signal(object)
 
         def __init__(self, client, model, *args):
             super().__init__(); self.model=model; self.cancelled=False
@@ -53,7 +55,7 @@ def test_new_chat_rejects_late_tokens_from_previous_reply(qtbot, tmp_path, monke
         def cancel(self): self.cancelled=True
         def isRunning(self): return False
 
-    monkeypatch.setattr('local_model_chat.ui.main_window.ChatWorker', FakeWorker)
+    monkeypatch.setattr('local_model_chat.ui.main_window.RequestWorker', FakeWorker)
     window=MainWindow(ChatStore(tmp_path/'late.db'),FakeClient(),start_ollama_check=False)
     qtbot.addWidget(window)
     window.composer.setPlainText('Hello model')
@@ -70,14 +72,13 @@ def test_new_chat_rejects_late_tokens_from_previous_reply(qtbot, tmp_path, monke
     assert not window._retired_chat_workers
 
 
-def test_missing_selected_model_explains_disabled_send(qtbot,tmp_path):
+def test_missing_selected_model_allows_automatic_route_selection(qtbot,tmp_path):
     from test_ui import FakeClient
     w=MainWindow(ChatStore(tmp_path/'missing-model.db'),FakeClient(),start_ollama_check=False)
     qtbot.addWidget(w)
     w._ollama_ready(True,[{'name':'another-installed-model'}])
     w.composer.setPlainText('Hello model')
-    assert not w.send_button.isEnabled()
-    assert 'not installed' in w.composer_hint.text()
+    assert w.send_button.isEnabled()
     w.composer.setPlainText(f'create a folder called "one" in {tmp_path}')
     assert w.send_button.isEnabled()
 
@@ -95,4 +96,4 @@ def test_model_preference_survives_restart_and_missing_runtime_model(qtbot,tmp_p
     restored._ollama_ready(True,[{'name':'another-installed-model'}])
     assert restored.preset.name == 'my-chosen-model'
     restored.composer.setPlainText('Hello')
-    assert not restored.send_button.isEnabled() and 'not installed' in restored.composer_hint.text()
+    assert restored.send_button.isEnabled() and 'routing will check alternatives' in restored.composer_hint.text()

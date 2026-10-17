@@ -106,6 +106,8 @@ class KandevBoardOrchestrator:
         run_id = self.store.create_run(
             self.project.id, request, mode, provider="kandev", base_commit=base,
         )
+        from ..orchestration.coordinator import RequestCoordinator
+        RequestCoordinator.register_build(self.store, self.project, run_id, request, mode, provider='kandev-board')
         payload = plan.to_dict() | {
             "runner_policy": policy,
             "task_assignments": {

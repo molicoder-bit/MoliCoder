@@ -15,7 +15,7 @@ from .domain import (
 
 
 class ChatStore:
-    SCHEMA_VERSION = 15
+    SCHEMA_VERSION = 16
     TASK_STATES = frozenset({
         "pending", "proposed", "ready", "running", "verifying", "completed",
         "blocked", "failed", "retrying", "waiting_quota", "waiting_approval",
@@ -93,6 +93,22 @@ class ChatStore:
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS orchestration_requests (
+                    id TEXT PRIMARY KEY,
+                    project_id INTEGER,
+                    state TEXT NOT NULL,
+                    spec_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS orchestration_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    request_id TEXT NOT NULL REFERENCES orchestration_requests(id),
+                    kind TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_orchestration_request_events
+                    ON orchestration_events(request_id, id);
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation
                     ON messages(conversation_id, id);
                 CREATE INDEX IF NOT EXISTS idx_conversations_updated
@@ -598,11 +614,15 @@ class ChatStore:
 
     def delete_conversation(self, conversation_id: int) -> None:
         with closing(self._connect()) as connection:
+            connection.execute("DELETE FROM orchestration_events WHERE request_id IN (SELECT id FROM orchestration_requests WHERE json_extract(spec_json,'$.conversation_id')=?)", (conversation_id,))
+            connection.execute("DELETE FROM orchestration_requests WHERE json_extract(spec_json,'$.conversation_id')=?", (conversation_id,))
             connection.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
             connection.commit()
 
     def clear_all(self) -> None:
         with closing(self._connect()) as connection:
+            connection.execute("DELETE FROM orchestration_events WHERE request_id IN (SELECT id FROM orchestration_requests WHERE json_extract(spec_json,'$.build_run_id') IS NULL)")
+            connection.execute("DELETE FROM orchestration_requests WHERE json_extract(spec_json,'$.build_run_id') IS NULL")
             connection.execute("DELETE FROM conversations")
             connection.commit()
 
@@ -757,6 +777,8 @@ class ChatStore:
 
     def clear_project_history(self, project_id: int) -> None:
         with closing(self._connect()) as connection:
+            connection.execute("DELETE FROM orchestration_events WHERE request_id IN (SELECT id FROM orchestration_requests WHERE project_id=? AND json_extract(spec_json,'$.build_run_id') IS NOT NULL)", (project_id,))
+            connection.execute("DELETE FROM orchestration_requests WHERE project_id=? AND json_extract(spec_json,'$.build_run_id') IS NOT NULL", (project_id,))
             connection.execute("DELETE FROM runs WHERE project_id = ?", (project_id,))
             connection.commit()
 

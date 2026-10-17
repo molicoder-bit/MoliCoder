@@ -157,6 +157,7 @@ def test_s020_chat_status_answer_reads_persisted_state_without_starting_build(qt
     recorded_status = store.get_run(run_id)["status"]
     window.composer.setPlainText("What are we working on?")
     window._send_message()
+    qtbot.waitUntil(lambda: window.chat_worker is None, timeout=10000)
     messages = store.list_messages(window.current_conversation_id)
     assert "Add index" in messages[-1].content
     assert f"run #{run_id}" in messages[-1].content

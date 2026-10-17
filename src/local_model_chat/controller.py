@@ -84,9 +84,7 @@ class MainController:
                 listing = directory_question(previous.content)
                 break
             if listing is None:
-                return ControllerResult('directory_clarification',
-                    'What would you like me to do? To list a folder, provide its path, such as C:/Dev.',
-                    action_state='awaiting_clarification')
+                return None  # General follow-ups belong to shared evaluation with conversation context.
         if listing is not None:
             project = self.store.get_project(project_id) if project_id is not None else None
             try:

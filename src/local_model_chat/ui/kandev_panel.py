@@ -1,8 +1,8 @@
 """Lazy real Kandev board and local service/connection controls."""
 import json
-from PySide6.QtCore import QThread, Signal, QUrl, Qt
+from PySide6.QtCore import QThread, Signal, QUrl, Qt, QTimer
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QLineEdit, QDialog, QFormLayout, QComboBox, QDialogButtonBox, QMessageBox
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QLineEdit, QDialog, QFormLayout, QComboBox, QDialogButtonBox, QMessageBox, QCheckBox, QProgressBar
 from ..kandev.service import KandevServiceController, get_json
 from ..kandev.ui_config import kandev_board_url
 
@@ -29,7 +29,11 @@ class KandevPanel(QWidget):
         layout.addLayout(row)
         self.status = QLabel('Kandev is optional. Connect a local service or install it in Settings → Environment.')
         self.status.setWordWrap(True); layout.addWidget(self.status)
-        note = QLabel('Kandev owns actions in this board. Native agent token use and cost may be unknown. Managed service runs until stopped.')
+        self.loading = QProgressBar(); self.loading.hide(); layout.addWidget(self.loading)
+        self._browser_loading = False
+        self._ready_retry = QTimer(self); self._ready_retry.setSingleShot(True)
+        self._ready_retry.timeout.connect(lambda: self.connect_board(retrying=True))
+        note = QLabel('Each task shows its execution owner. Agent usage and cost appear when reported. Managed service runs until stopped.')
         note.setWordWrap(True); note.setObjectName('muted'); layout.addWidget(note)
         self.body = QVBoxLayout(); layout.addLayout(self.body, 1)
 
@@ -41,20 +45,42 @@ class KandevPanel(QWidget):
     def operation(self, fn, done):
         if self.worker is not None: return
         self.status.setText('Working…')
+        self.loading.setRange(0, 0); self.loading.show()
         self.worker = Operation(fn, self)
         worker = self.worker
-        worker.done.connect(done); worker.error.connect(lambda message: self.status.setText('Needs attention · ' + message))
-        worker.finished.connect(lambda: (setattr(self, 'worker', None), worker.deleteLater()))
+        outcome = []
+        worker.done.connect(lambda value: outcome.append((True, value)))
+        worker.error.connect(lambda message: outcome.append((False, message)))
+        def finished():
+            self.worker = None
+            worker.deleteLater()
+            if not self._browser_loading: self.loading.hide()
+            if outcome:
+                if outcome[-1][0]: done(outcome[-1][1])
+                else: self.status.setText('Needs attention · ' + outcome[-1][1])
+        worker.finished.connect(finished)
         worker.start()
 
-    def connect_board(self):
+    def connect_board(self, _checked=False, *, retrying=False):
+        if not retrying: self._ready_attempts = 0
         try: origin = self.origin()
         except ValueError as exc: self.status.setText(str(exc)); return
         def loaded(health):
+            if health.get('startup', {}).get('phase') != 'ready':
+                self._ready_attempts = getattr(self, '_ready_attempts', 0) + 1
+                self.status.setText('Kandev is starting · waiting for the task API…')
+                if self._ready_attempts < 60: self._ready_retry.start(1000)
+                else: self.status.setText('Kandev startup did not finish. Inspect service logs and reconnect.')
+                return
             version = str(health.get('version', '')).lstrip('v')
             if version != '0.97.0':
                 self.status.setText(f'Unsupported service version: {version}. Use the pinned 0.97.0 service.'); return
             self.status.setText('Connected · ' + origin)
+            project = self.window.registry.selected()
+            if project and self.window.store.get_setting(f'kandev.mirror.{project.id}', 'true') == 'true':
+                from ..kandev.mirror import KandevPlanMirror
+                self._mirror_replay = KandevPlanMirror(self.window.store, project)
+                self._mirror_replay.replay_pending()
             if self.browser is not None and getattr(self, '_browser_origin', '') != origin:
                 self.body.removeWidget(self.browser); self.browser.deleteLater(); self.browser = None
             self._browser_origin = origin
@@ -76,9 +102,18 @@ class KandevPanel(QWidget):
                 self.page.permissionRequested.connect(lambda permission: permission.deny())
                 self.page.renderProcessTerminated.connect(lambda *_: self.status.setText('Board renderer stopped. Reconnect or open in browser.'))
                 self.browser.loadFinished.connect(lambda ok: self.status.setText('Connected · ' + origin if ok else 'Board could not load. Reconnect or open in browser.'))
+                self.browser.loadStarted.connect(self._page_loading)
+                self.browser.loadProgress.connect(self.loading.setValue)
+                self.browser.loadFinished.connect(self._page_loaded)
                 self.body.addWidget(self.browser)
             self.browser.setUrl(QUrl(origin))
-        self.operation(lambda: get_json(origin, '/health'), loaded)
+        self.operation(lambda: get_json(origin, '/ready'), loaded)
+
+    def _page_loading(self):
+        self._browser_loading = True; self.loading.setRange(0, 100); self.loading.show()
+
+    def _page_loaded(self, _ok):
+        self._browser_loading = False; self.loading.hide()
 
     def external(self):
         QDesktopServices.openUrl(QUrl(self.origin()))
@@ -152,6 +187,10 @@ class KandevPanel(QWidget):
             fid = combos['workflow_id'].currentData()
             populate(combos['workflow_step_id'], catalog.get('steps', {}).get(fid, []))
         refresh.clicked.connect(fetch); combos['workspace_id'].activated.connect(load_workspace); combos['workflow_id'].activated.connect(load_steps)
+        mirror = QCheckBox('Show internal Builds on this Kandev board')
+        mirror.setChecked(self.window.store.get_setting(f'kandev.mirror.{project.id}', 'true') == 'true')
+        mirror.setToolTip('Mirror approved tasks, assignments and verified progress. MoliCoder remains the execution owner.')
+        form.addRow(mirror)
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel); form.addRow(buttons)
         def save():
             try:
@@ -160,6 +199,7 @@ class KandevPanel(QWidget):
                 from ..kandev.rest import KandevRestConfig
                 KandevRestConfig(**profile)
                 self.window.store.set_setting(f'kandev.project.{project.id}', json.dumps(profile)); dialog.accept()
+                self.window.store.set_setting(f'kandev.mirror.{project.id}', 'true' if mirror.isChecked() else 'false')
                 self.window._refresh_build_readiness()
             except Exception as exc: info.setText(str(exc))
         buttons.accepted.connect(save); buttons.rejected.connect(dialog.reject)

@@ -68,7 +68,7 @@ def _required_text(value: Any, field: str) -> str:
     return value.strip()
 
 
-def parse_plan(value: str | dict[str, Any], *, max_tasks: int = 5) -> Plan:
+def parse_plan(value: str | dict[str, Any], *, max_tasks: int = 30) -> Plan:
     payload = _decode(value) if isinstance(value, str) else value
     if not isinstance(payload, dict):
         raise PlanValidationError("plan must be an object")

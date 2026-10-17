@@ -116,6 +116,58 @@ class RepositoryChatWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class RequestWorker(RepositoryChatWorker):
+    """The desktop entry point to the same coordinator used by CLI requests."""
+    review_required = Signal(object)
+    repository_analysis = True  # Existing receipt/cancellation presentation contract.
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._review_event = threading.Event()
+        self._review_decision = False
+        from .directory_queries import directory_question, directory_target
+        query = directory_question(self.messages[-1]['content'])
+        self.local_read = query is not None
+        if self.local_read:
+            self.repository_analysis = False
+            self.provider = 'none'
+            try:
+                self.path = directory_target(query, self.project)
+            except ValueError:
+                self.path = ''
+
+    def approve(self, decision):
+        self._review_decision = bool(decision)
+        self._review_event.set()
+
+    def cancel(self):
+        super().cancel()
+        self._review_event.set()
+
+    def _review(self, proposal):
+        self._review_event.clear()
+        self._review_decision = False
+        self.review_required.emit(proposal)
+        while not self._cancelled and not self._review_event.wait(.1):
+            if self.analysis and __import__('time').monotonic() >= self.analysis.deadline:
+                return False
+        return self._review_decision and not self._cancelled
+
+    def run(self):
+        from .orchestration.coordinator import RequestCoordinator
+        try:
+            self.analysis = RequestCoordinator(self.policy.registry.store, self.project, self.client,
+                preferred_model=self.model, policy=self.policy, cancelled=lambda: self._cancelled,
+                on_event=self.route_changed.emit, review=self._review, request_id=self.request_id,
+                conversation_id=getattr(self, 'conversation_id', None), resume_from=getattr(self, 'resume_from', None))
+            result = self.analysis.run(self.messages[-1]['content'], self.messages[:-1])
+            self.route_changed.emit(dict(result.receipt, phase='completed'))
+            self.content_delta.emit(result.content)
+            self.completed.emit(result.metrics)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class DirectoryReadWorker(QThread):
     completed = Signal(object)
     local_read = True
@@ -140,9 +192,10 @@ class DirectoryReadWorker(QThread):
 class StartupWorker(QThread):
     ready = Signal(bool, object)
 
-    def __init__(self, client: OllamaClient) -> None:
+    def __init__(self, client: OllamaClient, store=None) -> None:
         super().__init__()
         self.client = client
+        self.store = store
 
     def run(self) -> None:
         available = self.client.ensure_running()
@@ -152,6 +205,9 @@ class StartupWorker(QThread):
                 models = self.client.tags()
             except Exception:
                 available = False
+        if self.store:
+            from .orchestration.catalog import CapabilityCatalogService
+            CapabilityCatalogService(self.store, self.client).refresh()
         self.ready.emit(available, models)
 
 

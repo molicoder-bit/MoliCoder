@@ -100,7 +100,7 @@ def test_opencode_uses_documented_headless_flags_and_requires_profile(monkeypatc
     assert planning[planning.index("--agent") + 1] == "plan"
     assert execution[execution.index("--agent") + 1] == "build"
     assert "--auto" not in planning + execution
-    assert json.loads(provider.invocation_environment()["OPENCODE_PERMISSION"])["edit"] == "deny"
+    assert json.loads(provider.invocation_environment()["OPENCODE_PERMISSION"])["edit"]["*"] == "deny"
 
     commands = []
     def fake_run(command, **_kwargs):
@@ -114,7 +114,7 @@ def test_opencode_uses_documented_headless_flags_and_requires_profile(monkeypatc
     assert "credential" in status.detail.lower()
 
 
-def test_opencode_mock_invocation_passes_prompt_as_documented_argument(monkeypatch, tmp_path) -> None:
+def test_opencode_mock_invocation_passes_prompt_on_stdin(monkeypatch, tmp_path) -> None:
     binary = tmp_path / "opencode.exe"
     binary.touch()
     provider = OpenCodeProvider(binary=binary, model="fixture/model")
@@ -122,13 +122,13 @@ def test_opencode_mock_invocation_passes_prompt_as_documented_argument(monkeypat
     def fake_invoke(_self, command, prompt, **kwargs):
         captured.update(command=command, prompt=prompt, kwargs=kwargs,
                         permissions=json.loads(_self.invocation_environment()["OPENCODE_PERMISSION"]))
-        return ProviderResult("completed", "", events=({"part": {"type": "text", "text": "done"}},))
+        return ProviderResult("completed", "", events=({"part": {"type": "text", "text": "reasoning transport</think>done"}},))
     monkeypatch.setattr(CliFrontierProvider, "_invoke", fake_invoke)
     result = provider._invoke(provider.execute_command(tmp_path), "Only mock work", cwd=tmp_path,
                               purpose="implementation", timeout_seconds=1)
-    assert captured["command"][-1] == "Only mock work"
-    assert captured["prompt"] == ""
-    assert captured["permissions"]["edit"] == "allow"
+    assert 'Only mock work' not in captured['command']
+    assert captured["prompt"] == "Only mock work"
+    assert captured["permissions"]["edit"]["*"] == "allow"
     assert captured["permissions"]["bash"] == "deny"
     assert result.message == "done"
 
@@ -245,7 +245,7 @@ def test_create_provider_and_redaction() -> None:
 
 
 def test_agent_profiles_expose_route_auth_permissions_and_availability() -> None:
-    assert {profile.provider for profile in AGENT_PROFILES} == {"codex", "claude", "copilot", "opencode"}
+    assert {profile.provider for profile in AGENT_PROFILES} == {"codex", "claude", "copilot", "opencode", "kilo"}
     for profile in AGENT_PROFILES:
         assert profile.auth_guide.startswith("https://")
         assert profile.permission_model and profile.cancellation and profile.limitation
@@ -254,16 +254,17 @@ def test_agent_profiles_expose_route_auth_permissions_and_availability() -> None
         profile = agent_profile(name)
         assert profile.selectable and profile.route_class == "opaque_agent"
         assert profile.terms_url.startswith("https://")
-    assert not agent_profile("opencode").selectable
-    assert agent_profile("opencode").route_class == "local_gateway_preview"
+    assert agent_profile("opencode").selectable
+    assert agent_profile("kilo").selectable
+    assert agent_profile("opencode").route_class == "opaque_agent"
     assert "unverified" in agent_profile("opencode").sandbox
     assert "external side effects" in agent_profile("codex").sandbox
     assert "operating-system sandbox" in agent_profile("claude").sandbox
     assert "operating-system sandbox" in agent_profile("copilot").sandbox
     with pytest.raises(ValueError, match="Unsupported agent profile"):
         agent_profile("unknown")
-    with pytest.raises(ValueError, match="unsupported frontier provider"):
-        create_provider("opencode")
+    assert create_provider("opencode").name == 'opencode'
+    assert create_provider("kilo").name == 'kilo'
 
 
 def test_cancel_terminates_active_provider_process_within_five_seconds(tmp_path) -> None:

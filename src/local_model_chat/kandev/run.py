@@ -191,6 +191,8 @@ class KandevRunOrchestrator:
         run_id = self.store.create_run(
             self.project.id, request, mode, provider="kandev", base_commit=base,
         )
+        from ..orchestration.coordinator import RequestCoordinator
+        RequestCoordinator.register_build(self.store, self.project, run_id, request, mode, provider='kandev')
         task_id = self.store.create_run_task(run_id, "K1", "Kandev Build task", request, "high")
         ref = KandevTaskRef(run_id, task_id, f"molicoder:project:{self.project.id}:run:{run_id}:task:{task_id}")
         if self.require_plan_approval:

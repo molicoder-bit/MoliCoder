@@ -400,9 +400,10 @@ def refresh_activity(w):
     waiting = active and pause_state == 'paused'
     reduced = w.store.get_setting('ui.reduce_motion', 'false') == 'true'
     local_read = getattr(w.chat_worker, 'local_read', False) and w.view_stack.currentWidget() == w.chat_view
-    w.busy_indicator.set_busy(active and not waiting or local_read, reduced)
+    request_active = w.chat_worker is not None and w.view_stack.currentWidget() == w.chat_view
+    w.busy_indicator.set_busy(active and not waiting or request_active, reduced)
     in_chat = w.view_stack.currentWidget() != w.build_view
-    w.activity_row.setVisible(active or attention and in_chat or local_read)
+    w.activity_row.setVisible(active or attention and in_chat or request_active)
     w.return_to_build.setVisible((active or attention) and in_chat)
     w.return_to_build.setText('Review Build' if attention else 'Open active Build')
     if attention:
@@ -416,9 +417,12 @@ def refresh_activity(w):
         suffix = ' · Waiting for provider; no recent update' if since >= 30 else ''
         w.current_activity.setText(f'{stage} · {elapsed}s elapsed · Last activity {since}s ago{suffix}')
     if local_read:
-        elapsed = max(0, int(time.monotonic() - w._local_read_started_at))
+        elapsed = max(0, int(time.monotonic() - getattr(w, '_request_started_at', getattr(w, '_local_read_started_at', time.monotonic()))))
         stage = 'Cancelling folder listing' if w.chat_worker._cancelled else 'Reading local folder'
         w.current_activity.setText(f'{stage}: {w.chat_worker.path} · {elapsed}s elapsed · No AI model used')
+    elif request_active:
+        elapsed = max(0, int(time.monotonic() - getattr(w, '_request_started_at', time.monotonic())))
+        w.current_activity.setText(f"{getattr(w, '_request_status', 'Evaluating request')} · {elapsed}s elapsed")
 
 
 def return_to_build(w):

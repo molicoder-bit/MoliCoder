@@ -227,10 +227,42 @@ def test_disabled_local_offering_is_not_reenabled(tmp_path):
     assert result.receipt['attempts'][0]['status'] == 'failed'
 
 
+def _shared_evaluation():
+    return {'schema_version': '1.0', 'intent': 'investigation', 'objective': 'Locate runner selection',
+        'required_capabilities': ['project_read'], 'complexity': 'low', 'missing_information': [], 'reason': 'Read code',
+        'acceptance_checks': [{'id': 'source', 'kind': 'tool_evidence', 'target': 'routing.py', 'expected': 'read_file'}]}
+
+
+def _shared_turn(messages, *, supported):
+    payload = {'schema_version': '1.0', 'status': 'cannot_complete', 'message': 'Cannot answer',
+        'tool_calls': [], 'evidence_refs': [], 'unmet_criteria': ['source'], 'failure': 'Cannot trace this code'}
+    if supported:
+        results = [json.loads(m['content'].split(': ', 1)[1]) for m in messages if m['content'].startswith('HOST TOOL RESULT')]
+        if results:
+            payload.update(status='answer_ready', message='The choose_runner function at routing.py:2 selects the local runner.',
+                evidence_refs=[results[-1]['evidence_id']], unmet_criteria=[], failure=None,
+                citations=[{'evidence_id': results[-1]['evidence_id'], 'path': 'routing.py', 'line': 1, 'quote': 'def choose_runner():'}])
+        else:
+            payload.update(status='needs_tools', message='Read source', unmet_criteria=[], failure=None,
+                tool_calls=[{'call_id': 'read', 'name': 'read_file', 'arguments': {'path': 'routing.py', 'start': 1, 'end': 10}}])
+    return payload
+
+
+def _shared_client(client, *, external=False):
+    def chat(model, messages, **kwargs):
+        value = _shared_evaluation() if messages[0]['content'].startswith('You evaluate requests') else _shared_turn(
+            messages, supported=model != 'molicoder:latest' and not external)
+        return ChatResponse({'content': json.dumps(value)}, GenerationMetrics(prompt_tokens=10, output_tokens=5))
+    client.chat = chat
+
+
 def test_desktop_worker_fallback_saves_answer_and_actual_model(qtbot, tmp_path):
     from local_model_chat.ui.main_window import MainWindow
     service, client = fixture(tmp_path, ['cannot answer', json.dumps({'status': 'answered',
         'answer': 'The choose_runner function selects the local runner.', 'reason': '', 'citations': [{'ref': 'S1:L2'}]})])
+    _shared_client(client)
+    service.store.set_setting('orchestration.qualification.v1', json.dumps({'local-reasoning:latest': {
+        'enabled_for_fallback': True, 'source': 'test fixture', 'passed': 3}}))
     window = MainWindow(service.store, start_ollama_check=False)
     qtbot.addWidget(window)
     window._load_project_list(select_id=service.project.id)
@@ -255,11 +287,17 @@ def test_desktop_external_handoff_preserves_receipt_and_shows_unknown_cost(qtbot
     from local_model_chat.ui.workspace import refresh_workspace
     from local_model_chat.molicoder.providers import ProviderResult
     service, client = fixture(tmp_path, ['cannot answer', 'cannot answer'])
+    _shared_client(client, external=True)
+    service.store.set_setting('orchestration.qualification.v1', json.dumps({'local-reasoning:latest': {
+        'enabled_for_fallback': True, 'source': 'test fixture', 'passed': 3}}))
     service.store.set_project_preferences(service.project.id, provider='codex', strategy='HYBRID', trusted_providers=('codex',))
     class Provider:
-        def analyze(self, *args, **kwargs):
-            return ProviderResult('completed', answer(), model='configured-model', model_source='configured')
-    monkeypatch.setattr('local_model_chat.repository_analysis.create_provider', lambda *a, **k: Provider())
+        def analyze(self, root, prompt, **kwargs):
+            import re
+            messages = [{'role': role.lower(), 'content': content} for role, content in re.findall(
+                r'(SYSTEM|USER|ASSISTANT):\n(.*?)(?=\n\n(?:SYSTEM|USER|ASSISTANT):\n|\n\nRESPONSE JSON SCHEMA:|\Z)', prompt, re.S)]
+            return ProviderResult('completed', json.dumps(_shared_turn(messages, supported=True)), model='configured-model', model_source='configured')
+    monkeypatch.setattr('local_model_chat.orchestration.coordinator.create_provider', lambda *a, **k: Provider())
     window = MainWindow(service.store, start_ollama_check=False)
     qtbot.addWidget(window)
     window._load_project_list(select_id=service.project.id)

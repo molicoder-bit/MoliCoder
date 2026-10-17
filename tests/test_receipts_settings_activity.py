@@ -18,7 +18,7 @@ def test_receipt_upgrade_preserves_legacy_and_cascades_deleted_messages(tmp_path
     reopened = ChatStore(path)
     assert reopened.list_messages(chat.id)[0].content == 'Legacy answer'
     assert reopened.message_receipt(message_id) is None
-    assert list(tmp_path.glob('legacy.db.pre-v15-*.bak'))
+    assert list(tmp_path.glob('legacy.db.pre-v16-*.bak'))
     reopened.set_message_receipt(message_id, {'provider':'fixture', 'requested_model':'previous-model'})
     assert reopened.message_receipt(message_id)['requested_model'] == 'previous-model'
     reopened.delete_last_exchange(chat.id)
@@ -32,7 +32,7 @@ def test_settings_model_page_and_per_reply_identity(qtbot, tmp_path):
     store.set_message_receipt(message_id, {'provider':'fixture-api', 'requested_model':'previous-model', 'turn_ids':[1,2], 'attachments':['example.txt']})
     refresh_workspace(w)
     assert 'previous-model' in w.route_identity.text()
-    assert 'Next reply: Ollama' in w.route_identity.text()
+    assert 'Next reply: Automatic routing' in w.route_identity.text()
     assert '2 conversation turns' in w.context_summary.text()
     assert w.model_combo.isHidden()
     show_settings(w, 'Models & providers')
@@ -119,6 +119,6 @@ def test_settings_exposes_platform_limits_without_network_calls(qtbot,tmp_path,m
     w=MainWindow(ChatStore(tmp_path/'platform.db'),start_ollama_check=False);qtbot.addWidget(w)
     show_settings(w,'Models & providers')
     text='\n'.join(label.text() for label in w._settings_dialog.findChildren(QLabel))
-    assert 'credentials unavailable' in text and 'Build only' in text
+    assert 'credentials unavailable' in text and 'Request fallback and Build' in text
     assert getattr(w,'_provider_check_worker',None) is None
     w._settings_dialog.close()

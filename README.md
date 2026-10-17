@@ -2,7 +2,7 @@
 
 **A local-first desktop chat and coding workspace for people who want to see and control where their tokens go.**
 
-MoliCoder combines Ollama chat, project-aware answers, and a guarded Build workflow. You can keep routine work on local models, set visible context and output limits, and choose when an external coding agent is worth using. The app records what it can measure and labels unknown subscription usage as unknown.
+MoliCoder evaluates your request, chooses suitable local or trusted external models, executes actual project tools, and checks the result. Routine work can stay local. Harder reasoning and incomplete attempts can continue through capable authorized providers automatically. Development work enters a detailed, reviewed Build plan with meaningful tasks and isolated verification. The app records what it can measure and labels unknown subscription usage as unknown.
 
 > **Platform checks:** Windows 11, macOS Intel, and Linux x64 have automated tests and packaged startup checks. macOS/Linux builds are unsigned CI artifacts with the [limits documented here](docs/plans/platform-support.md).
 
@@ -23,9 +23,12 @@ The goal is more predictable use of local hardware and paid services, with fewer
 
 For example, a question such as “What task are we on?” can be answered from the saved run record without sending a model prompt. A small code change can run through Local offline Build. Repository questions try local models first and can automatically continue through a trusted external provider when local analysis fails. Each reply records the attempted routes and the model that answered.
 
+1.4.0 implementation and verification: [unified orchestration evidence](docs/plans/unified-request-orchestration-evidence.md), including real provider results, retained failures, package checks and unverified installed UI layers.
+
 ## What works today
 
-- **Chat:** stream replies from local Ollama models; adjust output length, temperature, and top-p; inspect prompt/output metrics; keep conversations and export Markdown or JSON.
+- **Requests:** conversation, directory and source investigation, file creation/editing, approved commands, and automatic transfer of development work into Build. Models return strict JSON proposals; host-created tool evidence and acceptance checks determine the outcome.
+- **Automatic routing:** cached model/provider/capability metadata refreshes at startup. Local candidates, project-trusted OpenCode/Kilo and subscription CLIs, and enabled authorized API offerings share bounded selection and fallback. Inspect the catalog, exclusions and observed failures in Settings.
 - **Conversation continuity and copying:** reopened chats send their saved messages with each request, within the visible context limit. Drag across message cards or Shift-click to select a range; use Select all / Copy chat for larger copies.
 - **Project context:** Chat knows its associated project's name, folder and type. Ask which project is selected or inspect authoritative run status and project knowledge using local records.
 - **Repository analysis:** ask where behavior is implemented. The app searches actual source, gives local models bounded read/search tools, checks quoted code against the files, and reviews local answers for support. Inability, bad evidence, stalled tools, context limits, and provider errors trigger automatic fallback with the same question and gathered evidence.
@@ -33,13 +36,13 @@ For example, a question such as “What task are we on?” can be answered from 
 - **Build:** plan and execute tasks in isolated Git worktrees, run fixed validation commands, preserve failed work for review, and record task evidence.
 - **Routes:** choose Local offline, Hybrid, or Frontier only. External CLI agents require project trust and an explicit Build authorization.
 - **Visibility:** inspect provider state, environment doctor results, usage and budgets, event timelines, worktrees, and a privacy-filtered trace export.
-- **Optional Kandev ownership:** explicitly assign a Build task to a configured local Kandev service and reconcile it by its saved external ID.
+- **Kandev:** connect a project board to see internal Build tasks, dependencies, assignments and current states. Mirrored tasks cannot launch agents. Optional Kandev-owned execution retains its separate ownership and verification controls.
 
 Local Ollama chat needs no cloud account. Optional external agents and services have their own installation, authentication, quota, and data-sharing rules.
 
 ## Desktop workspace
 
-Matrix is the default theme: black surfaces, green accents, and monospace text, with the supplied MoliCode logo in the header. Use **New chat** to start a conversation in one click from Chat or Build. **Chat** supports conversation and read-only planning; **Build** starts explicitly reviewed execution. Switching between them preserves drafts.
+Matrix is the default theme: black surfaces, green accents, and monospace text, with the supplied MoliCode logo in the header. Use **New chat** to start a conversation in one click from Chat or Build. **Chat** accepts questions and work requests; local mutations show a concrete operation review, and software development enters **Build** planning automatically. Switching between them preserves drafts.
 
 ![MoliCoder Chat with labeled Project and Chats selectors in the Matrix theme](docs/images/usability/header-chats-matrix.png)
 
@@ -73,19 +76,19 @@ Ask **"OK, can you tell me which content is in C:/Dev?"**, **"List contents of C
 
 With a project associated with the chat, ask **“Where is the Build plan checked before execution?”** or **“Explain how this project chooses its provider.”** The analysis route indexes supported UTF-8 source files and supplies excerpts with source IDs. Models can search and read additional project files. It checks citations against the supplied text and unchanged on-disk file hashes; a short local grounding review can reject unsupported explanations. This improves evidence quality but cannot prove that every explanation is correct.
 
-The route tries up to two installed local models with distinct weight digests, then up to two distinct **trusted** external CLI providers (Codex, Claude, or Copilot). The selected provider is preferred among trusted external providers. Models explicitly report inability, and the app also checks actual outputs instead of relying on their confidence. The full current conversation and question are retained across handoffs; gathered source evidence is fitted to each model's context. A model whose context is too small is skipped rather than silently losing chat history.
+Desktop requests use up to three distinct eligible routes, retaining the original objective, conversation, checks and completed tool evidence. The preferred local model can be evaluated as a candidate; additional local models require recorded qualification and distinct weight digests. Trusted OpenCode/Kilo profiles can handle inexpensive work, and supported normal reasoning routes handle harder requests. Unknown capability, disabled offerings, missing models and failure cooldowns exclude unsuitable routes. A model whose context is too small is skipped without silently removing chat history.
 
-In project **Provider settings**, use **Automatically try trusted external providers when local repository analysis cannot answer** to control external escalation. Trust is required separately for each provider. Local-only operation remains available by disabling this setting. No model download, account creation, or sign-in happens as part of fallback. The current route appears while working, and the saved reply receipt includes attempts, failures, source hashes, and the answering model. Exhausting the chain records an unresolved result.
+In **Settings → Models & providers**, save each provider's project trust and optional model override. **Provider settings → Automatically continue requests with capable trusted providers** controls external escalation. No model download, account creation, or sign-in happens as part of fallback. The current route appears while working, and the reply receipt includes attempts, failures, source hashes and the answering model. Exhausting the chain records an unresolved result.
 
 Analysis tools only search/read; they do not edit files or expose a shell. Indexing is bounded to 4,000 supported files, 12 MB total, eight seconds, and 1 MB per file, excluding links, credential paths, dependencies, build output, and app metadata. Large or unsupported repositories may need a narrower question. Each local route has four tool/answer turns (45 seconds per inference) and one grounding review (30 seconds). External CLI calls have a 90-second ceiling each; their internal token use and subscription cost can be unknown. These rules apply to repository questions; Build retains its separate execution approvals and routing.
 
-The CLI uses the same analysis service:
+The CLI uses the same request coordinator as the desktop:
 
 ```powershell
-.venv\Scripts\molicoder-exec.exe ask "Where is plan approval checked?" --project C:\Dev\LocalModelChat --report answer.json
+.venv\Scripts\molicoder-exec.exe request "Where is plan approval checked?" --project C:\Dev\LocalModelChat --report answer.json
 ```
 
-Add `--local-only` to prevent external fallback, or `--database PATH` for an isolated test profile. Exit code 0 means an answer passed the configured evidence checks; 2 means unresolved. Read-only analysis does not require a clean Git checkout or an execution branch.
+Add `--local-only` to prevent external fallback, or `--database PATH` for an isolated profile. Bounded CLI mutations require `--approve`, which prints the concrete operation review. Exit 0 means completed under the recorded checks; 2 means incomplete, blocked or awaiting input/review. `request --resume REQUEST_ID --database PATH` reconciles an interrupted request before continuing. Read-only investigation does not require a clean Git checkout. The older `ask` command remains a compatibility interface for the earlier read-only analysis service.
 
 ### Activity, failures, and recovery
 
@@ -95,7 +98,7 @@ Failures remain visible with their effect and a relevant recovery action, includ
 
 ### Settings and appearance
 
-Settings stays open while navigating **General**, **Models & providers**, **Projects & Build**, **Usage & limits**, **Kandev**, and **Diagnostics**. Model cards separate installation, sign-in, model choice, and readiness. Connection checks make no inference request; paid test messages keep their separate approval and cap. API connections currently support capped tests. General Chat uses local Ollama; repository analysis can continue through trusted official CLIs. Project model overrides offer an explicit Provider default choice.
+Settings stays open while navigating **General**, **Models & providers**, **Projects & Build**, **Usage & limits**, **Kandev**, and **Diagnostics**. Model cards separate installation, sign-in, model choice, trust and readiness. Connection/catalog checks make no generation request. Enabled authorized API offerings can join automatic routing after capability, policy and budget checks. **Available models, efforts, capabilities and routing** shows cached facts, stale status, exclusions and observed route outcomes. Project model overrides offer a Provider default choice.
 
 Use **Theme** in the header to choose **Matrix** or **Light**, or change appearance and text size in General. Preferences save immediately; project model overrides have their own Save action. Kandev's embedded web content keeps its own appearance settings. Windows packages use the supplied logo for executable, shortcut, and window icons; regenerate the multi-resolution icon with `.venv\Scripts\python.exe scripts\build_windows_icon.py` before packaging.
 

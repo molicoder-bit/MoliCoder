@@ -54,7 +54,7 @@ def directory_question(message: str) -> DirectoryQuestion | None:
             if not target.endswith(closing) or len(target) < 3:
                 return None
             target = target[1:-1]
-        project_reference = re.fullmatch(r'(?:the )?(?:(?:my|our|this|current|selected) )?(?:project(?: folder)?|folder)', target, re.I)
+        project_reference = not quoted and re.fullmatch(r'(?:the )?(?:(?:my|our|this|current|selected) )?(?:project(?: folder)?|folder|directory|workspace)|here', target, re.I)
         if project_reference:
             target = '.'
         # A generic "list ideas" remains ordinary conversation.

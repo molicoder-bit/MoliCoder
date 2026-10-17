@@ -24,6 +24,7 @@ class BoundedOpaqueProvider:
         if not authorization_scope or max_calls <= 0 or max_seconds <= 0:
             raise ValueError("opaque provider needs authorization scope and positive ceilings")
         self.provider = provider
+        self.enforcement_class = getattr(provider, 'enforcement_class', 'opaque_agent')
         self.store = store
         self.project_id = project_id
         self.authorization_scope = authorization_scope
@@ -31,6 +32,7 @@ class BoundedOpaqueProvider:
         self.max_seconds = max_seconds
         self.name = provider.name
         self.model = provider.model
+        self.effort = getattr(provider, 'effort', None)
         self._started_at = time.monotonic()
         self._calls = 0
         self._lock = threading.Lock()
@@ -87,3 +89,8 @@ class BoundedOpaqueProvider:
 
     def cancel(self) -> None:
         self.provider.cancel()
+
+    def set_task_scope(self, paths):
+        setter = getattr(self.provider, 'set_task_scope', None)
+        if setter:
+            setter(paths)

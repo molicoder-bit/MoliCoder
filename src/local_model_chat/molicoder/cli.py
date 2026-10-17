@@ -42,6 +42,9 @@ def _validator(root: Path) -> ProjectValidator:
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == 'request':
+        from ..orchestration.cli import main as request_main
+        return request_main(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == 'ask':
         from ..repository_cli import main as repository_main
         return repository_main(sys.argv[2:])

@@ -29,8 +29,8 @@ def test_directory_followup_is_scoped_to_latest_user_request(tmp_path):
     assert result.kind == 'directory_listing_request'
     assert Path(result.evidence) == tmp_path
     history.append(Message(None, 1, 'user', 'Explain Python lists'))
-    assert controller.handle('can you do it now?', None, history=history).action_state == 'awaiting_clarification'
-    assert controller.handle('can you do it now?', None).action_state == 'awaiting_clarification'
+    assert controller.handle('can you do it now?', None, history=history) is None
+    assert controller.handle('can you do it now?', None) is None
 
 
 def test_directory_followup_in_chat_runs_real_listing_without_model(qtbot, tmp_path, monkeypatch):

@@ -128,6 +128,21 @@ class KandevRestTaskApi:
             blocked_by=blocked_by, agent_profile_id=agent_profile_id,
         )
 
+    def create_mirror(self, external_id, objective, *, blocked_by=()):
+        return self._create(external_id, objective, start_agent=False, blocked_by=blocked_by)
+
+    def update_mirror(self, remote_id, external_id, *, state, title, description):
+        if self._store is None:
+            raise PermissionError('Mirror updates require an exact authorization')
+        AuthorizationPolicy(self._store).require(ActionRequest(None, 'kandev_task_update',
+            f'{self.config.workspace_id}:{external_id}', ActionRisk.EXTERNAL))
+        observed = self.read(remote_id)
+        if (not observed or observed.get('external_id') != external_id or observed.get('primary_session_id')
+                or observed.get('session_id') or observed.get('start_when_unblocked') is True):
+            raise KandevTransportError('Mirror ownership changed; task update requires reconciliation')
+        return self._request('PATCH', f'/tasks/{quote(remote_id, safe="")}',
+            {'state': state, 'title': title, 'description': description})
+
     def _create(
         self, external_id: str, objective: str, *, start_agent: bool,
         blocked_by: tuple[str, ...] = (), agent_profile_id: str = "",
@@ -166,7 +181,7 @@ class KandevRestTaskApi:
             "agent_profile_id": selected_profile,
             "start_agent": start_agent,
             "prepare_session": False,
-            **({"blocked_by": list(blocked_by), "start_when_unblocked": True} if blocked_by else {}),
+            **({"blocked_by": list(blocked_by), "start_when_unblocked": start_agent} if blocked_by else {}),
         })
         assert result is not None
         return result
