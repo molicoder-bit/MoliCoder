@@ -1,14 +1,13 @@
 """Compact provider preferences and project-scoped, just-in-time permission."""
 import platform
 
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
-from ..molicoder.providers import AGENT_PROFILES, agent_profile
+from ..molicoder.providers import AGENT_PROFILES
 
 
 PROVIDERS = tuple(p.provider for p in AGENT_PROFILES if p.selectable)
@@ -26,13 +25,21 @@ def installable_tools():
 
 
 def provider_status(w, provider):
+    from ..environment.provider_connection import cached_connection, connection_model
+    checked = cached_connection(w.store, provider, connection_model(w, provider))
+    if checked:
+        labels = {'ready': 'Ready', 'sign_in_required': 'Sign-in required', 'access_blocked': 'Access blocked',
+                  'test_failed': 'Connection failed', 'cancelled': 'Setup cancelled', 'not_installed': 'Not installed'}
+        return labels[checked.state], checked.detail
     status = getattr(w, '_provider_statuses', {}).get(provider)
     if status:
         if not status.installed:
             return 'Not installed', status.detail
         if not status.auth_verified:
             return 'Installed · Sign-in not verified', status.detail
-        return ('Ready' if status.authenticated else 'Sign-in required'), status.detail
+        if provider in {'opencode', 'kilo'} and status.authenticated and status.model in {'opencode/big-pickle', 'kilo/kilo-auto/free'}:
+            return 'Free model listed · Test connection', status.detail
+        return ('Signed in · Connection not tested' if status.authenticated else 'Sign-in required'), status.detail
     from ..orchestration.catalog import CapabilityCatalogService
     runtime = next((r for r in CapabilityCatalogService(w.store, w.client).cached().get('runtimes', [])
                     if r['tool_id'] == provider), None)
@@ -127,6 +134,7 @@ class ProviderPanel(QWidget):
     """A single detail editor, shared by every coding runtime."""
     def __init__(self, w):
         super().__init__()
+        from .provider_connection import show_provider_connection
         self.w, self.project_id, self.loading = w, None, False
         body = QVBoxLayout(self); body.setContentsMargins(0, 0, 0, 0)
         self.scope = QLabel(); self.scope.setWordWrap(True); body.addWidget(self.scope)
@@ -143,9 +151,9 @@ class ProviderPanel(QWidget):
         self.detail = QLabel(); self.detail.setWordWrap(True); body.addWidget(self.detail)
         actions = QHBoxLayout(); body.addLayout(actions)
         self.install = QPushButton('Download and install'); actions.addWidget(self.install)
-        self.guide = QPushButton('Setup / sign-in'); actions.addWidget(self.guide)
+        self.guide = QPushButton('Set up / test connection'); actions.addWidget(self.guide)
         self.install.clicked.connect(lambda: w._show_environment_doctor(install_tool=self.provider))
-        self.guide.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(agent_profile(self.provider).auth_guide)))
+        self.guide.clicked.connect(lambda: show_provider_connection(w, self.provider))
         self.advanced = QPushButton('Model override (advanced)'); self.advanced.setCheckable(True); body.addWidget(self.advanced)
         self.model = QLineEdit(); self.model.setPlaceholderText('Automatic · provider default')
         self.model.setAccessibleName('Model override for selected provider'); body.addWidget(self.model)
@@ -182,8 +190,8 @@ class ProviderPanel(QWidget):
             self.detail.setVisible(bool(detail))
             self.install.setVisible(self.provider in installable_tools() and state in {'Not installed', 'Not checked'})
             self.install.setEnabled(getattr(self.w, 'managed_install_worker', None) is None)
-            self.guide.setText('Sign-in instructions' if state == 'Sign-in required' else 'Setup / sign-in')
-            self.guide.setVisible(state != 'Ready')
+            self.guide.setText('Test connection' if state == 'Ready' else 'Set up / sign in')
+            self.guide.show()
             project = self.w.registry.selected()
             valid = project is not None and project.id == self.project_id
             value = self.w.store.get_project_preferences(project.id).model_overrides.get(self.provider, '') if valid else ''
@@ -219,7 +227,11 @@ class ProviderPanel(QWidget):
         worker = ProviderCheck(self.w); self.w._provider_check_worker = worker
         self.check.setEnabled(False); self.check.setText('Checking…')
         def ready(statuses):
+            from ..environment.provider_connection import forget_connections
             self.w._provider_statuses = {s.provider: s for s in statuses}
+            for status in statuses:
+                if not status.installed or (status.auth_verified and not status.authenticated):
+                    forget_connections(self.w.store, status.provider)
             from ..orchestration.catalog import CapabilityCatalogService
             catalog = CapabilityCatalogService(self.w.store, self.w.client)
             facts = catalog.cached()

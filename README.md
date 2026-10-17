@@ -27,6 +27,8 @@ Conversation reliability follow-up in 1.4.1: [real dialogue evidence](docs/plans
 
 Provider setup simplification in 1.4.2: [setup, permission and conversation evidence](docs/plans/provider-setup-evidence.md).
 
+Provider sign-in and verified access in 1.4.3: [provider flows, official documentation and verification](docs/plans/provider-sign-in-and-verification.md).
+
 1.4.0 implementation and verification: [unified orchestration evidence](docs/plans/unified-request-orchestration-evidence.md), including real provider results, retained failures, package checks and unverified installed UI layers.
 
 ## What works today
@@ -102,7 +104,7 @@ Failures remain visible with their effect and a relevant recovery action, includ
 
 ### Settings and appearance
 
-Settings stays open while navigating **General**, **Models & providers**, **Projects & Build**, **Usage & limits**, **Kandev**, and **Diagnostics**. The compact provider list shows connection status and project access. Select a provider to install it where supported, open sign-in instructions, or expand its optional model override. Connection/catalog checks make no generation request. Enabled authorized API offerings can join automatic routing after capability, policy and budget checks. **Model catalog…** shows cached facts, stale status, exclusions and observed route outcomes. A blank model override uses the provider default. Custom endpoints, API keys, offering controls and capped tests are under **API connections…**.
+Settings stays open while navigating **General**, **Models & providers**, **Projects & Build**, **Usage & limits**, **Kandev**, and **Diagnostics**. The compact provider list shows connection status and project access. Select a provider to install it where supported, run setup/sign-in and a real model connection test, or expand its optional model override. Connection/catalog checks make no generation request. Enabled authorized API offerings can join automatic routing after capability, policy and budget checks. **Model catalog…** shows cached facts, stale status, exclusions and observed route outcomes. A blank model override uses the provider default. Custom endpoints, API keys, offering controls and capped tests are under **API connections…**.
 
 Use **Theme** in the header to choose **Matrix** or **Light**, or change appearance and text size in General. Preferences and project model overrides save immediately. Kandev's embedded web content keeps its own appearance settings. Windows packages use the supplied logo for executable, shortcut, and window icons; regenerate the multi-resolution icon with `.venv\Scripts\python.exe scripts\build_windows_icon.py` before packaging.
 
@@ -140,7 +142,7 @@ For an unsigned macOS Intel or Linux x64 package, run `.venv/bin/python scripts/
 3. In **Build**, enter a small request with a checkable outcome. Choose **Local offline** to keep model work on Ollama, or choose an external agent deliberately.
 4. Review **Task evidence** and **Usage and budgets** after the run. Inspect the diff before pushing it.
 
-For more routes, open **Environment readiness** to install supported official CLIs and local runtimes from inside the app. Each managed install shows the release, source, integrity check, destination, and rollback before you approve it. Open **Settings → Models & providers → API connections…** to add a custom OpenAI-compatible endpoint and model, or choose an API preset. The provider list offers **Download and install** for supported releases (currently OpenCode on Windows); local runtime and model downloads are under **Install local models…**. On Windows, you can enter a protected API key, check the connection without an inference call, review price and privacy facts, and set a project spend cap before enabling a metered route. Provider sign-in and account creation still happen in the provider's official flow; MoliCoder does not create accounts or buy credits for you.
+For more routes, open **Environment readiness** to install supported official CLIs and local runtimes from inside the app. Each managed install shows the release, source, integrity check, destination, and rollback before you approve it. Open **Settings → Models & providers → API connections…** to add a custom OpenAI-compatible endpoint and model, or choose an API preset. The provider list offers **Download and install** for supported releases (currently OpenCode on Windows); local runtime and model downloads are under **Install local models…**. On Windows, you can enter a protected API key, check the connection without an inference call, review price and privacy facts, and set a project spend cap before enabling a metered route. The **Set up / sign in** action reuses existing credentials or starts the provider's official browser/device or PowerShell login flow, then confirms model access with a small test. Account creation, consent and MFA remain in that official flow; MoliCoder does not create accounts or buy credits.
 
 New Python starter projects create an isolated virtual environment and install the pinned test runner from PyPI. That setup needs network access but no model provider account.
 

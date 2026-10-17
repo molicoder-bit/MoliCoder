@@ -13,6 +13,9 @@ from .ui.styles import APP_STYLESHEET
 
 
 def main() -> int:
+    if '--provider-connection' in sys.argv:
+        from .environment.provider_connection import main as connection_main
+        return connection_main(sys.argv[sys.argv.index('--provider-connection') + 1:])
     if '--request' in sys.argv:
         from .orchestration.cli import main as request_main
         return request_main(sys.argv[sys.argv.index('--request') + 1:])
@@ -41,6 +44,10 @@ def main() -> int:
     if sys.platform == "win32":
         app.setFont(QFont("Segoe UI Variable", 10))
     app.setStyleSheet(APP_STYLESHEET)
+    if '--package-provider-smoke-check' in sys.argv:
+        from .ui.provider_smoke import provider_smoke
+        report = Path(sys.argv[sys.argv.index('--package-provider-smoke-check') + 1])
+        return provider_smoke(app, report)
     if "--package-board-smoke-check" in sys.argv:
         from .ui.browser_smoke import browser_smoke
         return browser_smoke(app)

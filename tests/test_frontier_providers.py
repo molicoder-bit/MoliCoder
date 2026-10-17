@@ -133,6 +133,27 @@ def test_opencode_mock_invocation_passes_prompt_on_stdin(monkeypatch, tmp_path) 
     assert result.message == "done"
 
 
+@pytest.mark.parametrize('name', ['opencode', 'kilo'])
+def test_host_proposals_deny_native_writes_without_plan_mode(monkeypatch, tmp_path, name):
+    binary = tmp_path / (name + '.exe'); binary.touch()
+    provider = create_provider(name, binary=binary, model='fixture/model')
+    captured = {}
+    def invoke(instance, command, prompt, **kwargs):
+        env = instance.invocation_environment()
+        config = json.loads(env['KILO_CONFIG_CONTENT' if name == 'kilo' else 'OPENCODE_CONFIG_CONTENT'])
+        captured.update(command=command, config=config)
+        assert config['permission']['edit'] == {'*': 'deny'}
+        assert config['permission']['read']['*'] == 'allow'
+        assert config['permission']['bash'] == 'deny'
+        return ProviderResult('completed', '{"tool_calls":[{"name":"write_file"}]}')
+    monkeypatch.setattr(CliFrontierProvider, '_invoke', invoke)
+    answer = provider.propose(tmp_path, 'Return the proposed host operation as JSON')
+    assert captured['command'][captured['command'].index('--agent') + 1] == ('code' if name == 'kilo' else 'build')
+    assert 'write_file' in answer.message
+    assert provider.tool_permissions('repository_analysis')['edit']['*'] == 'deny'
+    assert provider.plan_command(tmp_path)[0][provider.plan_command(tmp_path)[0].index('--agent') + 1] == 'plan'
+
+
 def test_opencode_local_gateway_allowlists_endpoint_and_request_id(monkeypatch, tmp_path) -> None:
     binary = tmp_path / "opencode.exe"
     binary.touch()

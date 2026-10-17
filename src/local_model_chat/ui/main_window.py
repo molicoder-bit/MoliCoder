@@ -3953,6 +3953,12 @@ class MainWindow(QMainWindow):
         open_drawer(self, "Performance")
 
     def closeEvent(self, event) -> None:
+        for worker in list(getattr(self, '_provider_connection_workers', ())):
+            worker.cancel()
+            if not worker.wait(1500):
+                event.ignore()
+                self.statusBar().showMessage('Provider setup is stopping. Close again in a moment.', 4000)
+                return
         if getattr(self, '_catalog_refresh_worker', None) is not None:
             event.ignore()
             self.statusBar().showMessage('Model metadata refresh is finishing. Close again in a moment.', 4000)

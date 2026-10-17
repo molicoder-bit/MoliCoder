@@ -655,7 +655,7 @@ def test_provider_settings_distinguishes_verified_auth_from_installed_cli(qtbot,
     panel = window._settings_providers
     labels = '\n'.join(panel.providers.item(i).text() for i in range(panel.providers.count()))
     assert 'Codex · Installed · Sign-in not verified' in labels
-    assert 'Claude · Ready' in labels
+    assert 'Claude · Signed in · Connection not tested' in labels
     assert 'Copilot · Not installed' in labels
     assert 'OpenCode' in labels and 'Kilo' in labels
     assert not any('Save model' in b.text() for b in window._settings_dialog.findChildren(QPushButton))

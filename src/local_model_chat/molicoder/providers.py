@@ -739,6 +739,15 @@ class OpenCodeProvider(CliFrontierProvider):
         return self._invoke(self._base(Path(root), 'plan'), prompt, cwd=Path(root),
                             purpose='repository_analysis', timeout_seconds=timeout_seconds)
 
+    def propose(self, root, prompt, *, timeout_seconds=90):
+        # The built-in plan agent injects a blanket prohibition on edits, which
+        # can also reject textual proposals for host-reviewed operations. A
+        # standard execution agent with read-only native permissions returns
+        # proposals. Keep the provider's own default system prompt intact.
+        self._check_profile()
+        return self._invoke(self._base(Path(root), 'build'), prompt, cwd=Path(root),
+                            purpose='repository_analysis', timeout_seconds=timeout_seconds)
+
     def _invoke(self, command: list[str], prompt: str, *, cwd: Path, purpose: str,
                 timeout_seconds: float) -> ProviderResult:
         request_id = str(uuid4())
@@ -957,5 +966,4 @@ def create_provider(
 
 
 def probe_all_providers() -> tuple[ProviderStatus, ...]:
-    return (*tuple(create_provider(name).probe() for name in ("codex", "claude", "copilot")),
-            OpenCodeProvider().probe(), KiloProvider().probe())
+    return tuple(create_provider(name).probe() for name in ('codex', 'claude', 'copilot', 'opencode', 'kilo'))

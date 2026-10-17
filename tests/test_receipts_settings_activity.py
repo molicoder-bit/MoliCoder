@@ -92,7 +92,7 @@ def test_provider_list_reports_readiness_without_sending_inference(qtbot,tmp_pat
     check.click()
     qtbot.waitUntil(lambda:getattr(w,'_provider_check_worker',None) is None)
     text='\n'.join(w._settings_providers.providers.item(i).text() for i in range(w._settings_providers.providers.count()))
-    assert 'Sign-in required' in text and 'Not installed' in text and 'Ready' in text
+    assert 'Sign-in required' in text and 'Not installed' in text and 'Signed in · Connection not tested' in text
     w._settings_dialog.close()
 
 

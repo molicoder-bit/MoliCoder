@@ -82,6 +82,31 @@ def test_requested_file_contents_are_written_and_checked_on_disk(tmp_path):
         assert db.execute("SELECT state FROM orchestration_requests").fetchone()[0] == "completed"
 
 
+def test_external_fallback_proposes_a_write_for_host_review_and_verification(tmp_path, monkeypatch):
+    from local_model_chat.orchestration.catalog import Route
+    from local_model_chat.molicoder.providers import ProviderResult
+    coordinator, client, root = service(tmp_path, [evaluation(),
+        turn('cannot_complete', message='I cannot handle this request')], review=lambda p: True)
+    coordinator.allow_external = True
+    coordinator.store.set_project_preferences(coordinator.project.id, provider='opencode', strategy='HYBRID',
+        trusted_providers=('opencode',))
+    local = Route('ollama', 'molicoder:latest', 'internal')
+    external = Route('opencode', 'fixture/model', 'opencode')
+    monkeypatch.setattr(coordinator.catalog, 'routes', lambda *a, **k: ([local, external], []))
+    class Provider:
+        effort = None
+        def analyze(self, *a, **k): pytest.fail('Host operations must use proposal inference')
+        def propose(self, *a, **k):
+            assert not (root / 'Iworked.txt').exists()
+            return ProviderResult('completed', json.dumps(turn('needs_tools', [write_call()])))
+    monkeypatch.setattr('local_model_chat.orchestration.coordinator.create_provider', lambda *a, **k: Provider())
+    answer = coordinator.run('Create Iworked.txt with yeay')
+    assert answer.receipt['outcome'] == 'completed'
+    assert [a['status'] for a in answer.receipt['attempts']] == ['failed', 'completed']
+    assert (root / 'Iworked.txt').read_bytes() == b'yeay'
+    assert all(c['status'] == 'passed' for c in answer.receipt['checks'])
+
+
 def test_advice_instead_of_execution_does_not_complete(tmp_path):
     coordinator, client, root = service(tmp_path, [evaluation(), turn("answer_ready", message='Use echo "yeay" > Iworked.txt'),
         turn("work_ready", refs=["made-up-evidence"])])

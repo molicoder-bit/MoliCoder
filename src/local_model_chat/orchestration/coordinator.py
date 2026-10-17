@@ -296,7 +296,8 @@ class RequestCoordinator:
             prompt = ('Return the JSON proposal only. Host tools execute proposed operations; do not edit files yourself.\n\n' +
                 '\n\n'.join(m['role'].upper() + ':\n' + m['content'] for m in messages) +
                 '\n\nRESPONSE JSON SCHEMA:\n' + json.dumps(schema))
-            response = self.active_provider.analyze(Path(self.project.path), prompt, timeout_seconds=remaining)
+            propose = getattr(self.active_provider, 'propose', self.active_provider.analyze)
+            response = propose(Path(self.project.path), prompt, timeout_seconds=remaining)
             self.journal.event('runtime_result', {'provider': route.provider, 'model': response.model,
                 'model_source': response.model_source, 'status': response.status,
                 'events': response.events})

@@ -10,8 +10,20 @@ class ProviderCheck(QThread):
 
     def run(self):
         try:
+            from dataclasses import replace
             from ..molicoder.providers import probe_all_providers
-            self.ready.emit(probe_all_providers())
+            from ..environment.provider_connection import ProviderConnection
+            statuses = []
+            for status in probe_all_providers():
+                if status.provider == 'codex' and status.installed and not status.auth_verified:
+                    check = ProviderConnection('codex')
+                    binary = check.runtime.discover_binary()
+                    state = check.auth_state(binary) if binary else 'unknown'
+                    if state != 'unknown':
+                        status = replace(status, authenticated=state == 'signed_in', auth_verified=True,
+                            detail='Sign-in checked; use Test connection to verify model access.' if state == 'signed_in' else 'Sign-in required.')
+                statuses.append(status)
+            self.ready.emit(tuple(statuses))
         except Exception as exc:
             self.failed.emit(str(exc))
 
