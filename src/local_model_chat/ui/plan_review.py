@@ -33,7 +33,8 @@ class PlanReviewDialog(QDialog):
         self.tasks.setAccessibleName('Plan tasks: number, title, model and effort')
         for number, task in enumerate(payload.get('tasks', []), 1):
             assignment = payload.get('task_assignments', {}).get(task.get('key'), {})
-            item = QListWidgetItem(f"{number:02d}   {task.get('title', '')}\n       {assignment.get('provider') or assignment.get('runner', 'unassigned')} / {assignment.get('model') or 'provider default'} · {assignment.get('effort') or 'provider-managed effort'}")
+            complexity = assignment.get('complexity', task.get('complexity', 'unrated'))
+            item = QListWidgetItem(f"{number:02d}   {task.get('title', '')}\n       {assignment.get('provider') or assignment.get('runner', 'unassigned')} / {assignment.get('model') or 'provider default'} · {assignment.get('effort') or 'provider-managed effort'} · {complexity} complexity")
             item.setData(Qt.ItemDataRole.UserRole, (task, assignment))
             self.tasks.addItem(item)
         layout.addWidget(self.tasks, 1)
@@ -65,6 +66,8 @@ class PlanReviewDialog(QDialog):
     def show_task(self, item):
         task, assignment = item.data(Qt.ItemDataRole.UserRole)
         fields = [('Objective', task.get('objective', '')), ('Model', assignment.get('model') or 'provider default'),
+            ('Execution complexity', assignment.get('complexity', task.get('complexity', 'Not recorded'))),
+            ('Fallback', (assignment.get('fallback_provider') or 'None') + ' / ' + (assignment.get('fallback_model') or 'None')),
             ('Effort', assignment.get('effort') or 'provider managed'), ('Selection reason', assignment.get('reason', '')),
             ('Dependencies', task.get('depends_on', [])), ('Files', task.get('expected_paths', [])),
             ('Acceptance', task.get('acceptance_criteria', [])), ('Checks', task.get('verification_checks', [])),

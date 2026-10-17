@@ -341,23 +341,48 @@ def build_orchestrator(
                 reason='Automatic reasoning fallback within the authorized Build; actual assignments still require plan approval',
                 expires_at=(datetime.now(timezone.utc) + timedelta(hours=2)).isoformat())
             planning_providers.append(BoundedOpaqueProvider(candidate, store, project.id, candidate_scope, max_calls=6, max_seconds=1800))
-    economical_providers = []
-    if strategy == 'HYBRID':
-        preferences = store.get_project_preferences(project.id)
-        for runtime in ('opencode', 'kilo'):
-            if runtime == provider.name or runtime not in preferences.trusted_providers:
+    # Freeze the model pool for this plan/review. Execution never inherits the
+    # planning model or a planning-only override.
+    execution_providers = []
+    execution_routes = {}
+    catalog = CapabilityCatalogService(store, client)
+    catalog.refresh(discover_runtimes=False)
+    seen, statuses = set(), {}
+    for complexity in ('low', 'medium', 'high'):
+        routes, _excluded = catalog.routes(project, preset.name, for_build=True, execution=True,
+            allow_external=strategy != 'LOCAL_OFFLINE',
+            spec={'intent': 'execution', 'work_type': 'task', 'complexity': complexity,
+                  'required_capabilities': ['write_file', 'run_check']})
+        accepted = []
+        for route in routes:
+            if route.provider == 'ollama':
+                if local_ready and route.model == preset.name:
+                    accepted.append(route)
                 continue
-            candidate = create_provider(runtime, model=preferences.model_overrides.get(runtime, ''), project_root=root)
-            status = candidate.probe()
-            if not (status.installed and status.authenticated and status.auth_verified):
+            if route.runtime not in {'codex', 'claude', 'copilot', 'opencode', 'kilo'}:
                 continue
-            candidate_scope = authorization_scope + ':automatic:' + runtime
+            candidate = create_provider(route.provider, model=route.model, project_root=root)
+            if route.provider not in statuses:
+                try:
+                    statuses[route.provider] = candidate.probe()
+                except (OSError, ValueError, ProviderUnavailable):
+                    statuses[route.provider] = None
+            status = statuses[route.provider]
+            if status is None or not (status.installed and status.authenticated):
+                continue
+            accepted.append(route)
+            identity = (route.provider, route.model)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            candidate_scope = authorization_scope + ':execution:' + route.provider + ':' + route.model
             store.record_action_authorization(project_id=project.id, action='build_run', scope=candidate_scope,
-                risk=ActionRisk.EXTERNAL.value, decision='approved', actor='project_trusted_automatic_routing',
-                reason='Primary Build authorized; candidate and fallback assignments are reviewed with the plan',
+                risk=ActionRisk.EXTERNAL.value, decision='approved', actor='project_trusted_execution_routing',
+                reason='Execution candidate; task model and effort require exact plan approval',
                 expires_at=(datetime.now(timezone.utc) + timedelta(hours=2)).isoformat())
-            economical_providers.append(BoundedOpaqueProvider(candidate, store, project.id, candidate_scope,
-                max_calls=4, max_seconds=1200))
+            execution_providers.append(BoundedOpaqueProvider(candidate, store, project.id, candidate_scope,
+                max_calls=8, max_seconds=1800))
+        execution_routes[complexity] = accepted
 
     orchestrator: SequentialRunOrchestrator | None = None
 
@@ -436,9 +461,11 @@ def build_orchestrator(
             gateway, preset.name, context_window=preset.context_window,
         ),
         alternate_provider=alternate_provider,
-        task_providers=tuple(economical_providers),
+        task_providers=tuple(execution_providers),
         planning_providers=tuple(planning_providers),
     )
+    from .task_routing import TaskRouter
+    orchestrator.task_router = TaskRouter(execution_routes, local_ready=local_ready)
     if store.get_setting(f'kandev.project.{project.id}') and store.get_setting(f'kandev.mirror.{project.id}', 'false') == 'true':
         from ..kandev.mirror import KandevPlanMirror
         orchestrator.kandev_mirror = KandevPlanMirror(store, project)

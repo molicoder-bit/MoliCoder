@@ -419,7 +419,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(QLabel("Provider"))
         self.build_provider = QComboBox()
         self.build_provider.addItem("Auto", "auto")
-        self.build_provider.setToolTip('Auto evaluates allowed frontier models for planning. Hybrid uses suitable local/free models for implementation tasks.')
+        self.build_provider.setToolTip('Selects the planner only. Every implementation task independently evaluates suitable models and efforts; Hybrid prefers local/free capacity.')
         self.build_provider.addItem("Codex", "codex")
         self.build_provider.addItem("Claude", "claude")
         self.build_provider.addItem("Copilot", "copilot")

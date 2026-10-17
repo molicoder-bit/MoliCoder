@@ -46,7 +46,7 @@ class LocalPlanner:
         output_contract = (
             'Return exactly this JSON shape: {"objective":"...","tasks":['
             '{"key":"task-1","title":"...","objective":"...",'
-            '"risk":"low","depends_on":[],"expected_paths":[' + json.dumps(example_path) + '],'
+            '"risk":"low","complexity":"low","depends_on":[],"expected_paths":[' + json.dumps(example_path) + '],'
             '"acceptance_criteria":["Configured validation must pass"],'
             '"verification_checks":["project-default"],"artifact_checks":[]}]}. '
             "The top-level object may contain only objective and tasks. "
@@ -58,6 +58,7 @@ class LocalPlanner:
                 "content": (
                     "You are MoliCoder's local planner. Convert repository evidence into a coding plan. "
                     "Each task needs key, title, objective, risk (low/medium/high), depends_on, "
+                    "complexity (low for routine bounded code/tests, medium for multi-component logic, high for difficult reasoning), "
                     "expected_paths, acceptance_criteria, verification_checks, and optional artifact_checks. "
                     "For an exact text-file result, use file_equals with path and exact content. "
                     "For an empty directory, use directory_empty with path. Include checked paths in expected_paths. "

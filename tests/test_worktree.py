@@ -150,3 +150,23 @@ def test_retry_stops_for_ignored_attempt_output_instead_of_reusing_it(tmp_path) 
         manager.preserve_failed_attempt(workspace, "failed attempt")
 
     assert (workspace.path / "ignored.txt").read_text() == "failed output"
+
+
+def test_retry_preserves_generated_caches_and_attempt_in_stash(tmp_path):
+    root = _repo(tmp_path)
+    (root / '.gitignore').write_text('.pytest_cache/\n__pycache__/\n.molicoder/\n')
+    _git(root, 'add', '.gitignore'); _git(root, 'commit', '-m', 'ignore generated output')
+    manager = WorktreeManager(root, run_id=13, base_dir=tmp_path/'trees')
+    workspace = manager.create_run()
+    (workspace.path/'feature.py').write_text('broken = True\n')
+    for name in ('.pytest_cache', '__pycache__', '.molicoder'):
+        (workspace.path/name).mkdir()
+        (workspace.path/name/'evidence.txt').write_text(name)
+    saved = manager.preserve_failed_attempt(workspace, 'handoff')
+    assert saved
+    assert not (workspace.path/'feature.py').exists()
+    assert not (workspace.path/'.pytest_cache').exists()
+    assert not (workspace.path/'__pycache__').exists()
+    assert (workspace.path/'.molicoder/evidence.txt').read_text() == '.molicoder'
+    assert _git(workspace.path, 'show', saved+'^3:.pytest_cache/evidence.txt').stdout.strip() == '.pytest_cache'
+    assert _git(workspace.path, 'show', saved+'^3:feature.py').stdout.strip() == 'broken = True'

@@ -222,7 +222,7 @@ class CapabilityCatalogService:
             if r.get('installed') and r['tool_id'] in {'codex', 'claude', 'copilot', 'opencode', 'kilo'}
             and r['tool_id'] not in trusted))
 
-    def routes(self, project, preferred_model, *, allow_external=True, spec=None, input_tokens=0, include_untrusted=False, for_build=False):
+    def routes(self, project, preferred_model, *, allow_external=True, spec=None, input_tokens=0, include_untrusted=False, for_build=False, execution=False):
         from .routing import ModelEvidence, WorkRequirements, assess
         facts = self.cached()
         routes, excluded, digests = [], [], set()
@@ -295,7 +295,7 @@ class CapabilityCatalogService:
                     if installed is False:
                         excluded.append({'provider': provider, 'reason': 'Runtime is not installed'})
                         continue
-                    model = preferences.model_overrides.get(provider, '')
+                    model = '' if execution else preferences.model_overrides.get(provider, '')
                     if for_build and provider == 'claude' and not model:
                         model = 'sonnet'
                     if not model and provider in {'opencode', 'kilo'}:

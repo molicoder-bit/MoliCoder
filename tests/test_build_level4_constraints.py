@@ -93,7 +93,7 @@ def test_s046_insufficient_hard_budget_prevents_metered_dispatch(tmp_path):
     assert adapter.calls == 0
 
 
-def test_s047_explicit_provider_model_override_is_used_and_recorded(tmp_path, monkeypatch):
+def test_s047_planner_model_override_does_not_override_execution(tmp_path, monkeypatch):
     root, store, project, _old_provider, _old_orchestrator = fixture(tmp_path)
     (root / "test_selected.py").write_text(
         "from pathlib import Path\n"
@@ -132,6 +132,10 @@ def test_s047_explicit_provider_model_override_is_used_and_recorded(tmp_path, mo
             pass
 
     monkeypatch.setattr(runtime, "create_provider", lambda _name, *, model, project_root: Provider(model))
+    from local_model_chat.orchestration.catalog import CapabilityCatalogService
+    monkeypatch.setattr(CapabilityCatalogService, 'codex_models', staticmethod(lambda: [dict(
+        model='economical-executor', description='Affordable for easier tasks', effort_levels=['low','medium'])]))
+    store.set_project_preferences(project.id, provider='codex', strategy='FRONTIER_ONLY', trusted_providers=('codex',))
 
     class Client:
         def tags(self):
@@ -151,11 +155,11 @@ def test_s047_explicit_provider_model_override_is_used_and_recorded(tmp_path, mo
     prepared = orchestrator.run("Write selected model output", mode="FRONTIER_ONLY")
     assert prepared.status == "awaiting_approval"
     assert store.get_run(prepared.run_id)["model"] == "user-selected-model"
-    assert store.get_latest_plan_record(prepared.run_id)["payload"]["task_assignments"]["write"]["model"] == "user-selected-model"
+    assert store.get_latest_plan_record(prepared.run_id)["payload"]["task_assignments"]["write"]["model"] == "economical-executor"
     approve(store, prepared.run_id)
     result = orchestrator.execute_approved(prepared.run_id)
     assert result.status == "ready_to_apply", result.error
-    assert calls == [("plan", "user-selected-model"), ("execute", "user-selected-model")]
+    assert calls == [("plan", "user-selected-model"), ("execute", "economical-executor")]
     assert not (root / "selected.txt").exists()
 
 

@@ -21,6 +21,7 @@ class PlanTask:
     acceptance_criteria: tuple[str, ...] = ("Configured validation must pass",)
     verification_checks: tuple[str, ...] = ("project-default",)
     artifact_checks: tuple[dict[str, str], ...] = ()
+    complexity: str = 'medium'
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +91,9 @@ def parse_plan(value: str | dict[str, Any], *, max_tasks: int = 30) -> Plan:
         risk = _required_text(item.get("risk", "low"), f"tasks[{index}].risk").lower()
         if risk not in {"low", "medium", "high"}:
             raise PlanValidationError(f"invalid task risk: {risk}")
+        complexity = _required_text(item.get('complexity', risk), f'tasks[{index}].complexity').lower()
+        if complexity not in {'low', 'medium', 'high'}:
+            raise PlanValidationError(f'invalid task complexity: {complexity}')
         depends = item.get("depends_on", [])
         if not isinstance(depends, list) or not all(isinstance(dep, str) for dep in depends):
             raise PlanValidationError(f"tasks[{index}].depends_on must be a string list")
@@ -129,6 +133,7 @@ def parse_plan(value: str | dict[str, Any], *, max_tasks: int = 30) -> Plan:
                 tuple(value.strip() for value in criteria),
                 tuple(checks),
                 tuple(dict(check) for check in artifact_checks),
+                complexity,
             )
         )
     for task in tasks:
