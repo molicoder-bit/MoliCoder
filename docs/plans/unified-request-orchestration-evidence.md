@@ -6,7 +6,7 @@ Date: 2026-10-16 (America/New_York). Release: **1.4.0**. Baseline: `f02888f` / 1
 
 The orchestration implementation is delivered in source and the Windows package. Verification uses CLI, independent filesystem/process checks, real provider calls, real Kandev API calls, and headless Qt tests. **Installed UI acceptance is NOT RUN**, following the user's instruction to use only the CLI and not control their desktop. This is not a 100% acceptance claim.
 
-The installed 1.3.6 window was still running during packaging. The installer refuses to replace that running application, to preserve unsent drafts. Installation status is recorded below after the final package checks.
+The installed 1.3.6 window remained open during packaging. After the user closed it and authorized the CLI installation, `scripts/install.ps1` installed 1.4.0 and preserved the previous install. Installed headless verification is recorded below; interactive UI acceptance remains NOT RUN.
 
 ## Implemented
 
@@ -102,7 +102,8 @@ The real feature result was deliberately left ready for apply in its isolated wo
 - Six package checks passed: headless startup/storage migration, headless WebEngine loopback renderer, shared directory request, empty-file action, folder action, and a real inference content action. Exact empty/content bytes and actual directory existence were independently checked.
 - The final packaged content request (`d196db17-1cc7-4e4b-903b-3650967def98`) rejected Ollama's unsupported inability, continued automatically through `opencode/big-pickle`, and created exact `b"yeay"`.
 - Evidence: `package-1.4.0-checks.json`, `package-1.4.0-action.json`. Runtime tests used an isolated explicit fixture profile.
-- Installation: pending closure of the running installed window; no user process has been closed or desktop controlled to install this release.
+- Installation: **completed** through `scripts/install.ps1` after the user closed the application. The previous install was preserved as `MoliCoder.previous-20261016-222206-cb5e6ec383a34ec89ee146be922c50c5`. No user process was closed or desktop controlled by the agent.
+- Installed executable SHA-256 matches the tested package. Installed headless startup/storage migration, WebEngine loopback rendering, and shared CLI directory listing all passed (exit 0). The listing used a separate fixture database and verified a known file. Evidence: `installed-1.4.0-checks.json`. The installed app was not launched interactively.
 
 ## Final regression identity
 
