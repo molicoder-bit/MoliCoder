@@ -60,7 +60,7 @@ def save_access(w, project, selected, automatic):
     w._refresh_route_identity()
 
 
-def choose_project_access(w, project, *, needed=(), first_open=False, build=False, valid=lambda: True):
+def choose_project_access(w, project, *, needed=(), first_open=False, build=False, explanation='', valid=lambda: True):
     """One permission decision for a project, with a captured scope and owner guard."""
     dialog = QDialog(w)
     dialog.setWindowTitle('Choose providers for this project' if not needed else 'Another provider is needed')
@@ -71,7 +71,7 @@ def choose_project_access(w, project, *, needed=(), first_open=False, build=Fals
     scroll.setWidget(page); outer.addWidget(scroll)
     intro = QLabel(f'{project.name}\n{project.path}')
     intro.setWordWrap(True); layout.addWidget(intro)
-    note = QLabel(('Allow the selected Build providers to continue.\n\n' if build else
+    note = QLabel((explanation + '\n\n' if explanation else 'Allow the selected Build providers to continue.\n\n' if build else
         'The available local models could not complete this request. Select a provider to continue.\n\n' if needed else '') +
         'Selected providers may receive messages and relevant project files. Account charges may apply. '
         'File changes and commands keep their existing review steps.')

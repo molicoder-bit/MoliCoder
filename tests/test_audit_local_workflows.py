@@ -59,7 +59,7 @@ def test_ui_file_read_reaches_model_with_evidence(qtbot, tmp_path, monkeypatch):
             if 'addresses_request' in kwargs.get('response_format', {}).get('properties', {}):
                 return ChatResponse({'content':json.dumps({'addresses_request':True,'supported':True,'reason':'Fixture review'})}, GenerationMetrics())
             if messages[0]['content'].startswith('You evaluate requests'):
-                payload = {'schema_version': '1.0', 'intent': 'investigation', 'objective': 'Explain notes.txt',
+                payload = {'schema_version': '1.1', 'intent': 'investigation', 'work_type':'extraction', 'objective': 'Explain notes.txt',
                     'complexity': 'low', 'required_capabilities': ['read_file'], 'missing_information': [], 'reason': '',
                     'acceptance_checks': [{'id': 'read', 'kind': 'tool_evidence', 'target': 'notes.txt', 'expected': 'read_file'}]}
             else:

@@ -29,6 +29,8 @@ Provider setup simplification in 1.4.2: [setup, permission and conversation evid
 
 Provider sign-in and verified access in 1.4.3: [provider flows, official documentation and verification](docs/plans/provider-sign-in-and-verification.md).
 
+Request evaluation and economical model selection in 1.4.4: [policy, model/effort matching and evidence](docs/plans/request-evaluator-and-cost-routing.md).
+
 1.4.0 implementation and verification: [unified orchestration evidence](docs/plans/unified-request-orchestration-evidence.md), including real provider results, retained failures, package checks and unverified installed UI layers.
 
 ## What works today

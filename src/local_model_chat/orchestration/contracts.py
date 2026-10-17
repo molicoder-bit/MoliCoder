@@ -16,13 +16,19 @@ CHECK = obj({"id": TEXT, "kind": {"type": "string", "enum": [
     "file_equals", "file_contains", "file_exists", "directory_exists", "tool_evidence", "semantic_review"]},
     "target": TEXT, "expected": TEXT})
 EVALUATION_SCHEMA = obj({
-    "schema_version": {"const": "1.0"},
+    "schema_version": {"const": "1.1"},
     "intent": {"type": "string", "enum": ["conversation", "investigation", "action", "build", "clarification"]},
     "objective": TEXT, "required_capabilities": STRINGS,
+    'work_type': {'type': 'string', 'enum': ['direct_answer','extraction','analysis','planning','implementation','operation']},
     "complexity": {"type": "string", "enum": ["low", "medium", "high"]},
     "acceptance_checks": {"type": "array", "items": CHECK, "maxItems": 12},
     "missing_information": STRINGS, "reason": TEXT,
 })
+from .routing import ALIASES, HOST_TOOLS
+EVALUATION_SCHEMA['properties']['required_capabilities'] = {'type': 'array', 'maxItems': 24,
+    'items': {'type': 'string', 'enum': sorted(HOST_TOOLS | set(ALIASES) | {
+        'text_generation', 'host_tools', 'tool_evidence', 'source_reasoning', 'reasoning',
+        'code_generation', 'planning', 'image_understanding'})}}
 ANSWER_REVIEW_SCHEMA = obj({'addresses_request': {'type': 'boolean'},
     'supported': {'type': 'boolean'}, 'reason': {'type': 'string', 'maxLength': 500}})
 
@@ -52,6 +58,8 @@ EVALUATION_SCHEMA['properties']['acceptance_checks']['items'] = {'anyOf': [
 def validate_evaluation(value):
     """Reject internally inconsistent task criteria before accepting a route's plan."""
     intent, checks = value['intent'], value['acceptance_checks']
+    if 'source_reasoning' in value['required_capabilities'] and value['complexity'] == 'low':
+        value['complexity'] = 'medium'
     if intent == 'conversation' and checks:
         raise ValueError('Conversation answers use acceptance_checks=[]; source/file questions use investigation')
     if intent == 'investigation' and (not checks or any(

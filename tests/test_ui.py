@@ -34,7 +34,7 @@ class BuildEvaluationClient(FakeClient):
         import json
         from local_model_chat.domain import GenerationMetrics
         from local_model_chat.ollama import ChatResponse
-        payload = {'schema_version': '1.0', 'intent': 'build', 'objective': 'Implement a parser',
+        payload = {'schema_version': '1.1', 'intent': 'build', 'work_type':'planning', 'objective': 'Implement a parser',
             'required_capabilities': ['coding'], 'complexity': 'medium', 'acceptance_checks': [],
             'missing_information': [], 'reason': 'Development requires a reviewed plan'}
         return ChatResponse({'content': json.dumps(payload)}, GenerationMetrics())

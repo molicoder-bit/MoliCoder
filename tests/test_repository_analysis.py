@@ -228,8 +228,8 @@ def test_disabled_local_offering_is_not_reenabled(tmp_path):
 
 
 def _shared_evaluation():
-    return {'schema_version': '1.0', 'intent': 'investigation', 'objective': 'Locate runner selection',
-        'required_capabilities': ['project_read'], 'complexity': 'low', 'missing_information': [], 'reason': 'Read code',
+    return {'schema_version': '1.1', 'intent': 'investigation', 'work_type':'analysis', 'objective': 'Locate runner selection',
+        'required_capabilities': ['source_reasoning', 'read_file'], 'complexity': 'medium', 'missing_information': [], 'reason': 'Understand code',
         'acceptance_checks': [{'id': 'source', 'kind': 'tool_evidence', 'target': 'routing.py', 'expected': 'read_file'}]}
 
 

@@ -568,6 +568,9 @@ class CliFrontierProvider:
         return self._invoke(command, guardrails + prompt, cwd=root, purpose="implementation", timeout_seconds=timeout_seconds)
 
 
+ZERO_COST_MODELS = {'opencode': 'opencode/big-pickle', 'kilo': 'kilo/kilo-auto/free'}
+
+
 class OpenCodeProvider(CliFrontierProvider):
     """Documented headless contract; activation waits for a reviewed route profile."""
 
@@ -583,7 +586,7 @@ class OpenCodeProvider(CliFrontierProvider):
         self._request_context.write_paths = tuple(paths)
 
     def _check_profile(self):
-        if self.model in {'opencode/big-pickle', 'kilo/kilo-auto/free'}:
+        if self.model in ZERO_COST_MODELS.values():
             status = self.probe()
             if not status.authenticated:
                 raise ProviderUnavailable(status.detail)
@@ -685,7 +688,7 @@ class OpenCodeProvider(CliFrontierProvider):
                     self.name, True, False, version.stdout.strip()[:100], self.model,
                     "Local gateway profile configured; endpoint health has not been verified.", str(binary),
                 )
-            free_defaults = {'opencode': 'opencode/big-pickle', 'kilo': 'kilo/kilo-auto/free'}
+            free_defaults = ZERO_COST_MODELS
             if self.model == free_defaults.get(self.name):
                 from ..orchestration.catalog import CapabilityCatalogService
                 try:
@@ -961,7 +964,7 @@ def create_provider(
     except KeyError as exc:
         raise ValueError(f"unsupported frontier provider: {name}") from exc
     if not model and name in {'opencode', 'kilo'}:
-        model = {'opencode': 'opencode/big-pickle', 'kilo': 'kilo/kilo-auto/free'}[name]
+        model = ZERO_COST_MODELS[name]
     return provider_type(binary=binary, model=model, on_event=on_event, project_root=project_root)
 
 

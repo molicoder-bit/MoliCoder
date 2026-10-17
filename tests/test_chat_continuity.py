@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from local_model_chat.chat_context import CHAT_HISTORY_INSTRUCTION, build_chat_messages
 from local_model_chat.config import MODEL_PRESETS
@@ -30,7 +31,7 @@ def test_reopened_chat_sends_all_its_turns_through_the_gateway(qtbot, tmp_path, 
             from local_model_chat.ollama import ChatResponse
             self.sent = (model, messages, options)
             if messages[0]['content'].startswith('You evaluate requests'):
-                value = {'schema_version': '1.0', 'intent': 'conversation', 'objective': 'Recall project name',
+                value = {'schema_version': '1.1', 'intent': 'conversation', 'work_type':'direct_answer', 'objective': 'Recall project name',
                     'required_capabilities': [], 'complexity': 'low', 'acceptance_checks': [], 'missing_information': [], 'reason': ''}
             else:
                 value = {'schema_version': '1.0', 'status': 'answer_ready', 'message': 'Cedar Compass',
@@ -85,10 +86,12 @@ def test_safe_limit_includes_system_and_never_drops_older_turns(qtbot, tmp_path,
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: warnings.append(args))
     w._send_message()
     worker = w.chat_worker
+    monkeypatch.setattr(w.client, 'chat', lambda *a, **k: pytest.fail('Oversized context must be rejected before inference'), raising=False)
     worker.run()
     receipt = w.store.message_receipt(w._current_messages()[-1].id)
     assert receipt['outcome'] == 'failed'
-    assert 'exceed' in receipt['attempts'][0]['error']
+    assert receipt['attempts'] == []
+    assert any('context' in item['reason'].lower() for item in receipt['route_evaluation']['excluded'])
     assert w.chat_worker is None
 
 

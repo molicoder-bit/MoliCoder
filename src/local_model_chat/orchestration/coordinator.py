@@ -53,6 +53,23 @@ as "after\\r\\n", which represents literal backslashes. Prefer file_contains for
 Complex coding uses build, never a falsely trivial file action. Each action needs acceptance checks.
 Use unique check IDs. Required capabilities are descriptive. Unknown values must remain unknown.
 Acceptance checks describe the desired future outcome, never proof of the current file state.
+Evaluate the cognitive work for EVERY request, independently of which provider is preferred.
+Choose work_type explicitly: direct_answer for ordinary conversation/explanations;
+extraction for reporting or quoting existing text/data; analysis for drawing conclusions,
+tracing behavior, explaining a program's semantics, diagnosing or comparing alternatives;
+planning for decomposing development work; implementation for coding; operation for an
+exact filesystem/process operation. A question about what code DOES is analysis even if
+the code is short. A question about what a file SAYS is extraction. These differ in reasoning
+requirements, not in whether they use read_file. Use the actual current question and history.
+required_capabilities uses the actual needs: text_generation, read_file, list_directory, search_code,
+write_file, replace_in_file, create_directory, run_command, run_check, project_status,
+source_reasoning, reasoning, code_generation, planning, image_understanding.
+Reading or quoting supplied/file text is low complexity and does not require source_reasoning.
+Explaining language semantics, debugging or drawing conclusions from code requires source_reasoning
+and at least medium complexity. Multi-part architectural reasoning is high complexity.
+Do not infer difficulty from the existence of a file/tool, its extension, or the provider name.
+The host matches these requirements against model capabilities, observed qualification, cost and
+context limits. Do not choose a provider or increase complexity just to get a preferred model.
 """
 
 AGENT = """You are MoliCoder operating real host tools. Return ONLY the requested JSON turn contract.
@@ -118,7 +135,7 @@ class RequestCoordinator:
         journal = RequestJournal(store, str(uuid4()))
         journal.start(text, project, [], build_run_id=run_id)
         journal.transition('evaluating')
-        spec = {'schema_version': '1.0', 'intent': 'build', 'objective': text[:12000],
+        spec = {'schema_version': '1.1', 'intent': 'build', 'work_type': 'planning', 'objective': text[:12000],
             'required_capabilities': ['project_read', 'planning', 'project_edit', 'validation'],
             'complexity': 'medium', 'acceptance_checks': [{'id': 'build-acceptance', 'kind': 'semantic_review',
                 'target': '.', 'expected': 'Approved task checks and final project validation must pass'}],
@@ -152,11 +169,31 @@ class RequestCoordinator:
         self._explicit_local_action = None
         self.provider_access = provider_access
         self._access_asked = False
+        self._access_offered = set()
+        self._routing_tokens = 0
+        self._route_evaluation = None
+
+    def ranked_routes(self, catalog, phase):
+        from .routing import WorkRequirements
+        routes, excluded = catalog.routes(self.project, self.preferred_model,
+            allow_external=self.allow_external, spec=self.spec, input_tokens=self._routing_tokens,
+            include_untrusted=True)
+        failed = {(a['provider'], a['model'], a['runtime']) for a in self.attempts if a['status'] == 'failed'}
+        routes = [r for r in routes if (r.provider, r.model, r.runtime) not in failed]
+        excluded.extend({'provider': r.provider, 'model': r.model,
+            'reason': 'Project access was offered but not granted for this request'}
+            for r in routes if r.requires_access and r.provider in self._access_offered)
+        routes = [r for r in routes if not (r.requires_access and r.provider in self._access_offered)]
+        self._route_evaluation = {'policy': 'cheapest-suitable-v1', 'phase': phase, 'requirements': self.spec,
+            'work_profile': asdict(WorkRequirements.from_evaluation(self.spec, input_tokens=self._routing_tokens)),
+            'candidates': [asdict(r) for r in routes], 'excluded': excluded}
+        self.journal.event('routing_decision', self._route_evaluation)
+        return routes
 
     def permission_routes(self, catalog):
         """Pause once for project consent, then continue this request in place."""
         if (self._access_asked or not self.provider_access or not self.allow_external or not self.project
-                or len(self.attempts) >= 3 or self.store.get_setting(
+                or len(self.attempts) >= 5 or self.store.get_setting(
                     f'repository.external_fallback.{self.project.id}', 'true') != 'true'):
             return []
         candidates = catalog.untrusted_providers(self.project)
@@ -171,7 +208,7 @@ class RequestCoordinator:
         self.guard()
         routes, _ = catalog.routes(self.project, self.preferred_model, allow_external=True, spec=self.spec)
         attempted = {(a['provider'], a['model'], a['runtime']) for a in self.attempts}
-        return [r for r in routes if (r.provider, r.model, r.runtime) not in attempted][:3 - len(self.attempts)]
+        return [r for r in routes if (r.provider, r.model, r.runtime) not in attempted][:5 - len(self.attempts)]
 
     def run_local_action(self, text, name, target):
         """Typed deterministic entry used by Build's no-inference shortcuts."""
@@ -181,7 +218,7 @@ class RequestCoordinator:
         return self.run(text)
 
     def local_action_spec(self, text, name, target):
-        self.spec = {'schema_version': '1.0', 'intent': 'action', 'objective': text[:12000],
+        self.spec = {'schema_version': '1.1', 'intent': 'action', 'work_type': 'operation', 'objective': text[:12000],
             'required_capabilities': [name], 'complexity': 'low', 'acceptance_checks': [
                 {'id': 'exact-result', 'kind': 'file_equals' if name == 'write_file' else 'directory_exists',
                  'target': str(target), 'expected': ''}], 'missing_information': [],
@@ -291,6 +328,14 @@ class RequestCoordinator:
                     datetime.now(timezone.utc) + timedelta(minutes=3)).isoformat())
             self.active_provider = create_provider(route.provider, model=route.model, project_root=Path(self.project.path))
             self.active_provider.effort = route.effort
+            if route.cost_class == 'free' and route.provider in {'opencode', 'kilo'}:
+                from ..molicoder.providers import ZERO_COST_MODELS
+                if route.model != ZERO_COST_MODELS.get(route.provider):
+                    binary = self.active_provider.discover_binary()
+                    advertised = CapabilityCatalogService.runtime_models(route.provider, binary, refresh=True) if binary else []
+                    price = next((m.get('cost', {}) for m in advertised if m['model'] == route.model), {})
+                    if not all(type(price.get(k)) in (int, float) and price[k] == 0 for k in ('input', 'output')):
+                        raise ValueError('The selected runtime model no longer has verified zero prices; no inference was sent')
             # Do not JSON-encode message strings a second time: that turns source
             # newline escapes into another escaping layer for native CLI models.
             prompt = ('Return the JSON proposal only. Host tools execute proposed operations; do not edit files yourself.\n\n' +
@@ -334,6 +379,7 @@ class RequestCoordinator:
             "model_source": "requested" if route else "no_inference", "effort": route.effort if route else None,
             "attempts": self.attempts, "evaluation": self.spec, "evidence": evidence or {}, "checks": checks or [],
             "catalog_revision": self.catalog_revision}
+        receipt['route_evaluation'] = self._route_evaluation
         receipt["original_request"] = self.original_request
         receipt['estimated_prompt_tokens'] = self.attempts[-1].get('estimated_prompt_tokens', 0) if self.attempts else 0
         receipt['estimate_scope'] = 'Last model call; evaluation, earlier tool turns and fallbacks are recorded separately'
@@ -485,9 +531,31 @@ class RequestCoordinator:
                 if overview:
                     context['project_overview'] = tools.dispatch({'call_id': 'preflight-overview', 'name': 'read_file',
                         'arguments': {'path': overview, 'start': 1, 'end': 40}}, {'intent': 'investigation'})
-            while routes or (routes := self.permission_routes(catalog)):
+            self._routing_tokens = estimate_messages(self.request_messages(AGENT, text, history, context))
+            routes = self.ranked_routes(catalog, 'evaluation' if self.spec is None else 'resume')
+            while len(self.attempts) < 5 and (routes or (routes := self.permission_routes(catalog))):
                 route = routes.pop(0)
                 self.guard()
+                if route.requires_access:
+                    candidates = list(dict.fromkeys(r.provider for r in [route, *routes]
+                        if r.requires_access and r.cost_class == route.cost_class))
+                    message = ('A suitable zero-cost provider is available. Allow project access before using subscription quota.'
+                        if route.cost_class == 'free' else 'A suitable provider needs permission to receive this project context.')
+                    if not self.provider_access:
+                        return self.finish('blocked', message + ' Open Settings → Models & providers → Project access.')
+                    self._access_asked = True
+                    self._access_offered.update(candidates)
+                    proposal = {'kind': 'provider_permission', 'project_id': self.project.id, 'providers': candidates,
+                        'request_id': self.request_id, 'message': message, 'cost_class': route.cost_class}
+                    self.journal.event('provider_permission_requested', proposal)
+                    self.emit('awaiting_review', {'message': message})
+                    if not self.provider_access(proposal):
+                        raise InterruptedError('Provider selection cancelled. No additional provider was used.')
+                    self.guard()
+                    if not set(candidates) & set(self.store.get_project_preferences(self.project.id).trusted_providers):
+                        return self.finish('blocked', 'No suitable provider was authorized. No additional provider was used.')
+                    routes = self.ranked_routes(catalog, 'access_granted')
+                    continue
                 attempt = {**asdict(route), "status": "running"}
                 self.attempts.append(attempt)
                 self.emit("started", attempt)
@@ -512,20 +580,22 @@ class RequestCoordinator:
                         self.journal.event("evaluation", self.spec)
                         if self.spec['intent'] not in {'conversation', 'clarification'} and tools is None:
                             return self.finish('blocked', '**Select a project to continue this request.**')
-                        execution_routes, execution_excluded = catalog.routes(self.project, self.preferred_model,
-                            allow_external=self.allow_external, spec=self.spec)
-                        self.journal.event('routing_decision', {'phase': 'execution', 'requirements': self.spec,
-                            'candidates': [asdict(r) for r in execution_routes], 'excluded': execution_excluded})
+                        execution_routes = self.ranked_routes(catalog, 'execution')
                         if self.spec['intent'] not in {'build', 'clarification'}:
                             if not execution_routes:
                                 execution_routes = self.permission_routes(catalog)
                             if not execution_routes:
                                 return self.finish('blocked', 'No eligible route is available for this kind of request. '
                                     'Enable a trusted provider or qualify a suitable local model.')
-                            if route not in execution_routes:
+                            current = next((candidate for candidate in execution_routes if
+                                (candidate.provider, candidate.model, candidate.runtime, candidate.effort) ==
+                                (route.provider, route.model, route.runtime, route.effort)), None)
+                            if current is None:
                                 attempt['status'] = 'evaluated'
                                 routes[:] = execution_routes
                                 continue
+                            route = current
+                            attempt.update(asdict(route))
                         else:
                             routes[:] = [r for r in execution_routes if r != route]
                     intent = self.spec["intent"]
@@ -679,6 +749,8 @@ class RequestCoordinator:
                     attempt.update(status="failed", error=redact_text(str(exc))[:1000])
                     catalog.record_outcome(route, 'failed', spec=self.spec, error=attempt['error'])
                     self.emit("fallback", {"error": attempt["error"], "provider": route.provider, "model": route.model})
+                    self._routing_tokens = max(self._routing_tokens, attempt.get('estimated_prompt_tokens', 0))
+                    routes = self.ranked_routes(catalog, 'fallback')
             trust_hint = ('\n\nNo external fallback is trusted for this project. Open Settings → Models & providers to enable a suitable provider.'
                 if self.project and self.allow_external and not self.store.get_project_preferences(self.project.id).trusted_providers else '')
             return self.finish("failed", "Could not complete the request with the available routes.\n\n" +

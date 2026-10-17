@@ -1,7 +1,7 @@
 """Cached runtime facts and compatible route selection; refresh performs no inference."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import json
 import threading
@@ -26,6 +26,9 @@ class Route:
     effort: str | None = None
     reason: str = ""
     offering_id: str = ""
+    cost_class: str = 'unknown'
+    suitability: int = 0
+    requires_access: bool = False
 
 
 class CapabilityCatalogService:
@@ -107,6 +110,7 @@ class CapabilityCatalogService:
                 if not model.get('slug') or model.get('visibility') == 'hide':
                     continue
                 models.append({'model': model['slug'], 'effort_levels': levels,
+                    'description': str(model.get('description', ''))[:300],
                     'context_window': model.get('context_window'), 'source': 'Codex CLI models_cache.json',
                     'checked_at': payload.get('fetched_at'), 'default_effort': model.get('default_reasoning_level')})
             return models
@@ -200,6 +204,7 @@ class CapabilityCatalogService:
                     if binary:
                         try:
                             snapshot['runtime_models'][runtime] = self.runtime_models(runtime, binary, refresh=True)
+                            snapshot['runtime_models'].pop(runtime + '_stale', None)
                         except Exception:
                             snapshot['runtime_models'][runtime + '_stale'] = True
             snapshot['configured_offerings'] = [asdict(o) for o in self.registry.list_offerings()
@@ -217,9 +222,12 @@ class CapabilityCatalogService:
             if r.get('installed') and r['tool_id'] in {'codex', 'claude', 'copilot', 'opencode', 'kilo'}
             and r['tool_id'] not in trusted))
 
-    def routes(self, project, preferred_model, *, allow_external=True, spec=None):
+    def routes(self, project, preferred_model, *, allow_external=True, spec=None, input_tokens=0, include_untrusted=False):
+        from .routing import ModelEvidence, WorkRequirements, assess
         facts = self.cached()
         routes, excluded, digests = [], [], set()
+        evidence = {}
+        requirements = WorkRequirements.from_evaluation(spec, input_tokens=input_tokens)
         # Selection uses installation and enabled state; no alphabetic alias retry on identical weights.
         try:
             qualification = json.loads(self.store.get_setting("orchestration.qualification.v1", "{}"))
@@ -241,8 +249,14 @@ class CapabilityCatalogService:
             if item["digest"] in digests:
                 continue
             digests.add(item["digest"])
-            routes.append(Route("ollama", item["model"], "internal", item["context_window"], item["output_tokens"],
-                reason="Installed local candidate using host tools and verified structured output"))
+            route = Route("ollama", item["model"], "internal", item["context_window"], item["output_tokens"],
+                reason="Installed local candidate using host tools and verified structured output")
+            routes.append(route)
+            qualified = (spec or {}).get('intent') in record.get('qualified_intents', [])
+            evidence[self.route_key(route)] = ModelEvidence('local', 'Local inference; no provider inference charge',
+                capacity=max(2 if qualified else 1, record.get('reasoning_capacity', 0)),
+                capacity_source='Task-family qualification' if qualified else 'Local structured-output trial; reasoning unqualified',
+                context_window=item['context_window'])
         if allow_external and project and self.store.get_setting(f"repository.external_fallback.{project.id}", "true") == "true":
             from ..inference.onboarding import is_api_offering
             from ..inference.eligibility import EligibilityRequest, evaluate_eligibility
@@ -262,19 +276,65 @@ class CapabilityCatalogService:
                 window = offering.capabilities.get('context_window')
                 output = offering.capabilities.get('max_output_tokens')
                 if type(window) is int and type(output) is int:
-                    routes.append(Route(offering.provider_id, offering.model_id, 'api', window, min(output, 2400),
-                        effort, 'Enabled authorized API offering with known limits; policy and budget checked at dispatch', offering.id))
+                    route = Route(offering.provider_id, offering.model_id, 'api', window, min(output, 2400),
+                        effort, 'Enabled authorized API offering with known limits; policy and budget checked at dispatch', offering.id)
+                    routes.append(route)
+                    prices = (offering.input_usd_per_million, offering.output_usd_per_million)
+                    cost = 'free' if prices == (0, 0) else 'metered' if all(p is not None for p in prices) else 'unknown'
+                    evidence[self.route_key(route)] = ModelEvidence(cost, 'Registered offering price and eligibility facts',
+                        capacity=int(offering.capabilities.get('reasoning_capacity', 2 if offering.capabilities.get('reasoning') else 1)),
+                        capacity_source='Registered model capabilities; result verification remains mandatory',
+                        effort_levels=tuple(levels), capabilities=tuple(k for k,v in offering.capabilities.items() if v is True),
+                        context_window=window, estimated_usd=(input_tokens * prices[0] + min(output, 2400) * prices[1]) / 1e6
+                            if all(p is not None for p in prices) else None)
             preferences = self.store.get_project_preferences(project.id)
-            for provider in dict.fromkeys([preferences.provider, *preferences.trusted_providers]):
-                if provider in preferences.trusted_providers and provider in {"codex", "claude", "copilot", "opencode", "kilo"}:
+            pending = self.untrusted_providers(project) if include_untrusted else []
+            for provider in dict.fromkeys([preferences.provider, *preferences.trusted_providers, *pending]):
+                if (provider in preferences.trusted_providers or provider in pending) and provider in {"codex", "claude", "copilot", "opencode", "kilo"}:
+                    installed = next((r['installed'] for r in facts.get('runtimes', []) if r['tool_id'] == provider), None)
+                    if installed is False:
+                        excluded.append({'provider': provider, 'reason': 'Runtime is not installed'})
+                        continue
                     model = preferences.model_overrides.get(provider, '')
                     if not model and provider in {'opencode', 'kilo'}:
                         from ..molicoder.providers import create_provider
                         model = create_provider(provider).model
-                    default = self.planner_default() if provider == 'codex' and not model else None
-                    routes.append(Route(provider, model or (default['model'] if default else ''), provider,
-                        32000, 2400, 'medium' if default else None,
-                        reason="Project-authorized coding runtime; advertised normal reasoning effort when available"))
+                    advertised = facts.get('cli_models', {}).get('codex', self.codex_models()) if provider == 'codex' else []
+                    choices = [m for m in advertised if (m['model'] == model if model else
+                        not any(family in m['model'].lower() for family in ('astra', 'fable')))]
+                    if provider != 'codex' or not choices:
+                        choices = [{'model': model}]
+                    for choice in choices:
+                        selected = choice['model']
+                        runtime_model = next((m for m in facts.get('runtime_models', {}).get(provider, [])
+                            if m['model'] == selected), {})
+                        prices = runtime_model.get('cost', {})
+                        from ..molicoder.providers import ZERO_COST_MODELS
+                        guarded_free = selected == ZERO_COST_MODELS.get(provider)
+                        is_free = (provider in {'opencode', 'kilo'} and not facts.get('runtime_models', {}).get(provider + '_stale')
+                            and all(type(prices.get(k)) in (int, float) and prices[k] == 0 for k in ('input', 'output')))
+                        is_free = is_free or guarded_free
+                        cost = 'free' if is_free else 'subscription' if provider in {'codex', 'claude', 'copilot'} else 'unknown'
+                        # Older app snapshots lack descriptions. Enrich matching
+                        # advertised models from the current local CLI cache;
+                        # never fall back to its first/default expensive model.
+                        description = (choice.get('description') or next((m.get('description', '')
+                            for m in self.codex_models() if provider == 'codex' and m['model'] == selected), '')
+                            or runtime_model.get('description', '')).lower()
+                        economical = any(word in description for word in ('affordable', 'efficient', 'easier', 'straightforward'))
+                        window = min(32000, choice.get('context_window') or runtime_model.get('limits', {}).get('context') or 32000)
+                        route = Route(provider, selected, provider, window, 2400)
+                        routes.append(route)
+                        evidence[self.route_key(route)] = ModelEvidence(cost,
+                            'Zero-cost-only runtime profile; fresh price verification required at invocation' if guarded_free else
+                            'Advertised zero input/output prices; checked again at invocation' if is_free else
+                            'Subscription/quota use; exact per-call price unknown' if cost == 'subscription' else 'Runtime price unknown',
+                            cost_hint=0 if economical else 1,
+                            capacity=max(3 if not economical and any(word in description for word in ('workhorse', 'frontier', 'demanding')) else 2,
+                                min(3, qualification.get(selected, {}).get('reasoning_capacity', 0))),
+                            capacity_source='Advertised model description and runtime profile; quality is checked on actual results',
+                            effort_levels=tuple(choice.get('effort_levels', runtime_model.get('effort_levels', []))),
+                            context_window=window, requires_access=provider not in preferences.trusted_providers)
         records = self.route_records()
         eligible_routes = []
         for route in routes:
@@ -295,37 +355,26 @@ class CapabilityCatalogService:
             else:
                 eligible_routes.append(route)
         routes = eligible_routes
-        # Reserve one of three slots for a trusted fallback even when many local aliases exist.
-        locals_ = [r for r in routes if r.provider == "ollama"]
-        external = [r for r in routes if r.provider != "ollama"]
-        external.sort(key=lambda r: (r.provider not in {'opencode', 'kilo'}, r.runtime != 'api'))
-        source_reasoning = spec and spec['intent'] == 'investigation' and any(
-            c['kind'] == 'semantic_review' or (c['kind'] == 'tool_evidence' and
-                c['expected'] in {'read_file', 'search_code'}) for c in spec.get('acceptance_checks', []))
-        can_request_access = (allow_external and project and self.untrusted_providers(project) and
-            self.store.get_setting(f'repository.external_fallback.{project.id}', 'true') == 'true')
-        if source_reasoning and (external or can_request_access):
-            # A small model approving its own code explanation is not evidence
-            # that it understands the language. Prefer independently qualified
-            # locals, then permitted runtimes, even if evaluation said "low".
-            qualified = [r for r in locals_ if 'investigation' in qualification.get(r.model, {}).get('qualified_intents', [])]
-            excluded.extend({'provider': r.provider, 'model': r.model,
-                'reason': 'Source reasoning requires task-family qualification; self-review is insufficient'}
-                for r in locals_ if r not in qualified)
-            return (qualified[:1] + external[:2]), excluded
-        if spec and (spec['complexity'] in {'medium', 'high'} or spec['intent'] == 'build'):
-            external.sort(key=lambda r: r.provider not in {'codex', 'claude', 'copilot'})
-            # Reasoning-heavy work goes to a capable configured route; local promotion
-            # requires explicit task-family qualification rather than a model-name guess.
-            qualified = [r for r in locals_ if spec['intent'] in qualification.get(r.model, {}).get('qualified_intents', [])]
-            return (external[:2] + qualified[:1]), excluded
-        if external:
-            if external[0].provider in {'codex', 'claude', 'copilot'}:
-                return (locals_[:2] + external[:max(1, 3 - len(locals_[:2]))])[:3], excluded
-            chosen = locals_[:1]
-            if external:
-                chosen.append(external[0])
-            strong = next((r for r in external[1:] if r.provider in {'codex', 'claude', 'copilot'}), None)
-            chosen.extend([strong] if strong else external[1:2])
-            return chosen[:3], excluded
-        return locals_[:3], excluded
+        ranked = []
+        for route in routes:
+            profile = evidence[self.route_key(route)]
+            # Explicit local-only operation can make a bounded, reviewed trial.
+            # It is not recorded as qualification or upgraded model capability.
+            trial = (route.provider == 'ollama' and not any(r.provider != 'ollama' for r in routes)
+                and not (allow_external and self.untrusted_providers(project) and self.store.get_setting(
+                    f'repository.external_fallback.{project.id}', 'true') == 'true'))
+            result = assess(requirements, profile, preferred=route.model == preferred_model)
+            if not result.eligible and trial and profile.capacity < requirements.reasoning:
+                result = assess(replace(requirements, reasoning=profile.capacity), profile, preferred=route.model == preferred_model)
+            if not result.eligible:
+                excluded.append({'provider': route.provider, 'model': route.model, 'reason': '; '.join(result.reasons)})
+                continue
+            reason = '; '.join(result.reasons)
+            if trial and profile.capacity < requirements.reasoning:
+                reason += '; Unqualified local-only trial; result review required'
+            ranked.append((result.sort_key, replace(route, effort=result.effort, cost_class=profile.cost_class,
+                suitability=result.score, requires_access=profile.requires_access, reason=reason)))
+        ranked.sort(key=lambda item: item[0])
+        # The coordinator bounds actual attempts. Keep the eligible pool intact
+        # so failed/declined candidates cannot hide a later suitable option.
+        return [r for _, r in ranked], excluded

@@ -3609,6 +3609,7 @@ class MainWindow(QMainWindow):
             if project is None or project.id != proposal['project_id']:
                 return False
             return choose_project_access(self, project, needed=proposal['providers'],
+                explanation=proposal.get('message', ''),
                 valid=lambda: self.chat_worker is owner and self._chat_project() == project
                     and not getattr(owner, '_cancelled', False))
         text = (proposal['objective'] + '\n\nProject: ' + proposal['project_root'] +

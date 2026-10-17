@@ -37,7 +37,8 @@ def request_payload(messages):
 
 
 def evaluation(intent="action", checks=None):
-    return {"schema_version": "1.0", "intent": intent, "objective": "Create Iworked.txt containing yeay",
+    return {"schema_version": "1.1", "intent": intent, "objective": "Create Iworked.txt containing yeay",
+        'work_type': 'extraction' if intent == 'investigation' else 'planning' if intent == 'build' else 'direct_answer' if intent in {'conversation','clarification'} else 'operation',
         "required_capabilities": ["file_write"], "complexity": "low", "acceptance_checks": checks if checks is not None else [
             {"id": "content", "kind": "file_equals", "target": "Iworked.txt", "expected": "yeay"}],
         "missing_information": [], "reason": "Bounded local operation"}

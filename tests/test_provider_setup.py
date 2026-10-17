@@ -257,9 +257,10 @@ def test_source_reasoning_needs_qualification_instead_of_self_approval(tmp_path,
     if qualified:
         store.set_setting('orchestration.qualification.v1', json.dumps({'molicoder:latest': {'qualified_intents': ['investigation']}}))
     spec = evaluation('investigation', [{'id': 'source', 'kind': 'tool_evidence', 'target': '.', 'expected': 'read_file'}])
+    spec['required_capabilities'] = ['source_reasoning', 'read_file']
     routes, excluded = catalog.routes(project, 'molicoder:latest', spec=spec)
     assert [r.provider for r in routes] == expected
-    if not qualified: assert any('self-review is insufficient' in r['reason'] for r in excluded)
+    if not qualified: assert any('Insufficient reasoning evidence' in r['reason'] for r in excluded)
     # Directory tools and ordinary conversation can still use the local model.
     routes, _ = catalog.routes(project, 'molicoder:latest', spec=evaluation('investigation', [
         {'id': 'listing', 'kind': 'tool_evidence', 'target': '.', 'expected': 'list_directory'}]))
@@ -276,6 +277,7 @@ def test_unqualified_local_cannot_publish_a_self_approved_code_answer(tmp_path, 
     project = store.upsert_project('Sample', str(root), 'generic')
     store.set_setting('orchestration.catalog.v1', json.dumps({'runtimes': [{'tool_id': 'opencode', 'installed': True}]}))
     spec = evaluation('investigation', [{'id': 'source', 'kind': 'tool_evidence', 'target': '.', 'expected': 'search_code'}])
+    spec['required_capabilities'] = ['source_reasoning', 'search_code']
     client = Client([spec, RuntimeError('Unqualified local answer must not be generated')])
     original = RequestCoordinator.invoke
     def invoke(self, route, messages, schema, purpose):
