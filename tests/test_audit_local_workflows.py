@@ -56,6 +56,8 @@ def test_ui_file_read_reaches_model_with_evidence(qtbot, tmp_path, monkeypatch):
         def tags(self): return [{'name': 'molicoder:latest', 'digest': 'test'}]
         def chat(self, model, messages, **kwargs):
             requests.append(messages)
+            if 'addresses_request' in kwargs.get('response_format', {}).get('properties', {}):
+                return ChatResponse({'content':json.dumps({'addresses_request':True,'supported':True,'reason':'Fixture review'})}, GenerationMetrics())
             if messages[0]['content'].startswith('You evaluate requests'):
                 payload = {'schema_version': '1.0', 'intent': 'investigation', 'objective': 'Explain notes.txt',
                     'complexity': 'low', 'required_capabilities': ['read_file'], 'missing_information': [], 'reason': '',
@@ -75,6 +77,8 @@ def test_ui_file_read_reaches_model_with_evidence(qtbot, tmp_path, monkeypatch):
     qtbot.waitUntil(lambda: window.chat_worker is None, timeout=10000)
     assert any('ORCHID-742' in m['content'] for request in requests for m in request)
     receipt = store.message_receipt(window._current_messages()[-1].id)
+    assert receipt['outcome'] == 'completed'
+    assert 'ORCHID-742' in window._current_messages()[-1].content
     assert any(e['tool'] == 'read_file' and 'ORCHID-742' in e['result']['text'] for e in receipt['evidence'].values())
 
 

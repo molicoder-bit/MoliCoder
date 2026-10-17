@@ -1,5 +1,7 @@
 # Unified request orchestration: implementation and evidence
 
+Historical 1.4.0 release evidence. Subsequent conversation defects and 1.4.1 qualification are recorded in [the conversation follow-up](conversation-reliability-evidence.md).
+
 Date: 2026-10-16 (America/New_York). Release: **1.4.0**. Baseline: `f02888f` / 1.3.6.
 
 ## Delivery status

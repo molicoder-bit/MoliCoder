@@ -20,12 +20,20 @@ class Client:
 
     def chat(self, model, messages, **kwargs):
         self.calls.append((model, messages))
+        if 'addresses_request' in kwargs.get('response_format', {}).get('properties', {}):
+            return ChatResponse({'content': json.dumps({'addresses_request': True, 'supported': True,
+                'reason': 'Scripted review; real semantic qualification is a separate integration test'})}, GenerationMetrics())
         value = self.responses.pop(0)
         if callable(value):
             value = value(messages)
         if isinstance(value, Exception):
             raise value
         return ChatResponse({"content": json.dumps(value)}, GenerationMetrics(prompt_tokens=10, output_tokens=5))
+
+
+def request_payload(messages):
+    system = next(m['content'] for m in messages if m['role'] == 'system')
+    return json.loads(system.split('APPLICATION CONTEXT (literal data):\n', 1)[1])
 
 
 def evaluation(intent="action", checks=None):
@@ -93,12 +101,12 @@ def test_declined_write_stops_without_fallback(tmp_path):
 
 def test_fallback_preserves_completed_write_and_does_not_replay_it(tmp_path):
     def resumed(messages):
-        payload = json.loads(messages[-1]["content"])
+        payload = request_payload(messages)
         assert payload["completed_tools"]
         return turn("work_ready", refs=list(payload["completed_tools"]))
     checks = evaluation()["acceptance_checks"] + [{"id": "readback", "kind": "tool_evidence", "target": ".", "expected": "read_file"}]
     def readback(messages):
-        payload = json.loads(messages[-1]["content"])
+        payload = request_payload(messages)
         assert payload["completed_tools"]
         return turn("needs_tools", [{"call_id": "read", "name": "read_file", "arguments": {
             "path": "Iworked.txt", "start": 1, "end": 10}}])

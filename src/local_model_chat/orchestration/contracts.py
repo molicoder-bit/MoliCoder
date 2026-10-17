@@ -23,6 +23,8 @@ EVALUATION_SCHEMA = obj({
     "acceptance_checks": {"type": "array", "items": CHECK, "maxItems": 12},
     "missing_information": STRINGS, "reason": TEXT,
 })
+ANSWER_REVIEW_SCHEMA = obj({'addresses_request': {'type': 'boolean'},
+    'supported': {'type': 'boolean'}, 'reason': {'type': 'string', 'maxLength': 500}})
 
 TOOL_ARGUMENTS = {
     "list_directory": obj({"path": TEXT}),
@@ -37,8 +39,34 @@ TOOL_ARGUMENTS = {
     "run_command": obj({"argv": {"type": "array", "minItems": 1, "maxItems": 32, "items": TEXT}}),
 }
 
+# Constrain the wire grammar, too: otherwise a small model can put a source-code
+# expression in expected even though this check specifically requires a tool name.
+EVALUATION_SCHEMA['properties']['acceptance_checks']['items'] = {'anyOf': [
+    obj({**CHECK['properties'], 'kind': {'type': 'string', 'enum': [
+        'file_equals', 'file_contains', 'file_exists', 'directory_exists', 'semantic_review']}}),
+    obj({**CHECK['properties'], 'kind': {'const': 'tool_evidence'},
+        'expected': {'type': 'string', 'enum': list(TOOL_ARGUMENTS)}}),
+]}
 
-def turn_schema(evidence_ids=(), *, require_evidence=False, source_evidence_ids=(), allow_completion=True):
+
+def validate_evaluation(value):
+    """Reject internally inconsistent task criteria before accepting a route's plan."""
+    intent, checks = value['intent'], value['acceptance_checks']
+    if intent == 'conversation' and checks:
+        raise ValueError('Conversation answers use acceptance_checks=[]; source/file questions use investigation')
+    if intent == 'investigation' and (not checks or any(
+            c['kind'] not in {'tool_evidence', 'semantic_review'} for c in checks)):
+        raise ValueError('Investigation needs tool_evidence checks for actual reads/searches, not guessed file contents')
+    if any(c['kind'] == 'tool_evidence' and c['expected'] not in TOOL_ARGUMENTS for c in checks):
+        raise ValueError('tool_evidence.expected must name an available host tool')
+    if intent == 'action' and (not checks or any(c['kind'] == 'semantic_review' for c in checks)):
+        raise ValueError('Actions need concrete artifact/tool acceptance checks; semantic development belongs in Build')
+    if intent == 'clarification' and not value['missing_information']:
+        raise ValueError('Clarification requires a genuine unresolved user decision')
+    return value
+
+
+def turn_schema(evidence_ids=(), *, require_evidence=False, source_evidence_ids=(), allow_completion=True, allow_tools=True):
     fields = {
         "schema_version": {"const": "1.0"},
         "status": {"type": "string", "enum": ["needs_tools", "answer_ready", "work_ready", "cannot_complete", "needs_clarification"]},
@@ -63,9 +91,10 @@ def turn_schema(evidence_ids=(), *, require_evidence=False, source_evidence_ids=
             'items': obj({'evidence_id': {'type': 'string', 'enum': list(source_evidence_ids)},
                 'path': TEXT, 'line': {'type': 'integer', 'minimum': 1}, 'quote': TEXT})}
     # Constrain the grammar itself: small models otherwise mix status and tool-call states.
-    variants = [obj(tool_fields), obj(unable_fields)]
+    variants = [obj(tool_fields)] if allow_tools else []
     if allow_completion:
-        variants.insert(1, obj(final_fields))
+        variants.append(obj(final_fields))
+    variants.append(obj(unable_fields))
     return {"anyOf": variants}
 
 
@@ -90,7 +119,7 @@ def validate(value: Any, schema: dict, path="$" ):
         raise ValueError(f"{path}: unsupported value")
     kinds = schema.get("type", [])
     kinds = [kinds] if isinstance(kinds, str) else kinds
-    types = {"object": dict, "array": list, "string": str, "integer": int, "null": type(None)}
+    types = {"object": dict, "array": list, "string": str, "integer": int, "boolean": bool, "null": type(None)}
     if kinds and not any(type(value) is types[k] for k in kinds):
         raise ValueError(f"{path}: wrong type")
     if isinstance(value, dict):

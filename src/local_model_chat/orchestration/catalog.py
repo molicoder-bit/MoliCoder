@@ -62,10 +62,14 @@ class CapabilityCatalogService:
             record = records.get(key, {'passed': 0, 'failed': 0, 'consecutive_failures': 0})
             record.update(last_status=status, checked_at=datetime.now(timezone.utc).isoformat(),
                           last_intent=(spec or {}).get('intent'), source='host request result')
+            intent = (spec or {}).get('intent')
             if status == 'completed':
                 record['passed'] += 1
                 record['consecutive_failures'] = 0
                 record.pop('cooldown_until', None)
+                if intent:
+                    record.setdefault('intent_failures', {})[intent] = 0
+                    record.setdefault('intent_cooldowns', {}).pop(intent, None)
                 if verified and spec:
                     samples = record.setdefault('verified_samples', {})
                     import hashlib
@@ -75,8 +79,16 @@ class CapabilityCatalogService:
                 record['failed'] += 1
                 record['consecutive_failures'] += 1
                 action = classify_provider_failure(status, error)
-                seconds = action.cooldown_seconds or (120 if action.category in {'auth', 'model'} else
-                    60 if record['consecutive_failures'] >= 3 else 0)
+                if intent and action.category == 'execution':
+                    failures = record.setdefault('intent_failures', {})
+                    failures[intent] = failures.get(intent, 0) + 1
+                    if failures[intent] >= 3:
+                        record.setdefault('intent_cooldowns', {})[intent] = (
+                            datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()
+                    seconds = 0
+                else:
+                    seconds = action.cooldown_seconds or (120 if action.category in {'auth', 'model'} else
+                        60 if record['consecutive_failures'] >= 3 else 0)
                 record.update(last_error=str(error)[:500], failure_category=action.category)
                 if seconds:
                     record['cooldown_until'] = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
@@ -257,9 +269,20 @@ class CapabilityCatalogService:
         records = self.route_records()
         eligible_routes = []
         for route in routes:
-            until = records.get(self.route_key(route), {}).get('cooldown_until')
+            record = records.get(self.route_key(route), {})
+            until = record.get('cooldown_until')
+            intent_until = record.get('intent_cooldowns', {}).get((spec or {}).get('intent'))
+            # Interpret older semantic-failure cooldowns by their recorded family,
+            # so upgrading cannot disable General chat after a code-answer failure.
+            if until and record.get('failure_category') == 'execution' and record.get('last_intent'):
+                if (spec or {}).get('intent') == record['last_intent']:
+                    intent_until = max(intent_until or '', until)
+                until = None
             if until and until > datetime.now(timezone.utc).isoformat():
                 excluded.append({'provider': route.provider, 'model': route.model, 'reason': 'Temporary failure cooldown', 'until': until})
+            elif intent_until and intent_until > datetime.now(timezone.utc).isoformat():
+                excluded.append({'provider': route.provider, 'model': route.model,
+                    'reason': 'Temporary task-family failure cooldown', 'intent': spec['intent'], 'until': intent_until})
             else:
                 eligible_routes.append(route)
         routes = eligible_routes

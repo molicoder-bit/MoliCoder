@@ -250,6 +250,9 @@ def _shared_turn(messages, *, supported):
 
 def _shared_client(client, *, external=False):
     def chat(model, messages, **kwargs):
+        if 'addresses_request' in kwargs.get('response_format', {}).get('properties', {}):
+            return ChatResponse({'content': json.dumps({'addresses_request':True, 'supported':True,
+                'reason':'Scripted grounded answer review'})}, GenerationMetrics())
         value = _shared_evaluation() if messages[0]['content'].startswith('You evaluate requests') else _shared_turn(
             messages, supported=model != 'molicoder:latest' and not external)
         return ChatResponse({'content': json.dumps(value)}, GenerationMetrics(prompt_tokens=10, output_tokens=5))

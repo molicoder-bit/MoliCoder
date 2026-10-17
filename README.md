@@ -23,6 +23,8 @@ The goal is more predictable use of local hardware and paid services, with fewer
 
 For example, a question such as “What task are we on?” can be answered from the saved run record without sending a model prompt. A small code change can run through Local offline Build. Repository questions try local models first and can automatically continue through a trusted external provider when local analysis fails. Each reply records the attempted routes and the model that answered.
 
+Conversation reliability follow-up in 1.4.1: [real dialogue evidence](docs/plans/conversation-reliability-evidence.md).
+
 1.4.0 implementation and verification: [unified orchestration evidence](docs/plans/unified-request-orchestration-evidence.md), including real provider results, retained failures, package checks and unverified installed UI layers.
 
 ## What works today
